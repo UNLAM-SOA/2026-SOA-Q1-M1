@@ -1,7 +1,11 @@
 #include <ESP32Servo.h>
 #include <MFRC522.h>
 
-// Revisar los PINS y agregar el RFID
+// ================================================================
+// DEFINICIÓN DE PINES & CONSTANTES
+// ================================================================
+
+// Pines
 #define LED 25
 #define FOTORESISTOR 35
 
@@ -16,96 +20,37 @@
 #define SENSOR_PROXIMIDAD_ECHO 34
 #define SENSOR_PROXIMIDAD_TRIGGER 5
 
+// Buzzer, Servo y botón de la app
 #define BUZZER 4
 #define SERVO 12
 #define BUTTON_APP 14 // Pulsador de bloqueo/desbloqueo (toggle), pull-down externo en diagram.json
 
-// // Cantidad máxima de sensores
+// Sensores
 #define MAX_CANT_SENSORES 1
 #define IDX_SENSOR_LUZ 0
-// #define IDX_SENSOR_PROXIMIDAD 1
-// #define IDX_SENSOR_RFID 2
+#define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
+#define TIME_OUT_SENSOR_PROXIMIDAD 30000
 
-// ---------------------- Luz ----------------------
-// Eventos
-enum events_luz
-{
-  EV_CONT,
-  EV_DIA_DETECTADO,
-  EV_NOCHE_DETECTADA
-};
+// Luz — tamaños de colas y tabla de estados
 #define CANT_MAX_EVENTOS_LUZ 3
-
-// Estados
-enum states_luz
-{
-  ST_LUZ_APAGADA,
-  ST_LUZ_ENCENDIDA
-  // STATE_LUZ_COUNT
-} current_state_luz; // Declaro el estado global de la luz
 #define CANT_MAX_ESTADOS_LUZ 2
-
-// Acciones
-enum actions_luz
-{
-  ACC_ENCENDER_LUZ,
-  ACC_APAGAR_LUZ
-};
 #define CANT_MAX_ACCIONES_LUZ 2
-
-// Tamaños de las colas
 #define TAM_EV_COLA_LUZ 10
 #define TAM_ACC_COLA_LUZ 10
-QueueHandle_t queueEventos_luz;
-QueueHandle_t queueAcciones_luz;
 
-// Umbrales
-#define UMBRAL_LUZ 2048 // Probar en wokwi y ajustar
-
-// ---------------------- Puerta ----------------------
-// Eventos
-enum events_puerta
-{
-  EV_INIT_NO_BLOQUEADA,
-  EV_INIT_BLOQUEADA,
-  EV_DESBLOQUEO_POR_APP,
-  EV_BLOQUEO_POR_APP,
-  EV_ANIMAL_DETECTADO_ADENTRO,
-  EV_ANIMAL_DETECTADO_AFUERA,
-  EV_TIMEOUT
-};
+// Puerta — tamaños de colas y tabla de estados
 #define CANT_MAX_EVENTOS_PUERTA 7
-
-// Estados
-enum states_puerta
-{
-  ST_ARRANQUE,
-  ST_CERRADA_NO_BLOQUEADA,
-  ST_CERRADA_BLOQUEADA,
-  ST_ABIERTA_DESDE_AFUERA,
-  ST_ABIERTA_DESDE_ADENTRO
-} current_state_puerta; // Declaro el estado global de la puerta
 #define CANT_MAX_ESTADOS_PUERTA 5
-
-// Acciones
-enum actions_puerta
-{
-  ACC_ABRIR_DESDE_AFUERA,
-  ACC_ABRIR_DESDE_ADENTRO,
-  ACC_CERRAR,
-  ACC_BLOQUEAR,
-  ACC_DESBLOQUEAR
-};
 #define CANT_MAX_ACCIONES_PUERTA 5
-
-// Tamaños de las colas
 #define TAM_EV_COLA_PUERTA 10
 #define TAM_ACC_COLA_PUERTA 10
-QueueHandle_t queueEventos_puerta;
-QueueHandle_t queueAcciones_puerta;
+#define TIEMPO_TIMEOUT_PUERTA 4500
 
-// ---------------------- Estructura de datos ----------------------
-// Array de sensores (CAMBIAR, ANDA SOLO PARA LUZ)
+
+// ================================================================
+// TIPOS COMPARTIDOS
+// ================================================================
+
 enum estado_sensor
 {
   ESTADO_HABILITADO,
@@ -119,9 +64,7 @@ struct stSensor
   long valor_actual;
   long valor_previo;
 };
-stSensor sensores[MAX_CANT_SENSORES]; // sacar array
 
-#define TIME_OUT_SENSOR_PROXIMIDAD 30000
 struct stSensorProximidad
 {
   int pin_echo;
@@ -132,10 +75,6 @@ struct stSensorProximidad
   const float velocidad_sonido = 0.0343;
   const float distancia_minima_cm = 30;
 };
-stSensorProximidad sensor_proximidad; // Sensor global de proximidad
-
-// RFID (crea el objeto que ocupa el lector)
-MFRC522 rfid(RFID_SS, RFID_RST);
 
 struct stSensorRFID
 {
@@ -145,68 +84,71 @@ struct stSensorRFID
   int id_tag;
   bool acceso_permitido;
 };
-stSensorRFID sensor_rfid; // Sensor global de RFID
-
-// Servomotor
-Servo servo;
-
-// Timer
-TimerHandle_t timer_puerta;
-#define TIEMPO_TIMEOUT_PUERTA 4500
-
-// ---------------------- Firmas de las funciones ----------------------
-// Firmas de las funciones
-void none();
-void encender_luz();
-void apagar_luz();
-void configuracion_debbug_esp32();
-void configuracion_pines_esp32();
-void setup_luz();
-
-void configuracion_sensores_luz();
-void configuracion_estado_inicial_luz();
-void crear_colas_luz();
-
-void crear_tareas_luz();
-void luz_deteccion(void *pvParameters);
-void luz_controlador(void *pvParameters);
-void luz_accion(void *pvParameters);
-
-void setup_puerta();
-void crear_colas_puerta();
-void configuracion_sensores_puerta();
-void configuracion_estado_inicial_puerta();
-
-void crear_tareas_puerta();
-void puerta_deteccion(void *pvParameters);
-void puerta_controlador(void *pvParameters);
-void puerta_accion(void *pvParameters);
-void leer_sensor_proximidad();
-bool sensor_proximidad_detectar_animal();
-void leer_sensor_rfid();
-bool sensor_rfid_detectar_animal();
 
 typedef void (*transition)();
-transition luz_state_table[CANT_MAX_ESTADOS_LUZ][CANT_MAX_EVENTOS_LUZ] =
-    {
-        {none, none, encender_luz}, // state ST_LUZ_APAGADA
-        {none, apagar_luz, none}    // state ST_LUZ_ENCENDIDA
-
-        // EV_CONT  , EV_DIA_DETECTADO  , EV_NOCHE_DETECTADA
-};
 
 void none()
 {
   return;
 }
 
+
+// ================================================================
+// SUBSISTEMA LUZ
+// ================================================================
+
+// --- Prototipos ---
+void encender_luz();
+void apagar_luz();
+void luz_deteccion(void *pvParameters);
+void luz_controlador(void *pvParameters);
+void luz_accion(void *pvParameters);
+void configuracion_sensores_luz();
+void configuracion_estado_inicial_luz();
+void crear_colas_luz();
+void crear_tareas_luz();
+void setup_luz();
+
+// --- Enums & variables globales ---
+enum eventos_luz
+{
+  EV_CONT,
+  EV_DIA_DETECTADO,
+  EV_NOCHE_DETECTADA
+};
+
+enum estados_luz
+{
+  ST_LUZ_APAGADA,
+  ST_LUZ_ENCENDIDA
+} current_state_luz; // Declaro el estado global de la luz
+
+enum acciones_luz
+{
+  ACC_ENCENDER_LUZ,
+  ACC_APAGAR_LUZ
+};
+
+QueueHandle_t queueEventos_luz;
+QueueHandle_t queueAcciones_luz;
+stSensor sensores[MAX_CANT_SENSORES]; // sacar array
+
+// --- Tabla de estados ---
+transition luz_state_table[CANT_MAX_ESTADOS_LUZ][CANT_MAX_EVENTOS_LUZ] =
+{
+    {  none,      none,               encender_luz      }, // state ST_LUZ_APAGADA
+    {  none,      apagar_luz,         none              }    // state ST_LUZ_ENCENDIDA
+    // EV_CONT  , EV_DIA_DETECTADO  , EV_NOCHE_DETECTADA
+};
+
+// --- Funciones de transición ---
 void encender_luz()
 {
   // Emitir la acción a la cola de acciones
   // Transicionar a ST_LUZ_ENCENDIDA
   Serial.print("Transición iniciada: Luz encendida\n");
   current_state_luz = ST_LUZ_ENCENDIDA;
-  actions_luz action = ACC_ENCENDER_LUZ;
+  acciones_luz action = ACC_ENCENDER_LUZ;
   if (xQueueSend(queueAcciones_luz, &action, 0) != pdPASS)
   {
     Serial.println("[luz_controlador] Cola de acciones LLENA");
@@ -224,7 +166,7 @@ void apagar_luz()
   // Transicionar a ST_LUZ_APAGADA
   Serial.print("Transición iniciada: Luz apagada\n");
   current_state_luz = ST_LUZ_APAGADA;
-  actions_luz action = ACC_APAGAR_LUZ;
+  acciones_luz action = ACC_APAGAR_LUZ;
   if (xQueueSend(queueAcciones_luz, &action, 0) != pdPASS)
   {
     Serial.println("[luz_controlador] Cola de acciones LLENA");
@@ -236,13 +178,32 @@ void apagar_luz()
   return;
 }
 
-// --------------- SETUP Y LOOP ---------------
-void setup()
+// --- Setup ---
+void configuracion_sensores_luz()
 {
-  configuracion_debbug_esp32();
-  configuracion_pines_esp32();
-  setup_luz();
-  setup_puerta();
+  sensores[IDX_SENSOR_LUZ].pin = FOTORESISTOR;
+  sensores[IDX_SENSOR_LUZ].estado = 1; // Esto lo vamos a usar?
+  sensores[IDX_SENSOR_LUZ].valor_actual = 0;
+  sensores[IDX_SENSOR_LUZ].valor_previo = 0; // Esto lo vamos a usar?
+}
+
+void configuracion_estado_inicial_luz()
+{
+  current_state_luz = ST_LUZ_APAGADA;
+}
+
+void crear_colas_luz()
+{
+  queueEventos_luz  = xQueueCreate(TAM_EV_COLA_LUZ,  sizeof(eventos_luz));
+  queueAcciones_luz = xQueueCreate(TAM_ACC_COLA_LUZ, sizeof(acciones_luz));
+}
+
+void crear_tareas_luz()
+{
+  int tam_stack_bytes = 1024 * 8;
+  xTaskCreate(luz_deteccion, "Luz detección", tam_stack_bytes, NULL, 1, NULL);
+  xTaskCreate(luz_controlador, "Luz controlador", tam_stack_bytes, NULL, 1, NULL);
+  xTaskCreate(luz_accion, "Luz accion", tam_stack_bytes, NULL, 1, NULL);
 }
 
 void setup_luz()
@@ -253,43 +214,7 @@ void setup_luz()
   crear_tareas_luz();
 }
 
-void configuracion_sensores_luz()
-{
-  sensores[IDX_SENSOR_LUZ].pin = FOTORESISTOR;
-  sensores[IDX_SENSOR_LUZ].estado = 1; // Esto lo vamos a usar?
-  sensores[IDX_SENSOR_LUZ].valor_actual = 0;
-  sensores[IDX_SENSOR_LUZ].valor_previo = 0; // Esto lo vamos a usar?
-}
-
-void crear_colas_luz()
-{
-  queueEventos_luz = xQueueCreate(TAM_EV_COLA_LUZ, sizeof(events_luz));
-  queueAcciones_luz = xQueueCreate(TAM_ACC_COLA_LUZ, sizeof(actions_luz));
-}
-
-void configuracion_debbug_esp32()
-{
-  // Configurar el puerto serial para debugguear
-  Serial.begin(115200); // default de wokwi?
-}
-
-void configuracion_estado_inicial_luz()
-{
-  current_state_luz = ST_LUZ_APAGADA;
-}
-
-void configuracion_pines_esp32()
-{
-  pinMode(LED, OUTPUT);
-  pinMode(FOTORESISTOR, INPUT);
-  pinMode(BUZZER, OUTPUT);
-  servo.attach(SERVO);
-  pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
-  pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
-  pinMode(BUTTON_APP, INPUT);
-}
-
-// --------------- TAREAS ---------------
+// --- Tareas ---
 void luz_deteccion(void *pvParameters)
 {
   while (1)
@@ -302,7 +227,7 @@ void luz_deteccion(void *pvParameters)
     Serial.print("[luz_deteccion] ADC=");
     Serial.print(sensores[IDX_SENSOR_LUZ].valor_actual);
 
-    events_luz evento;
+    eventos_luz evento;
     bool hay_evento = false;
 
     if (current_state_luz == ST_LUZ_APAGADA &&
@@ -336,7 +261,7 @@ void luz_deteccion(void *pvParameters)
 
 void luz_controlador(void *pvParameters)
 {
-  events_luz evento_recibido;
+  eventos_luz evento_recibido;
   while (1)
   {
     // Esperar eventos en la cola de eventos
@@ -368,7 +293,7 @@ void luz_accion(void *pvParameters)
 {
   while (1)
   {
-    actions_luz action_recibido;
+    acciones_luz action_recibido;
     // Esperar acciones en la cola de acciones
     // Ejecutar la acción correspondiente (encender o apagar el LED)
     TickType_t timeOut = 0; // hace falta ponerle un valor? creo que no porque usamos vTaskDelay(pdMS_TO_TICKS(200));
@@ -393,19 +318,12 @@ void luz_accion(void *pvParameters)
   }
 }
 
-void crear_tareas_luz()
-{
-  int tam_stack_bytes = 1024 * 8;
-  xTaskCreate(luz_deteccion, "Luz detección", tam_stack_bytes, NULL, 1, NULL);
-  xTaskCreate(luz_controlador, "Luz controlador", tam_stack_bytes, NULL, 1, NULL);
-  xTaskCreate(luz_accion, "Luz accion", tam_stack_bytes, NULL, 1, NULL);
-}
 
-void loop()
-{
-}
+// ================================================================
+// SUBSISTEMA PUERTA
+// ================================================================
 
-/* ---------------------- Setup puerta ---------------------- */
+// --- Prototipos ---
 void init_no_bloqueada();
 void init_bloqueada();
 void bloquear_puerta();
@@ -413,24 +331,84 @@ void desbloquear_puerta();
 void abrir_desde_adentro();
 void abrir_desde_afuera();
 void cerrar_puerta();
+void timer_callback_puerta(TimerHandle_t xTimer);
 void buzzer_beep(int freq_hz, int duration_ms);
+void leer_sensor_proximidad();
+bool sensor_proximidad_detectar_animal();
+void leer_sensor_rfid();
+bool sensor_rfid_detectar_animal();
+void detectar_animales_en_puerta();
+char leer_serial_puerta();
+void configuracion_sensores_puerta();
+void configuracion_estado_inicial_puerta();
+void puerta_deteccion(void *pvParameters);
+void puerta_controlador(void *pvParameters);
+void puerta_accion(void *pvParameters);
+void crear_colas_puerta();
+void crear_tareas_puerta();
+void setup_puerta();
 
-transition puerta_state_table[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
-    {
-        {init_no_bloqueada, init_bloqueada, none, none, none, none, none},                  // state ST_ARRANQUE
-        {none, none, none, bloquear_puerta, abrir_desde_adentro, abrir_desde_afuera, none}, // state ST_CERRADA_NO_BLOQUEADA
-        {none, none, desbloquear_puerta, none, none, none, none},                           // state ST_CERRADA_BLOQUEADA
-        {none, none, none, none, none, none, cerrar_puerta},                                // state ST_ABIERTA_DESDE_AFUERA
-        {none, none, none, none, none, none, cerrar_puerta}                                 // state ST_ABIERTA_DESDE_ADENTRO
-
-        // EV_INIT_NO_BLOQUEADA, EV_INIT_BLOQUEADA, EV_DESBLOQUEO_POR_APP, EV_BLOQUEO_POR_APP, EV_ANIMAL_DETECTADO_ADENTRO, EV_ANIMAL_DETECTADO_AFUERA, EV_TIMEOUT
+// --- Enums & variables globales ---
+enum eventos_puerta
+{
+  EV_INIT_NO_BLOQUEADA,
+  EV_INIT_BLOQUEADA,
+  EV_DESBLOQUEO_POR_APP,
+  EV_BLOQUEO_POR_APP,
+  EV_ANIMAL_DETECTADO_ADENTRO,
+  EV_ANIMAL_DETECTADO_AFUERA,
+  EV_TIMEOUT
 };
+
+enum estados_puerta
+{
+  ST_ARRANQUE,
+  ST_CERRADA_NO_BLOQUEADA,
+  ST_CERRADA_BLOQUEADA,
+  ST_ABIERTA_DESDE_AFUERA,
+  ST_ABIERTA_DESDE_ADENTRO
+} current_state_puerta; // Declaro el estado global de la puerta
+
+enum acciones_puerta
+{
+  ACC_ABRIR_DESDE_AFUERA,
+  ACC_ABRIR_DESDE_ADENTRO,
+  ACC_CERRAR,
+  ACC_BLOQUEAR,
+  ACC_DESBLOQUEAR
+};
+
+QueueHandle_t queueEventos_puerta;
+QueueHandle_t queueAcciones_puerta;
+
+MFRC522 rfid(RFID_SS, RFID_RST); // RFID (crea el objeto que ocupa el lector)
+
+Servo servo;
+
+stSensorProximidad sensor_proximidad;
+stSensorRFID sensor_rfid;
+
+TimerHandle_t timer_puerta;
+
+// --- Tabla de estados ---
+transition puerta_state_table[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
+{
+    {  init_no_bloqueada,    init_bloqueada,    none,                  none,               none,                         none,                      none            }, // state ST_ARRANQUE
+    {  none,                 none,              none,                  bloquear_puerta,    abrir_desde_adentro,          abrir_desde_afuera,        none            }, // state ST_CERRADA_NO_BLOQUEADA
+    {  none,                 none,              desbloquear_puerta,    none,               none,                         none,                      none            }, // state ST_CERRADA_BLOQUEADA
+    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta   }, // state ST_ABIERTA_DESDE_AFUERA
+    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta   }  // state ST_ABIERTA_DESDE_ADENTRO
+    // EV_INIT_NO_BLOQUEADA, EV_INIT_BLOQUEADA, EV_DESBLOQUEO_POR_APP, EV_BLOQUEO_POR_APP, EV_ANIMAL_DETECTADO_ADENTRO, EV_ANIMAL_DETECTADO_AFUERA, EV_TIMEOUT
+};
+
+// --- Funciones de transición ---
 
 // Init
 void init_no_bloqueada()
 {
   current_state_puerta = ST_CERRADA_NO_BLOQUEADA;
 }
+
 void init_bloqueada()
 {
   current_state_puerta = ST_CERRADA_BLOQUEADA;
@@ -440,7 +418,7 @@ void init_bloqueada()
 void bloquear_puerta()
 {
   current_state_puerta = ST_CERRADA_BLOQUEADA;
-  actions_puerta action = ACC_BLOQUEAR;
+  acciones_puerta action = ACC_BLOQUEAR;
   if (xQueueSend(queueAcciones_puerta, &action, 0) != pdPASS)
   {
     Serial.println("[puerta_accion] Cola de acciones LLENA");
@@ -450,10 +428,11 @@ void bloquear_puerta()
     Serial.print(">> Acción emitida: ACC_BLOQUEAR");
   }
 }
+
 void desbloquear_puerta()
 {
   current_state_puerta = ST_CERRADA_NO_BLOQUEADA;
-  actions_puerta action = ACC_DESBLOQUEAR;
+  acciones_puerta action = ACC_DESBLOQUEAR;
   if (xQueueSend(queueAcciones_puerta, &action, 0) != pdPASS)
   {
     Serial.println("[puerta_accion] Cola de acciones LLENA");
@@ -468,7 +447,7 @@ void desbloquear_puerta()
 void abrir_desde_adentro()
 {
   current_state_puerta = ST_ABIERTA_DESDE_ADENTRO;
-  actions_puerta action = ACC_ABRIR_DESDE_ADENTRO;
+  acciones_puerta action = ACC_ABRIR_DESDE_ADENTRO;
   if (xQueueSend(queueAcciones_puerta, &action, 0) != pdPASS)
   {
     Serial.println("[puerta_accion] Cola de acciones LLENA");
@@ -482,7 +461,7 @@ void abrir_desde_adentro()
 void abrir_desde_afuera()
 {
   current_state_puerta = ST_ABIERTA_DESDE_AFUERA;
-  actions_puerta action = ACC_ABRIR_DESDE_AFUERA;
+  acciones_puerta action = ACC_ABRIR_DESDE_AFUERA;
   if (xQueueSend(queueAcciones_puerta, &action, 0) != pdPASS)
   {
     Serial.println("[puerta_accion] Cola de acciones LLENA");
@@ -497,7 +476,7 @@ void abrir_desde_afuera()
 void cerrar_puerta()
 {
   current_state_puerta = ST_CERRADA_NO_BLOQUEADA;
-  actions_puerta action = ACC_CERRAR;
+  acciones_puerta action = ACC_CERRAR;
   if (xQueueSend(queueAcciones_puerta, &action, 0) != pdPASS)
   {
     Serial.println("[puerta_accion] Cola de acciones LLENA");
@@ -508,94 +487,26 @@ void cerrar_puerta()
   }
 }
 
+// --- Timer ---
 void timer_callback_puerta(TimerHandle_t xTimer)
 {
   Serial.println("[timer_callback_puerta] Timeout de la puerta");
-  events_puerta evento = EV_TIMEOUT;
+  eventos_puerta evento = EV_TIMEOUT;
   if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
   {
     Serial.println("[timer_callback_puerta] Cola de eventos LLENA");
   }
 }
 
-void setup_puerta()
-{
-  crear_colas_puerta();
-  configuracion_sensores_puerta();
-  configuracion_estado_inicial_puerta();
-  timer_puerta = xTimerCreate("Timer_Puerta", pdMS_TO_TICKS(TIEMPO_TIMEOUT_PUERTA), pdFALSE, NULL, timer_callback_puerta);
-  crear_tareas_puerta();
-}
-
-void crear_colas_puerta()
-{
-  queueEventos_puerta = xQueueCreate(TAM_EV_COLA_PUERTA, sizeof(events_puerta));
-  queueAcciones_puerta = xQueueCreate(TAM_ACC_COLA_PUERTA, sizeof(actions_puerta));
-}
-
-void configuracion_sensores_puerta()
-{
-  // Sensor de proximidad
-  sensor_proximidad.pin_echo = SENSOR_PROXIMIDAD_ECHO;
-  sensor_proximidad.pin_trigger = SENSOR_PROXIMIDAD_TRIGGER;
-  sensor_proximidad.estado = ESTADO_HABILITADO;
-  sensor_proximidad.distancia_actual_cm = 0;
-  sensor_proximidad.tiempo_transcurrido_ms = 0;
-
-  // Sensor RFID
-  sensor_rfid.pin_ss = RFID_SS;
-  sensor_rfid.pin_reset = RFID_RST;
-  sensor_rfid.estado = ESTADO_HABILITADO;
-  sensor_rfid.id_tag = 0;
-
-  SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
-  rfid.PCD_Init();
-}
-
-void configuracion_estado_inicial_puerta()
-{
-  current_state_puerta = ST_CERRADA_NO_BLOQUEADA; // Agregar arranque!
-  servo.write(90);                                // Posición inicial del servomotor
-}
-
-void crear_tareas_puerta()
-{
-  int tam_stack_bytes = 1024 * 8;
-  xTaskCreate(puerta_deteccion, "Puerta detección", tam_stack_bytes, NULL, 1, NULL);
-  xTaskCreate(puerta_controlador, "Puerta controlador", tam_stack_bytes, NULL, 1, NULL);
-  xTaskCreate(puerta_accion, "Puerta accion", tam_stack_bytes, NULL, 1, NULL);
-}
-
-void puerta_controlador(void *pvParameters)
-{
-  while (1)
-  {
-    events_puerta evento_recibido;
-    if (xQueueReceive(queueEventos_puerta, &evento_recibido, 0) == pdPASS)
-    {
-      Serial.print("[puerta_controlador] Evento recibido");
-      if (evento_recibido < CANT_MAX_EVENTOS_PUERTA)
-      {
-        transition transition_function = puerta_state_table[current_state_puerta][evento_recibido];
-        transition_function();
-      }
-      else
-      {
-        Serial.println("[puerta_controlador] Evento fuera de rango");
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(200));
-  }
-}
-
+// --- Sensores ---
 // Genera onda cuadrada en BUZZER sin usar LEDC (evita conflicto con ESP32Servo)
 void buzzer_beep(int freq_hz, int duration_ms)
 {
   if (freq_hz <= 0 || duration_ms <= 0)
     return;
   unsigned long period_us = 1000000UL / (unsigned long)freq_hz;
-  unsigned long half_us = period_us / 2;
-  unsigned long cycles = ((unsigned long)duration_ms * 1000UL) / period_us;
+  unsigned long half_us   = period_us / 2;
+  unsigned long cycles    = ((unsigned long)duration_ms * 1000UL) / period_us;
   for (unsigned long i = 0; i < cycles; i++)
   {
     digitalWrite(BUZZER, HIGH);
@@ -605,143 +516,32 @@ void buzzer_beep(int freq_hz, int duration_ms)
   }
 }
 
-void puerta_accion(void *pvParameters)
+void leer_sensor_proximidad()
 {
-  while (1)
-  {
-    actions_puerta action_recibido;
-    if (xQueueReceive(queueAcciones_puerta, &action_recibido, 0) == pdPASS)
-    {
-      Serial.print("[puerta_accion] Accion recibida=");
-      if (action_recibido == ACC_ABRIR_DESDE_AFUERA)
-      {
-        Serial.println("ACC_ABRIR_DESDE_AFUERA");
-        servo.write(0);
-        xTimerStart(timer_puerta, 0);
-      }
-      else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
-      {
-        Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
-        servo.write(180);
-        xTimerStart(timer_puerta, 0);
-      }
-      else if (action_recibido == ACC_CERRAR)
-      {
-        Serial.println("ACC_CERRAR");
-        servo.write(90);
-        sensor_proximidad.estado = ESTADO_HABILITADO;
-        sensor_rfid.estado = ESTADO_HABILITADO;
-      }
-      else if (action_recibido == ACC_BLOQUEAR)
-      {
-        Serial.println("ACC_BLOQUEAR");
-        // Sonido descendente grave (600 -> 300 Hz): "se cierra con llave"
-        buzzer_beep(600, 120);
-        buzzer_beep(300, 200);
-      }
-      else if (action_recibido == ACC_DESBLOQUEAR)
-      {
-        Serial.println("ACC_DESBLOQUEAR");
-        // Sonido ascendente agudo (600 -> 1200 Hz): "se abre con llave"
-        buzzer_beep(600, 120);
-        buzzer_beep(1200, 200);
-      }
-      else
-      {
-        Serial.println("[puerta_accion] Accion fuera de rango");
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(200));
-  }
+  digitalWrite(sensor_proximidad.pin_trigger, LOW);
+  delayMicroseconds(2);
+  digitalWrite(sensor_proximidad.pin_trigger, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(sensor_proximidad.pin_trigger, LOW);
+  // Leer el tiempo de la señal
+  sensor_proximidad.tiempo_transcurrido_ms = pulseIn(sensor_proximidad.pin_echo, HIGH, TIME_OUT_SENSOR_PROXIMIDAD);
+  float distanciaCm = sensor_proximidad.tiempo_transcurrido_ms * sensor_proximidad.velocidad_sonido / 2;
+  sensor_proximidad.distancia_actual_cm = distanciaCm;
 }
 
-char leer_serial_puerta()
+bool sensor_proximidad_detectar_animal()
 {
-  if (Serial.available() > 0)
+  if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
+      sensor_proximidad.estado == ESTADO_HABILITADO &&
+      current_state_puerta == ST_CERRADA_NO_BLOQUEADA)
   {
-    char comando = Serial.read();
-    if (comando == 'B')
-    {
-      return 'B';
-    }
-    else if (comando == 'D')
-    {
-      return 'D';
-    }
+    Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
+    return true;
   }
-  return 'N';
-}
-
-void detectar_animales_en_puerta()
-{
-  leer_sensor_proximidad();
-  if (sensor_proximidad_detectar_animal())
+  else
   {
-    events_puerta evento = EV_ANIMAL_DETECTADO_ADENTRO;
-    if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
-    {
-      Serial.println("[puerta_deteccion] Cola de eventos LLENA");
-    }
-    sensor_rfid.estado = ESTADO_DESHABILITADO;
-    sensor_proximidad.estado = ESTADO_DESHABILITADO;
-  }
-  leer_sensor_rfid();
-  if (sensor_rfid_detectar_animal())
-  {
-    events_puerta evento = EV_ANIMAL_DETECTADO_AFUERA;
-    if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
-    {
-      Serial.println("[puerta_deteccion] Cola de eventos LLENA");
-    }
-    sensor_proximidad.estado = ESTADO_DESHABILITADO;
-    sensor_rfid.estado = ESTADO_DESHABILITADO;
-  }
-}
-
-void puerta_deteccion(void *pvParameters)
-{
-  static bool app_supuesto_bloqueado = false;
-  static int btn_estado_previo = LOW;
-
-  while (1)
-  {
-    // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
-    int btn_actual = digitalRead(BUTTON_APP);
-    if (btn_actual == HIGH && btn_estado_previo == LOW)
-    {
-      app_supuesto_bloqueado = !app_supuesto_bloqueado;
-      events_puerta evento = app_supuesto_bloqueado ? EV_BLOQUEO_POR_APP : EV_DESBLOQUEO_POR_APP;
-      if (xQueueSend(queueEventos_puerta, &evento, 0) == pdPASS)
-      {
-        Serial.print(">> Evento puerta (boton): ");
-        Serial.println(app_supuesto_bloqueado ? "EV_BLOQUEO_POR_APP" : "EV_DESBLOQUEO_POR_APP");
-      }
-    }
-    btn_estado_previo = btn_actual;
-
-    if (current_state_puerta == ST_CERRADA_NO_BLOQUEADA)
-    {
-      char bloqueo = leer_serial_puerta();
-      if (bloqueo == 'B')
-      {
-        events_puerta evento = EV_BLOQUEO_POR_APP;
-        if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
-        {
-          Serial.println("[puerta_deteccion] Cola de eventos LLENA");
-        }
-      }
-      else if (bloqueo == 'D')
-      {
-        events_puerta evento = EV_DESBLOQUEO_POR_APP;
-        if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
-        {
-          Serial.println("[puerta_deteccion] Cola de eventos LLENA");
-        }
-      }
-    }
-    detectar_animales_en_puerta();
-
-    vTaskDelay(pdMS_TO_TICKS(200));
+    Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
+    return false;
   }
 }
 
@@ -780,30 +580,249 @@ bool sensor_rfid_detectar_animal()
   }
 }
 
-void leer_sensor_proximidad()
+void detectar_animales_en_puerta()
 {
-  digitalWrite(sensor_proximidad.pin_trigger, LOW);
-  delayMicroseconds(2);
-  digitalWrite(sensor_proximidad.pin_trigger, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(sensor_proximidad.pin_trigger, LOW);
-  // Leer el tiempo de la señal
-  sensor_proximidad.tiempo_transcurrido_ms = pulseIn(sensor_proximidad.pin_echo, HIGH, TIME_OUT_SENSOR_PROXIMIDAD);
-  float distanciaCm = sensor_proximidad.tiempo_transcurrido_ms * sensor_proximidad.velocidad_sonido / 2;
-  sensor_proximidad.distancia_actual_cm = distanciaCm;
+  leer_sensor_proximidad();
+  if (sensor_proximidad_detectar_animal())
+  {
+    eventos_puerta evento = EV_ANIMAL_DETECTADO_ADENTRO;
+    if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
+    {
+      Serial.println("[puerta_deteccion] Cola de eventos LLENA");
+    }
+    sensor_rfid.estado = ESTADO_DESHABILITADO;
+    sensor_proximidad.estado = ESTADO_DESHABILITADO;
+  }
+  leer_sensor_rfid();
+  if (sensor_rfid_detectar_animal())
+  {
+    eventos_puerta evento = EV_ANIMAL_DETECTADO_AFUERA;
+    if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
+    {
+      Serial.println("[puerta_deteccion] Cola de eventos LLENA");
+    }
+    sensor_proximidad.estado = ESTADO_DESHABILITADO;
+    sensor_rfid.estado       = ESTADO_DESHABILITADO;
+  }
 }
 
-bool sensor_proximidad_detectar_animal()
+// --- Helpers ---
+char leer_serial_puerta()
 {
-  if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm && sensor_proximidad.estado == ESTADO_HABILITADO && current_state_puerta == ST_CERRADA_NO_BLOQUEADA // Evitamos enviar eventos useless
-  )
+  if (Serial.available() > 0)
   {
-    Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
-    return true;
+    char comando = Serial.read();
+    if (comando == 'B')
+    {
+      return 'B';
+    }
+    else if (comando == 'D')
+    {
+      return 'D';
+    }
   }
-  else
+  return 'N';
+}
+
+void configuracion_sensores_puerta()
+{
+  // Sensor de proximidad
+  sensor_proximidad.pin_echo             = SENSOR_PROXIMIDAD_ECHO;
+  sensor_proximidad.pin_trigger          = SENSOR_PROXIMIDAD_TRIGGER;
+  sensor_proximidad.estado               = ESTADO_HABILITADO;
+  sensor_proximidad.distancia_actual_cm  = 0;
+  sensor_proximidad.tiempo_transcurrido_ms = 0;
+
+  // Sensor RFID
+  sensor_rfid.pin_ss    = RFID_SS;
+  sensor_rfid.pin_reset = RFID_RST;
+  sensor_rfid.estado    = ESTADO_HABILITADO;
+  sensor_rfid.id_tag    = 0;
+
+  SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
+  rfid.PCD_Init();
+}
+
+void configuracion_estado_inicial_puerta()
+{
+  current_state_puerta = ST_CERRADA_NO_BLOQUEADA; // Agregar arranque!
+  servo.write(90);                                // Posición inicial del servomotor
+}
+
+// --- Tareas ---
+void puerta_deteccion(void *pvParameters)
+{
+  static bool app_supuesto_bloqueado = false;
+  static int btn_estado_previo = LOW;
+
+  while (1)
   {
-    Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
-    return false;
+    // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
+    int btn_actual = digitalRead(BUTTON_APP);
+    if (btn_actual == HIGH && btn_estado_previo == LOW)
+    {
+      app_supuesto_bloqueado = !app_supuesto_bloqueado;
+      eventos_puerta evento = app_supuesto_bloqueado ? EV_BLOQUEO_POR_APP : EV_DESBLOQUEO_POR_APP;
+      if (xQueueSend(queueEventos_puerta, &evento, 0) == pdPASS)
+      {
+        Serial.print(">> Evento puerta (boton): ");
+        Serial.println(app_supuesto_bloqueado ? "EV_BLOQUEO_POR_APP" : "EV_DESBLOQUEO_POR_APP");
+      }
+    }
+    btn_estado_previo = btn_actual;
+
+    if (current_state_puerta == ST_CERRADA_NO_BLOQUEADA)
+    {
+      char bloqueo = leer_serial_puerta();
+      if (bloqueo == 'B')
+      {
+        eventos_puerta evento = EV_BLOQUEO_POR_APP;
+        if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
+        {
+          Serial.println("[puerta_deteccion] Cola de eventos LLENA");
+        }
+      }
+      else if (bloqueo == 'D')
+      {
+        eventos_puerta evento = EV_DESBLOQUEO_POR_APP;
+        if (xQueueSend(queueEventos_puerta, &evento, 0) != pdPASS)
+        {
+          Serial.println("[puerta_deteccion] Cola de eventos LLENA");
+        }
+      }
+    }
+    detectar_animales_en_puerta();
+
+    vTaskDelay(pdMS_TO_TICKS(200));
   }
+}
+
+void puerta_controlador(void *pvParameters)
+{
+  while (1)
+  {
+    eventos_puerta evento_recibido;
+    if (xQueueReceive(queueEventos_puerta, &evento_recibido, 0) == pdPASS)
+    {
+      Serial.print("[puerta_controlador] Evento recibido");
+      if (evento_recibido < CANT_MAX_EVENTOS_PUERTA)
+      {
+        transition transition_function = puerta_state_table[current_state_puerta][evento_recibido];
+        transition_function();
+      }
+      else
+      {
+        Serial.println("[puerta_controlador] Evento fuera de rango");
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
+void puerta_accion(void *pvParameters)
+{
+  while (1)
+  {
+    acciones_puerta action_recibido;
+    if (xQueueReceive(queueAcciones_puerta, &action_recibido, 0) == pdPASS)
+    {
+      Serial.print("[puerta_accion] Accion recibida=");
+      if (action_recibido == ACC_ABRIR_DESDE_AFUERA)
+      {
+        Serial.println("ACC_ABRIR_DESDE_AFUERA");
+        servo.write(0);
+        xTimerStart(timer_puerta, 0);
+      }
+      else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
+      {
+        Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
+        servo.write(180);
+        xTimerStart(timer_puerta, 0);
+      }
+      else if (action_recibido == ACC_CERRAR)
+      {
+        Serial.println("ACC_CERRAR");
+        servo.write(90);
+        sensor_proximidad.estado = ESTADO_HABILITADO;
+        sensor_rfid.estado       = ESTADO_HABILITADO;
+      }
+      else if (action_recibido == ACC_BLOQUEAR)
+      {
+        Serial.println("ACC_BLOQUEAR");
+        // Sonido descendente grave (600 -> 300 Hz): "se cierra con llave"
+        buzzer_beep(600, 120);
+        buzzer_beep(300, 200);
+      }
+      else if (action_recibido == ACC_DESBLOQUEAR)
+      {
+        Serial.println("ACC_DESBLOQUEAR");
+        // Sonido ascendente agudo (600 -> 1200 Hz): "se abre con llave"
+        buzzer_beep(600, 120);
+        buzzer_beep(1200, 200);
+      }
+      else
+      {
+        Serial.println("[puerta_accion] Accion fuera de rango");
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
+// --- Setup ---
+void crear_colas_puerta()
+{
+  queueEventos_puerta  = xQueueCreate(TAM_EV_COLA_PUERTA,  sizeof(eventos_puerta));
+  queueAcciones_puerta = xQueueCreate(TAM_ACC_COLA_PUERTA, sizeof(acciones_puerta));
+}
+
+void crear_tareas_puerta()
+{
+  int tam_stack_bytes = 1024 * 8;
+  xTaskCreate(puerta_deteccion,   "Puerta detección",   tam_stack_bytes, NULL, 1, NULL);
+  xTaskCreate(puerta_controlador, "Puerta controlador", tam_stack_bytes, NULL, 1, NULL);
+  xTaskCreate(puerta_accion,      "Puerta accion",      tam_stack_bytes, NULL, 1, NULL);
+}
+
+void setup_puerta()
+{
+  crear_colas_puerta();
+  configuracion_sensores_puerta();
+  configuracion_estado_inicial_puerta();
+  timer_puerta = xTimerCreate("Timer_Puerta", pdMS_TO_TICKS(TIEMPO_TIMEOUT_PUERTA), pdFALSE, NULL, timer_callback_puerta);
+  crear_tareas_puerta();
+}
+
+
+// ================================================================
+// ENTRY POINTS
+// ================================================================
+
+void configuracion_debbug_esp32()
+{
+  // Configurar el puerto serial para debugguear
+  Serial.begin(115200); // default de wokwi?
+}
+
+void configuracion_pines_esp32()
+{
+  pinMode(LED, OUTPUT);
+  pinMode(FOTORESISTOR, INPUT);
+  pinMode(BUZZER, OUTPUT);
+  servo.attach(SERVO);
+  pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
+  pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
+  pinMode(BUTTON_APP, INPUT);
+}
+
+void setup()
+{
+  configuracion_debbug_esp32();
+  configuracion_pines_esp32();
+  setup_luz();
+  setup_puerta();
+}
+
+void loop()
+{
 }
