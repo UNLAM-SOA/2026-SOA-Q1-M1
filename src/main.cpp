@@ -26,8 +26,6 @@
 #define BUTTON_APP 14 // Pulsador de bloqueo/desbloqueo (toggle), pull-down externo en diagram.json
 
 // Sensores
-#define MAX_CANT_SENSORES 1
-#define IDX_SENSOR_LUZ 0 // Esto si se deja de usar el array de sensores, no se usaría mas
 #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
 #define TIME_OUT_SENSOR_PROXIMIDAD 30000
 #define PUERTO_SERIAL_WOKWY 115200
@@ -36,21 +34,13 @@
 #define TIME_OUT_CERO 0
 #define TAM_STACK_TAREAS 8192
 #define PRECEDENCIA_POR_DEFECTO 1
-#define MILISEGUNDOS_DE_DELAY 2000
-
-// Luz — tamaños de colas y tabla de estados
-//#define CANT_MAX_EVENTOS_LUZ 3 -> Sumo dos a los eventos puerta
-//#define CANT_MAX_ACCIONES_LUZ 2 -> sumo dos a las acciones puerta
-
 
 // Puerta — tamaños de colas y tabla de estados
 #define CANT_MAX_EVENTOS_PUERTA 9
 #define CANT_MAX_ESTADOS_PUERTA 5
-#define CANT_MAX_ACCIONES_PUERTA 7
 #define TAM_EV_COLA_PUERTA 10
 #define TAM_ACC_COLA_PUERTA 10
 #define TIEMPO_TIMEOUT_PUERTA 4500
-
 
 // ================================================================
 // TIPOS COMPARTIDOS
@@ -62,12 +52,10 @@ enum estado_sensor
   ESTADO_DESHABILITADO
 };
 
-struct stSensor // Si se usa solo en luz, cambiar nombre
+struct stSensorLuz
 {
   int pin;
-  int estado; // arreglar estado
   long valor_actual;
-  long valor_previo;
 };
 
 struct stSensorProximidad
@@ -83,8 +71,6 @@ struct stSensorProximidad
 
 struct stSensorRFID
 {
-  int pin_ss;
-  int pin_reset;
   estado_sensor estado;
   int id_tag;
   bool acceso_permitido;
@@ -97,7 +83,7 @@ void none()
   return;
 }
 
-stSensor sensores[MAX_CANT_SENSORES]; // sacar array
+stSensorLuz sensor_luz;
 
 // ================================================================
 // SUBSISTEMA PUERTA
@@ -387,14 +373,14 @@ void detectar_cambios_luz()
     // Leer el valor del fotoresistor
     // Comparar con el umbral
     // Emitir evento correspondiente a la cola de eventos
-    sensores[IDX_SENSOR_LUZ].valor_actual = analogRead(FOTORESISTOR);
+    sensor_luz.valor_actual = analogRead(sensor_luz.pin);
 
     Serial.print("[luz_deteccion] ADC=");
-    Serial.print(sensores[IDX_SENSOR_LUZ].valor_actual);
+    Serial.print(sensor_luz.valor_actual);
 
     if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
     {
-      if(sensores[IDX_SENSOR_LUZ].valor_actual < UMBRAL_LUZ)
+      if(sensor_luz.valor_actual < UMBRAL_LUZ)
       {
         emitir_evento_puerta(EV_DIA_DETECTADO, "EV_DIA_DETECTADO");
       }
@@ -435,10 +421,8 @@ void configuracion_sensores_puerta()
   sensor_proximidad.tiempo_transcurrido_ms = 0;
 
   // Sensor RFID
-  sensor_rfid.pin_ss    = RFID_SS;
-  sensor_rfid.pin_reset = RFID_RST;
   sensor_rfid.estado    = ESTADO_HABILITADO;
-  sensor_rfid.id_tag    = 0;
+  sensor_rfid.id_tag    = 0; //esto no lo estamos usando para nada por ahora
 
   SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
   rfid.PCD_Init();
@@ -446,10 +430,8 @@ void configuracion_sensores_puerta()
 
 void configuracion_sensores_luz()
 {
-  sensores[IDX_SENSOR_LUZ].pin = FOTORESISTOR;
-  sensores[IDX_SENSOR_LUZ].estado = 1; // Esto lo vamos a usar?
-  sensores[IDX_SENSOR_LUZ].valor_actual = 0;
-  sensores[IDX_SENSOR_LUZ].valor_previo = 0; // Esto lo vamos a usar?
+  sensor_luz.pin = FOTORESISTOR;
+  sensor_luz.valor_actual = 0;
 }
 
 void configuracion_estado_inicial_puerta()
@@ -551,14 +533,14 @@ void puerta_accion(void *pvParametros)
       else if (action_recibido == ACC_BLOQUEAR)
       {
         Serial.println("ACC_BLOQUEAR");
-        // Sonido descendente grave (600 -> 300 Hz): "se cierra con llave"
+        // Sonido descendente grave (600 -> 300 Hz): se bloquea
         buzzer_beep(600, 120);
         buzzer_beep(300, 200);
       }
       else if (action_recibido == ACC_DESBLOQUEAR)
       {
         Serial.println("ACC_DESBLOQUEAR");
-        // Sonido ascendente agudo (600 -> 1200 Hz): "se abre con llave"
+        // Sonido ascendente agudo (600 -> 1200 Hz): se desbloquea
         buzzer_beep(600, 120);
         buzzer_beep(1200, 200);
       }
@@ -606,7 +588,6 @@ void setup_puerta()
   crear_tareas_puerta();
 }
 
-
 // ================================================================
 // ENTRY POINTS
 // ================================================================
@@ -614,7 +595,7 @@ void setup_puerta()
 void configuracion_debbug_esp32()
 {
   // Configurar el puerto serial para debugguear
-  Serial.begin(PUERTO_SERIAL_WOKWY); // default de wokwi?
+  Serial.begin(PUERTO_SERIAL_WOKWY);
 }
 
 void configuracion_pines_esp32()
@@ -635,6 +616,4 @@ void setup()
   setup_puerta();
 }
 
-void loop()
-{
-}
+void loop() {}
