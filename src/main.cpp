@@ -28,7 +28,7 @@
 // Sensores
 #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
 #define TIME_OUT_SENSOR_PROXIMIDAD 30000
-#define PUERTO_SERIAL_WOKWY 115200
+#define PUERTO_SERIAL_WOKWY 9600
 
 // Tareas
 #define TIME_OUT_CERO 0
@@ -67,6 +67,7 @@ struct stSensorProximidad
   int tiempo_transcurrido_ms;
   const float velocidad_sonido = 0.0343;
   const float distancia_minima_cm = 30;
+  const float distancia_base_cm = 5;
 };
 
 struct stSensorRFID
@@ -279,9 +280,9 @@ void buzzer_beep(int frecuencia_hz, int duracion_ms)
 
   for (unsigned long i = 0; i < ciclos; i++)
   {
-    digitalWrite(BUZZER, HIGH);
-    delayMicroseconds(medio_periodo_us);
     digitalWrite(BUZZER, LOW);
+    delayMicroseconds(medio_periodo_us);
+    digitalWrite(BUZZER, HIGH);
     delayMicroseconds(medio_periodo_us);
   }
 }
@@ -302,15 +303,18 @@ void leer_sensor_proximidad()
 bool sensor_proximidad_detectar_animal()
 {
   if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
+      sensor_proximidad.distancia_actual_cm > sensor_proximidad.distancia_base_cm &&
       sensor_proximidad.estado == ESTADO_HABILITADO &&
       estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
   {
     Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
+    Serial.println(sensor_proximidad.distancia_actual_cm);
     return true;
   }
   else
   {
     Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
+    Serial.println(sensor_proximidad.distancia_actual_cm);
     return false;
   }
 }
@@ -380,7 +384,7 @@ void detectar_cambios_luz()
 
     if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
     {
-      if(sensor_luz.valor_actual < UMBRAL_LUZ)
+      if(sensor_luz.valor_actual > UMBRAL_LUZ)
       {
         emitir_evento_puerta(EV_DIA_DETECTADO, "EV_DIA_DETECTADO");
       }
@@ -449,7 +453,10 @@ void puerta_deteccion(void *pvParametros)
   while (1)
   {
     // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
-    int btn_actual = digitalRead(BUTTON_APP);
+    //int btn_actual = digitalRead(BUTTON_APP);
+    int btn_actual = 0;
+    //Serial.println("--- BOTON: ");
+    //Serial.print(btn_actual);
     if (btn_actual == HIGH && btn_estado_previo == LOW)
     {
       app_supuesto_bloqueado = !app_supuesto_bloqueado;
@@ -603,10 +610,11 @@ void configuracion_pines_esp32()
   pinMode(LED, OUTPUT);
   pinMode(FOTORESISTOR, INPUT);
   pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, HIGH);
   servo.attach(SERVO);
   pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
   pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
-  pinMode(BUTTON_APP, INPUT);
+  // pinMode(BUTTON_APP, INPUT);
 }
 
 void setup()
