@@ -1,5 +1,36 @@
 #include <ESP32Servo.h>
 #include <MFRC522.h>
+#include <WiFi.h>
+#include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// WIFI
+#define WIFI_SSID "Nombre de la red"
+#define WIFI_PASSWORD "Contraseña"
+
+enum tipo_broker {
+  EMQX,
+  HIVEMQ_PUBLIC,
+  MOSQUITTO_LOCAL
+};
+
+
+// MQTT
+#define BROKER HIVEMQ_PUBLIC // Nosotros vamos a usar este, acá lo seteo
+
+// Configuración dependiente del broker
+const char* mqtt_server;
+int         mqtt_port;
+const char* mqtt_user;
+const char* mqtt_pass;
+
+// Topics y ClientID
+#define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+#define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
+#define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
+
 
 // ================================================================
 // DEFINICIÓN DE PINES & CONSTANTES
@@ -166,6 +197,11 @@ void crear_tareas_puerta();
 void setup_puerta();
 void emitir_accion_puerta(acciones_puerta action, const char* nombre);
 void emitir_evento_puerta(eventos_puerta evento, const char* caller);
+void callback(char* topic, byte* message, unsigned int length);
+void definir_broker();
+void conectar_mqtt();
+void setup_wifi_mqtt();
+void wifiConnect();
 
 // --- Tabla de estados ---
 transicion puerta_tabla_estados[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
@@ -621,7 +657,105 @@ void setup()
 {
   configuracion_debbug_esp32();
   configuracion_pines_esp32();
+  setup_wifi_mqtt();
   setup_puerta();
 }
 
 void loop() {}
+
+
+// ---------------- WIFI y Broker MQTT ----------------
+void setup_wifi_mqtt()
+{
+  Serial.println();
+  Serial.print("Conectando a: ");
+  Serial.println(WIFI_SSID);
+
+  wifiConnect();
+  definir_broker();
+
+  Serial.println("\nWiFi Conectado");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("MAC address: ");
+  Serial.println(WiFi.macAddress());
+
+  conectar_mqtt();
+}
+
+void wifiConnect()  
+{
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) 
+  {
+    delay(500);
+    Serial.print(".");
+  }
+}
+
+
+void conectar_mqtt()
+{
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback); // Esto es necesario para recibir mensajes del broker
+  
+  Serial.print("Intentando conexión MQTT...");
+  while (!client.connected())
+  {
+    Serial.print("[mqtt] Conectando...");
+    if (client.connect(MQTT_CLIENT_ID))
+    {
+      Serial.println("Conexión MQTT OK");
+      client.subscribe(MQTT_TOPIC_CMD);
+      client.publish(MQTT_TOPIC_EVENTO, "ONLINE", true); // De prueba, después borrar
+    }
+    else
+    {
+      Serial.printf(" rc=%d, retry 2s\n", client.state());
+      vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+  }
+}
+
+
+void definir_broker()
+{
+  // Ver código de esteban, hace mas cosas que solo definir variables
+  switch (BROKER)
+  {
+    case HIVEMQ_PUBLIC:
+      mqtt_server = "broker.hivemq.com";
+      mqtt_port   = 1883;
+      mqtt_user   = NULL;   // sin auth
+      mqtt_pass   = NULL;
+      break;
+    case EMQX:
+      mqtt_server = "broker.emqx.io";
+      mqtt_port   = 1883;
+      mqtt_user   = "emqx";
+      mqtt_pass   = "public";
+      break;
+    case MOSQUITTO_LOCAL:
+      mqtt_server = "192.168.0.10"; // tu IP local
+      mqtt_port   = 1883;
+      mqtt_user   = NULL;
+      mqtt_pass   = NULL;
+      break;
+    default:
+      Serial.println("Error: Broker mal seleccionado");
+      break;
+  }
+}
+
+// Función Callback que recibe los mensajes enviados por los dispositivos
+void callback(char* topic, byte* message, unsigned int length) 
+{
+  Serial.print("Se recibió mensaje en el tópico: ");
+  Serial.println(topic);
+
+  Serial.print("Mensaje recibido: ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+  }
+  Serial.println();
+}
