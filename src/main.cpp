@@ -26,33 +26,21 @@
 #define BUTTON_APP 14 // Pulsador de bloqueo/desbloqueo (toggle), pull-down externo en diagram.json
 
 // Sensores
-#define MAX_CANT_SENSORES 1
-#define IDX_SENSOR_LUZ 0
 #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
 #define TIME_OUT_SENSOR_PROXIMIDAD 30000
-#define PUERTO_SERIAL_WOKWY 115200
+#define PUERTO_SERIAL_WOKWY 9600
 
 // Tareas
 #define TIME_OUT_CERO 0
 #define TAM_STACK_TAREAS 8192
 #define PRECEDENCIA_POR_DEFECTO 1
-#define MILISEGUNDOS_DE_DELAY 2000
-
-// Luz — tamaños de colas y tabla de estados
-#define CANT_MAX_EVENTOS_LUZ 3
-#define CANT_MAX_ESTADOS_LUZ 2
-#define CANT_MAX_ACCIONES_LUZ 2
-#define TAM_EV_COLA_LUZ 10
-#define TAM_ACC_COLA_LUZ 10
 
 // Puerta — tamaños de colas y tabla de estados
-#define CANT_MAX_EVENTOS_PUERTA 7
+#define CANT_MAX_EVENTOS_PUERTA 9
 #define CANT_MAX_ESTADOS_PUERTA 5
-#define CANT_MAX_ACCIONES_PUERTA 5
 #define TAM_EV_COLA_PUERTA 10
 #define TAM_ACC_COLA_PUERTA 10
 #define TIEMPO_TIMEOUT_PUERTA 4500
-
 
 // ================================================================
 // TIPOS COMPARTIDOS
@@ -64,12 +52,10 @@ enum estado_sensor
   ESTADO_DESHABILITADO
 };
 
-struct stSensor
+struct stSensorLuz
 {
   int pin;
-  int estado; // arreglar estado
   long valor_actual;
-  long valor_previo;
 };
 
 struct stSensorProximidad
@@ -81,12 +67,11 @@ struct stSensorProximidad
   int tiempo_transcurrido_ms;
   const float velocidad_sonido = 0.0343;
   const float distancia_minima_cm = 30;
+  const float distancia_base_cm = 5;
 };
 
 struct stSensorRFID
 {
-  int pin_ss;
-  int pin_reset;
   estado_sensor estado;
   int id_tag;
   bool acceso_permitido;
@@ -99,235 +84,7 @@ void none()
   return;
 }
 
-
-// ================================================================
-// SUBSISTEMA LUZ
-// ================================================================
-
-// --- Enums & variables globales ---
-enum eventos_luz
-{
-  EV_CONT,
-  EV_DIA_DETECTADO,
-  EV_NOCHE_DETECTADA
-};
-
-enum estados_luz
-{
-  ST_LUZ_APAGADA,
-  ST_LUZ_ENCENDIDA
-} estado_actual_luz; // Declaro el estado global de la luz
-
-enum acciones_luz
-{
-  ACC_ENCENDER_LUZ,
-  ACC_APAGAR_LUZ
-};
-
-QueueHandle_t queueEventos_luz;
-QueueHandle_t queueAcciones_luz;
-stSensor sensores[MAX_CANT_SENSORES]; // sacar array
-
-// --- Prototipos ---
-void encender_luz();
-void apagar_luz();
-void luz_deteccion(void *pvParametros);
-void luz_controlador(void *pvParametros);
-void luz_accion(void *pvParametros);
-void configuracion_sensores_luz();
-void configuracion_estado_inicial_luz();
-void crear_colas_luz();
-void crear_tareas_luz();
-void setup_luz();
-void emitir_accion_luz(acciones_luz action, const char* nombre);
-void emitir_evento_luz(eventos_luz evento, const char* nombre);
-
-// --- Tabla de estados ---
-transicion luz_tabla_estados[CANT_MAX_ESTADOS_LUZ][CANT_MAX_EVENTOS_LUZ] =
-{
-    {  none,      none,               encender_luz      }, // state ST_LUZ_APAGADA
-    {  none,      apagar_luz,         none              }  // state ST_LUZ_ENCENDIDA
-    // EV_CONT  , EV_DIA_DETECTADO  , EV_NOCHE_DETECTADA
-};
-
-// --- Helpers de cola ---
-void emitir_accion_luz(acciones_luz action, const char* nombre)
-{
-  if (xQueueSend(queueAcciones_luz, &action, TIME_OUT_CERO) != pdPASS)
-  {
-    Serial.println("[luz] Cola de acciones LLENA");
-  }
-  else 
-  {
-    Serial.print(nombre);
-  }
-}
-
-void emitir_evento_luz(eventos_luz evento, const char* nombre)
-{
-  if (xQueueSend(queueEventos_luz, &evento, TIME_OUT_CERO) != pdPASS)
-  {
-    Serial.println("[luz] Cola de eventos LLENA");
-  }
-  else
-  {
-    Serial.print(">> Evento emitido: ");
-    Serial.println(nombre);
-  }
-}
-
-// --- Funciones de transición ---
-void encender_luz()
-{
-  // Emitir la acción a la cola de acciones
-  // Transicionar a ST_LUZ_ENCENDIDA
-  Serial.print("Transición iniciada: Luz encendida\n");
-  estado_actual_luz = ST_LUZ_ENCENDIDA;
-  emitir_accion_luz(ACC_ENCENDER_LUZ, ">> Acción emitida: ACC_ENCENDER_LUZ");
-  return;
-}
-
-void apagar_luz()
-{
-  // Emitir la acción a la cola de acciones
-  // Transicionar a ST_LUZ_APAGADA
-  Serial.print("Transición iniciada: Luz apagada\n");
-  estado_actual_luz = ST_LUZ_APAGADA;
-  emitir_accion_luz(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
-  return;
-}
-
-// --- Setup ---
-void configuracion_sensores_luz()
-{
-  sensores[IDX_SENSOR_LUZ].pin = FOTORESISTOR;
-  sensores[IDX_SENSOR_LUZ].estado = 1; // Esto lo vamos a usar?
-  sensores[IDX_SENSOR_LUZ].valor_actual = 0;
-  sensores[IDX_SENSOR_LUZ].valor_previo = 0; // Esto lo vamos a usar?
-}
-
-void configuracion_estado_inicial_luz()
-{
-  estado_actual_luz = ST_LUZ_APAGADA;
-}
-
-void crear_colas_luz()
-{
-  queueEventos_luz  = xQueueCreate(TAM_EV_COLA_LUZ,  sizeof(eventos_luz));
-  queueAcciones_luz = xQueueCreate(TAM_ACC_COLA_LUZ, sizeof(acciones_luz));
-}
-
-void crear_tareas_luz()
-{
-  int tam_stack_bytes = TAM_STACK_TAREAS;
-  xTaskCreate(luz_deteccion, "Luz detección", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
-  xTaskCreate(luz_controlador, "Luz controlador", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
-  xTaskCreate(luz_accion, "Luz accion", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
-}
-
-void setup_luz()
-{
-  crear_colas_luz();
-  configuracion_sensores_luz();
-  configuracion_estado_inicial_luz();
-  crear_tareas_luz();
-}
-
-// --- Tareas ---
-void luz_deteccion(void *pvParametros)
-{
-  while (1)
-  {
-    // Leer el valor del fotoresistor
-    // Comparar con el umbral
-    // Emitir evento correspondiente a la cola de eventos
-    sensores[IDX_SENSOR_LUZ].valor_actual = analogRead(FOTORESISTOR);
-
-    Serial.print("[luz_deteccion] ADC=");
-    Serial.print(sensores[IDX_SENSOR_LUZ].valor_actual);
-
-    eventos_luz evento;
-    bool hay_evento = false;
-
-    if (estado_actual_luz == ST_LUZ_APAGADA &&
-        sensores[IDX_SENSOR_LUZ].valor_actual > UMBRAL_LUZ)
-    {
-      evento = EV_NOCHE_DETECTADA;
-      hay_evento = true;
-    }
-    else if (estado_actual_luz == ST_LUZ_ENCENDIDA &&
-             sensores[IDX_SENSOR_LUZ].valor_actual <= UMBRAL_LUZ)
-    {
-      evento = EV_DIA_DETECTADO;
-      hay_evento = true;
-    }
-    if (hay_evento)
-    {
-      const char* nombre_ev = evento == EV_DIA_DETECTADO ? "EV_DIA_DETECTADO" : "EV_NOCHE_DETECTADA";
-      emitir_evento_luz(evento, nombre_ev);
-    }
-    vTaskDelay(pdMS_TO_TICKS(MILISEGUNDOS_DE_DELAY));
-  }
-}
-
-void luz_controlador(void *pvParametros)
-{
-  eventos_luz evento_recibido;
-  while (1)
-  {
-    // Esperar eventos en la cola de eventos
-    // Ejecutar la transición correspondiente de la tabla de estados
-    TickType_t timeOut = TIME_OUT_CERO; // hace falta ponerle un valor? creo que no porque usamos vTaskDelay(pdMS_TO_TICKS(200));
-    if (xQueueReceive(queueEventos_luz, &evento_recibido, timeOut) == pdPASS)
-    {
-      Serial.print("[luz_controlador] Evento recibido=");
-      Serial.print(evento_recibido == EV_NOCHE_DETECTADA ? "EV_NOCHE_DETECTADA" : "EV_DIA_DETECTADO");
-      Serial.print(" | estado_previo=");
-      Serial.println(estado_actual_luz == ST_LUZ_APAGADA ? "ST_LUZ_APAGADA" : "ST_LUZ_ENCENDIDA");
-
-      if (evento_recibido < CANT_MAX_EVENTOS_LUZ)
-      {
-        transicion funcion_transicion = luz_tabla_estados[estado_actual_luz][evento_recibido];
-        funcion_transicion();
-      }
-      else
-      {
-        Serial.println("[luz_controlador] Evento fuera de rango");
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(MILISEGUNDOS_DE_DELAY)); // Falta pdMS_TO_TICKS si queremos pasar de segundos a ticks. Para nosotros es un await
-  }
-}
-
-void luz_accion(void *pvParametros)
-{
-  while (1)
-  {
-    acciones_luz action_recibido;
-    // Esperar acciones en la cola de acciones
-    // Ejecutar la acción correspondiente (encender o apagar el LED)
-    TickType_t timeOut = TIME_OUT_CERO; // hace falta ponerle un valor? creo que no porque usamos vTaskDelay(pdMS_TO_TICKS(200));
-    if (xQueueReceive(queueAcciones_luz, &action_recibido, timeOut) == pdPASS)
-    {
-      Serial.print("[luz_accion] Accion recibida=");
-      Serial.print(action_recibido == ACC_ENCENDER_LUZ ? "ACC_ENCENDER_LUZ" : "ACC_APAGAR_LUZ");
-      if (action_recibido == ACC_ENCENDER_LUZ)
-      {
-        digitalWrite(LED, HIGH);
-      }
-      else if (action_recibido == ACC_APAGAR_LUZ)
-      {
-        digitalWrite(LED, LOW);
-      }
-      else
-      {
-        Serial.println("[luz_accion] Accion fuera de rango");
-      }
-    }
-    vTaskDelay(pdMS_TO_TICKS(MILISEGUNDOS_DE_DELAY));
-  }
-}
-
+stSensorLuz sensor_luz;
 
 // ================================================================
 // SUBSISTEMA PUERTA
@@ -342,7 +99,9 @@ enum eventos_puerta
   EV_BLOQUEO_POR_APP,
   EV_ANIMAL_DETECTADO_ADENTRO,
   EV_ANIMAL_DETECTADO_AFUERA,
-  EV_TIMEOUT
+  EV_TIMEOUT,
+  EV_DIA_DETECTADO,
+  EV_NOCHE_DETECTADA
 };
 
 enum estados_puerta
@@ -360,7 +119,9 @@ enum acciones_puerta
   ACC_ABRIR_DESDE_ADENTRO,
   ACC_CERRAR,
   ACC_BLOQUEAR,
-  ACC_DESBLOQUEAR
+  ACC_DESBLOQUEAR,
+  ACC_ENCENDER_LUZ,
+  ACC_APAGAR_LUZ
 };
 
 QueueHandle_t queueEventos_puerta;
@@ -383,6 +144,8 @@ void desbloquear_puerta();
 void abrir_desde_adentro();
 void abrir_desde_afuera();
 void cerrar_puerta();
+void encender_luz();
+void apagar_luz();
 void timer_callback_puerta(TimerHandle_t xTimer);
 void buzzer_beep(int freq_hz, int duration_ms);
 void leer_sensor_proximidad();
@@ -390,8 +153,10 @@ bool sensor_proximidad_detectar_animal();
 void leer_sensor_rfid();
 bool sensor_rfid_detectar_animal();
 void detectar_animales_en_puerta();
+void detectar_cambios_luz();
 char leer_serial_puerta();
 void configuracion_sensores_puerta();
+void configuracion_sensores_luz();
 void configuracion_estado_inicial_puerta();
 void puerta_deteccion(void *pvParametros);
 void puerta_controlador(void *pvParametros);
@@ -405,12 +170,12 @@ void emitir_evento_puerta(eventos_puerta evento, const char* caller);
 // --- Tabla de estados ---
 transicion puerta_tabla_estados[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
 {
-    {  init_no_bloqueada,    init_bloqueada,    none,                  none,               none,                         none,                      none            }, // state ST_ARRANQUE
-    {  none,                 none,              none,                  bloquear_puerta,    abrir_desde_adentro,          abrir_desde_afuera,        none            }, // state ST_CERRADA_NO_BLOQUEADA
-    {  none,                 none,              desbloquear_puerta,    none,               none,                         none,                      none            }, // state ST_CERRADA_BLOQUEADA
-    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta   }, // state ST_ABIERTA_DESDE_AFUERA
-    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta   }  // state ST_ABIERTA_DESDE_ADENTRO
-    // EV_INIT_NO_BLOQUEADA, EV_INIT_BLOQUEADA, EV_DESBLOQUEO_POR_APP, EV_BLOQUEO_POR_APP, EV_ANIMAL_DETECTADO_ADENTRO, EV_ANIMAL_DETECTADO_AFUERA, EV_TIMEOUT
+    {  init_no_bloqueada,    init_bloqueada,    none,                  none,               none,                         none,                      none,            none,             none        }, // state ST_ARRANQUE
+    {  none,                 none,              none,                  bloquear_puerta,    abrir_desde_adentro,          abrir_desde_afuera,        none,            apagar_luz,       encender_luz}, // state ST_CERRADA_NO_BLOQUEADA
+    {  none,                 none,              desbloquear_puerta,    none,               none,                         none,                      none,            apagar_luz,       encender_luz}, // state ST_CERRADA_BLOQUEADA
+    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta,   none,             none        }, // state ST_ABIERTA_DESDE_AFUERA
+    {  none,                 none,              none,                  none,               none,                         none,                      cerrar_puerta,   none,             none        }  // state ST_ABIERTA_DESDE_ADENTRO
+    // EV_INIT_NO_BLOQUEADA, EV_INIT_BLOQUEADA, EV_DESBLOQUEO_POR_APP, EV_BLOQUEO_POR_APP, EV_ANIMAL_DETECTADO_ADENTRO, EV_ANIMAL_DETECTADO_AFUERA, EV_TIMEOUT,      EV_DIA_DETECTADO, EV_NOCHE_DETECTADA
 };
 
 // --- Helpers de cola ---
@@ -483,6 +248,24 @@ void timer_callback_puerta(TimerHandle_t xTimer)
   emitir_evento_puerta(EV_TIMEOUT, "[timer_callback_puerta]");
 }
 
+// --- Manejo de la luz ---
+void encender_luz()
+{
+  // Emitir la acción a la cola de acciones
+  Serial.print("Transición iniciada: Luz encendida\n");
+  emitir_accion_puerta(ACC_ENCENDER_LUZ, ">> Acción emitida: ACC_ENCENDER_LUZ");
+  return;
+}
+
+void apagar_luz()
+{
+  // Emitir la acción a la cola de acciones
+  Serial.print("Transición iniciada: Luz apagada\n");
+  emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
+  return;
+}
+
+
 // --- Sensores ---
 // Genera onda cuadrada en BUZZER sin usar LEDC (evita conflicto con ESP32Servo)
 void buzzer_beep(int frecuencia_hz, int duracion_ms)
@@ -497,9 +280,9 @@ void buzzer_beep(int frecuencia_hz, int duracion_ms)
 
   for (unsigned long i = 0; i < ciclos; i++)
   {
-    digitalWrite(BUZZER, HIGH);
-    delayMicroseconds(medio_periodo_us);
     digitalWrite(BUZZER, LOW);
+    delayMicroseconds(medio_periodo_us);
+    digitalWrite(BUZZER, HIGH);
     delayMicroseconds(medio_periodo_us);
   }
 }
@@ -520,15 +303,18 @@ void leer_sensor_proximidad()
 bool sensor_proximidad_detectar_animal()
 {
   if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
+      sensor_proximidad.distancia_actual_cm > sensor_proximidad.distancia_base_cm &&
       sensor_proximidad.estado == ESTADO_HABILITADO &&
       estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
   {
     Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
+    Serial.println(sensor_proximidad.distancia_actual_cm);
     return true;
   }
   else
   {
     Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
+    Serial.println(sensor_proximidad.distancia_actual_cm);
     return false;
   }
 }
@@ -586,6 +372,31 @@ void detectar_animales_en_puerta()
   }
 }
 
+void detectar_cambios_luz()
+{
+    // Leer el valor del fotoresistor
+    // Comparar con el umbral
+    // Emitir evento correspondiente a la cola de eventos
+    sensor_luz.valor_actual = analogRead(sensor_luz.pin);
+
+    Serial.print("[luz_deteccion] ADC=");
+    Serial.print(sensor_luz.valor_actual);
+
+    if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
+    {
+      if(sensor_luz.valor_actual > UMBRAL_LUZ)
+      {
+        emitir_evento_puerta(EV_DIA_DETECTADO, "EV_DIA_DETECTADO");
+      }
+      else
+      {
+        emitir_evento_puerta(EV_NOCHE_DETECTADA, "EV_NOCHE_DETECTADA");
+      }
+    }    
+
+}
+
+
 // --- Helpers ---
 char leer_serial_puerta()
 {
@@ -614,13 +425,17 @@ void configuracion_sensores_puerta()
   sensor_proximidad.tiempo_transcurrido_ms = 0;
 
   // Sensor RFID
-  sensor_rfid.pin_ss    = RFID_SS;
-  sensor_rfid.pin_reset = RFID_RST;
   sensor_rfid.estado    = ESTADO_HABILITADO;
-  sensor_rfid.id_tag    = 0;
+  sensor_rfid.id_tag    = 0; //esto no lo estamos usando para nada por ahora
 
   SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
   rfid.PCD_Init();
+}
+
+void configuracion_sensores_luz()
+{
+  sensor_luz.pin = FOTORESISTOR;
+  sensor_luz.valor_actual = 0;
 }
 
 void configuracion_estado_inicial_puerta()
@@ -638,7 +453,10 @@ void puerta_deteccion(void *pvParametros)
   while (1)
   {
     // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
-    int btn_actual = digitalRead(BUTTON_APP);
+    //int btn_actual = digitalRead(BUTTON_APP);
+    int btn_actual = 0;
+    //Serial.println("--- BOTON: ");
+    //Serial.print(btn_actual);
     if (btn_actual == HIGH && btn_estado_previo == LOW)
     {
       app_supuesto_bloqueado = !app_supuesto_bloqueado;
@@ -664,6 +482,7 @@ void puerta_deteccion(void *pvParametros)
       }
     }
     detectar_animales_en_puerta();
+    detectar_cambios_luz();
 
     vTaskDelay(pdMS_TO_TICKS(200));
   }
@@ -721,16 +540,26 @@ void puerta_accion(void *pvParametros)
       else if (action_recibido == ACC_BLOQUEAR)
       {
         Serial.println("ACC_BLOQUEAR");
-        // Sonido descendente grave (600 -> 300 Hz): "se cierra con llave"
+        // Sonido descendente grave (600 -> 300 Hz): se bloquea
         buzzer_beep(600, 120);
         buzzer_beep(300, 200);
       }
       else if (action_recibido == ACC_DESBLOQUEAR)
       {
         Serial.println("ACC_DESBLOQUEAR");
-        // Sonido ascendente agudo (600 -> 1200 Hz): "se abre con llave"
+        // Sonido ascendente agudo (600 -> 1200 Hz): se desbloquea
         buzzer_beep(600, 120);
         buzzer_beep(1200, 200);
+      }
+      else if (action_recibido == ACC_ENCENDER_LUZ)
+      {
+        Serial.println("ACC ENCENDER LUZ RECIBIDA");
+        digitalWrite(LED, HIGH);
+      }
+      else if (action_recibido == ACC_APAGAR_LUZ)
+      {
+        Serial.println("ACC APAGAR LUZ RECIBIDA");
+        digitalWrite(LED, LOW);
       }
       else
       {
@@ -760,11 +589,11 @@ void setup_puerta()
 {
   crear_colas_puerta();
   configuracion_sensores_puerta();
+  configuracion_sensores_luz();
   configuracion_estado_inicial_puerta();
   timer_puerta = xTimerCreate("Timer_Puerta", pdMS_TO_TICKS(TIEMPO_TIMEOUT_PUERTA), pdFALSE, NULL, timer_callback_puerta);
   crear_tareas_puerta();
 }
-
 
 // ================================================================
 // ENTRY POINTS
@@ -773,7 +602,7 @@ void setup_puerta()
 void configuracion_debbug_esp32()
 {
   // Configurar el puerto serial para debugguear
-  Serial.begin(PUERTO_SERIAL_WOKWY); // default de wokwi?
+  Serial.begin(PUERTO_SERIAL_WOKWY);
 }
 
 void configuracion_pines_esp32()
@@ -781,20 +610,18 @@ void configuracion_pines_esp32()
   pinMode(LED, OUTPUT);
   pinMode(FOTORESISTOR, INPUT);
   pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, HIGH);
   servo.attach(SERVO);
   pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
   pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
-  pinMode(BUTTON_APP, INPUT);
+  // pinMode(BUTTON_APP, INPUT);
 }
 
 void setup()
 {
   configuracion_debbug_esp32();
   configuracion_pines_esp32();
-  setup_luz();
   setup_puerta();
 }
 
-void loop()
-{
-}
+void loop() {}
