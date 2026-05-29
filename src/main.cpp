@@ -571,14 +571,14 @@
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA AFUERA", true);
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA AFUERA");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA ADENTRO", true);
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA ADENTRO");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -586,7 +586,7 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA CERRADA", true);
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA CERRADA");
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -824,6 +824,6 @@
           }
         }
       }
-      vTaskDelay(pdMS_TO_TICKS(1000));
+      vTaskDelay(pdMS_TO_TICKS(200));
     }
   }
