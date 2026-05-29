@@ -31,6 +31,15 @@
   #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
   #define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
 
+  #define TAM_PAYLOAD_MQTT 32
+  #define TAM_TOPIC_MQTT   64
+  #define TAM_COLA_MQTT    10
+
+  struct stMensajeMqtt
+  {
+    char topico[TAM_TOPIC_MQTT];
+    char payload[TAM_PAYLOAD_MQTT];
+  };
 
   // ================================================================
   // DEFINICIÓN DE PINES & CONSTANTES
@@ -157,6 +166,7 @@
 
   QueueHandle_t queueEventos_puerta;
   QueueHandle_t queueAcciones_puerta;
+  QueueHandle_t queueMqttOut;
 
   MFRC522 rfid(RFID_SS, RFID_RST); // RFID (crea el objeto que ocupa el lector)
 
@@ -197,12 +207,13 @@
   void setup_puerta();
   void emitir_accion_puerta(acciones_puerta action, const char* nombre);
   void emitir_evento_puerta(eventos_puerta evento, const char* caller);
-  void callback(char* topic, byte* message, unsigned int length);
+  void callback(char* topico, byte* message, unsigned int length);
   void mqtt_task(void *pvParametros);
   void definir_broker();
   void conectar_mqtt();
   void setup_wifi_mqtt();
   void wifiConnect();
+  void publicar_mqtt(const char* topico, const char* payload);
 
   // --- Tabla de estados ---
   transicion puerta_tabla_estados[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
@@ -560,12 +571,14 @@
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA AFUERA", true);
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA ADENTRO", true);
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -573,6 +586,7 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
+          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA CERRADA", true);
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -612,6 +626,7 @@
   {
     queueEventos_puerta  = xQueueCreate(TAM_EV_COLA_PUERTA,  sizeof(eventos_puerta));
     queueAcciones_puerta = xQueueCreate(TAM_ACC_COLA_PUERTA, sizeof(acciones_puerta));
+    queueMqttOut = xQueueCreate(TAM_COLA_MQTT, sizeof(stMensajeMqtt));
   }
 
   void crear_tareas_puerta()
@@ -667,6 +682,22 @@
 
 
   // ---------------- WIFI y Broker MQTT ----------------
+
+  //funcion genérica para mandar a MQTT desde cualquier parte del código a cualquier tópico
+  void publicar_mqtt(const char* topico, const char* payload)
+  {
+    stMensajeMqtt msg;
+    strncpy(msg.topico,   topico,   TAM_TOPIC_MQTT   - 1);
+    strncpy(msg.payload, payload, TAM_PAYLOAD_MQTT - 1);
+    msg.topico[TAM_TOPIC_MQTT - 1]     = '\0';
+    msg.payload[TAM_PAYLOAD_MQTT - 1] = '\0';
+
+    if (xQueueSend(queueMqttOut, &msg, TIME_OUT_CERO) != pdPASS)
+    {
+      Serial.println("[mqtt] Cola de salida LLENA");
+    }
+  }
+
   void setup_wifi_mqtt()
   {
     Serial.println();
@@ -693,7 +724,6 @@
     }
   }
 
-
   void conectar_mqtt()
   {
     int intentos = 0;
@@ -709,6 +739,7 @@
       {
         Serial.println("Conexión MQTT OK");
         client.subscribe(MQTT_TOPIC_CMD);
+        client.subscribe(MQTT_TOPIC_EVENTO);
       }
       else
       {
@@ -721,7 +752,6 @@
       return;
     }
   }
-
 
   void definir_broker()
   {
@@ -753,10 +783,10 @@
   }
 
   // Función Callback que recibe los mensajes enviados por los dispositivos
-  void callback(char* topic, byte* message, unsigned int length) 
+  void callback(char* topico, byte* message, unsigned int length) 
   {
     Serial.print("Se recibió mensaje en el tópico: ");
-    Serial.println(topic);
+    Serial.println(topico);
 
     eventos_puerta ev;
     if (message[0] == 'B') {
@@ -772,13 +802,27 @@
     xQueueSend(queueEventos_puerta, &ev, 0); // no bloqueante
   }
 
-  void mqtt_task(void *pvParametros) {
-    while (1) {
-      if (client.connected()) {
-        client.loop();
-      }
-      else {
+  void mqtt_task(void *pvParametros)
+  {
+    while (1)
+    {
+      if (!client.connected())
+      {
         conectar_mqtt();
+      }
+      else
+      {
+        client.loop();
+
+        // Obtiene un mensaje de la cola y lo publica en MQTT
+        stMensajeMqtt msg;
+        while (xQueueReceive(queueMqttOut, &msg, 0) == pdPASS)
+        {
+          if (!client.publish(msg.topico, msg.payload, true))
+          {
+            Serial.println("[mqtt] publish FALLÓ");
+          }
+        }
       }
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
