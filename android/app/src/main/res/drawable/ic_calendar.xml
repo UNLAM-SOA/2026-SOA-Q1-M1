@@ -6,7 +6,7 @@
     android:tint="?attr/colorControlNormal">
 
     <path
-        android:pathData="M9.671,4.136a2.34,2.34 0,0 1,4.659 0a2.34,2.34 0,0 0,3.319 1.915a2.34,2.34 0,0 1,2.33 4.033a2.34,2.34 0,0 0,0 3.831a2.34,2.34 0,0 1,-2.33 4.033a2.34,2.34 0,0 0,-3.319 1.915a2.34,2.34 0,0 1,-4.659 0a2.34,2.34 0,0 0,-3.32 -1.915a2.34,2.34 0,0 1,-2.33 -4.033a2.34,2.34 0,0 0,0 -3.831A2.34,2.34 0,0 1,6.35 6.051a2.34,2.34 0,0 0,3.319 -1.915"
+        android:pathData="M8,2v4"
         android:strokeWidth="2"
         android:strokeColor="@android:color/black"
         android:strokeLineCap="round"
@@ -14,7 +14,23 @@
         android:fillColor="@android:color/transparent" />
 
     <path
-        android:pathData="M12,9a3,3 0,1 0,0 6a3,3 0,1 0,0 -6"
+        android:pathData="M16,2v4"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/black"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+
+    <path
+        android:pathData="M5,4h14a2,2 0,0 1,2 2v14a2,2 0,0 1,-2 2H5a2,2 0,0 1,-2 -2V6a2,2 0,0 1,2 -2z"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/black"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+
+    <path
+        android:pathData="M3,10h18"
         android:strokeWidth="2"
         android:strokeColor="@android:color/black"
         android:strokeLineCap="round"
