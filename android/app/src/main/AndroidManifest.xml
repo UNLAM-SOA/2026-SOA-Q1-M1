@@ -12,6 +12,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PawGate">
         <activity
+            android:name=".RegisterActivity"
+            android:exported="false" />
+        <activity
             android:name=".DashboardActivity"
             android:exported="false" />
         <activity
@@ -23,6 +26,7 @@
             android:theme="@style/Theme.PawGate.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>

@@ -11,5 +11,16 @@
     <string name="login_forgot_password">Olvidé mi contraseña</string>
     <string name="login_email_placeholder">Email</string>
     <string name="login_password_placeholder">Contraseña</string>
-
+    <string name="register_title">Crear cuenta</string>
+    <string name="register_welcome">Bienvenido a PawGate</string>
+    <string name="register_subtitle">Completá tus datos para crear una cuenta.</string>
+    <string name="register_name_hint">Nombre</string>
+    <string name="register_email_hint">Email</string>
+    <string name="register_password_hint">Contraseña</string>
+    <string name="register_confirm_password_hint">Confirmar contraseña</string>
+    <string name="register_terms_text">Acepto los términos y condiciones</string>
+    <string name="register_button">Crear cuenta</string>
+    <string name="register_have_account">¿Ya tenés cuenta?</string>
+    <string name="register_login_link">Iniciar sesión</string>
+    <string name="cd_back_button">Volver</string>
 </resources>
