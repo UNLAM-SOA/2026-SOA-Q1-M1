@@ -13,10 +13,12 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 public class LoginActivity extends AppCompatActivity {
-    private EditText user;
+    private EditText email;
     private EditText password;
-    private Button login;
-    private TextView loginRegisterLink;
+    public static final String EXTRA_USER = "user";
+    public static final String EXTRA_PASSWORD = "password";
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,20 +26,20 @@ public class LoginActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_login);
 
-        this.user = findViewById(R.id.login_email_input);
+        this.email = findViewById(R.id.login_email_input);
         this.password = findViewById(R.id.login_password_input);
-        this.login = findViewById(R.id.login_submit_button);
-        this.loginRegisterLink = findViewById(R.id.login_register_link);
+        Button login = findViewById(R.id.login_submit_button);
+        TextView loginRegisterLink = findViewById(R.id.login_register_link);
 
-        this.login.setOnClickListener(v -> {
+        login.setOnClickListener(v -> {
             Intent i = new Intent(this, DashboardActivity.class);
-            i.putExtra("user", this.user.getText().toString());
-            i.putExtra("password", this.password.getText().toString());
+            i.putExtra(EXTRA_USER, this.email.getText().toString());
+            i.putExtra(EXTRA_PASSWORD, this.password.getText().toString());
             startActivity(i);
             finish();
         });
 
-        this.loginRegisterLink.setOnClickListener(v -> {
+        loginRegisterLink.setOnClickListener(v -> {
             Intent i = new Intent(this, RegisterActivity.class);
             startActivity(i);
         });
