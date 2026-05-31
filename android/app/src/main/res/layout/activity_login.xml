@@ -8,7 +8,7 @@
     android:background="@color/bg_base"
     android:paddingHorizontal="24dp"
     android:paddingTop="80dp"
-    android:paddingBottom="140px"
+    android:paddingBottom="24dp"
     android:gravity="center"
     android:orientation="vertical"
     tools:context=".LoginActivity">
@@ -55,6 +55,7 @@
             android:inputType="textEmailAddress"
             android:imeOptions="actionNext"
             android:hint="@string/login_email_placeholder"
+            android:autofillHints="emailAddress"
             android:id="@+id/login_email_input"/>
     </LinearLayout>
 
@@ -79,7 +80,8 @@
             android:inputType="textPassword"
             android:imeOptions="actionDone"
             android:id="@+id/login_password_input"
-            android:hint="@string/login_password_placeholder"/>
+            android:hint="@string/login_password_placeholder"
+            android:autofillHints="password"/>
     </LinearLayout>
     <TextView
         android:layout_width="match_parent"
@@ -121,6 +123,7 @@
             android:text="@string/login_signup"
             android:textSize="16sp"
             android:textColor="@color/accent_neon"
+            android:id="@+id/login_register_link"
             android:textStyle="bold"/>
     </LinearLayout>
 
