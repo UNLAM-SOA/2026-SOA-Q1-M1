@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card blanca con ripple (onda al tocar) cuando es clickeable. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#1F0A0F1F">
+    <item android:drawable="@drawable/bg_card" />
+</ripple>

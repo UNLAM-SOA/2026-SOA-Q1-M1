@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card seleccionada / activa (ej. dispositivo ESP32 ya vinculado en onboarding, tab activa). Borde verde 1.5dp. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/bg_card" />
+    <stroke
+        android:width="2dp"
+        android:color="@color/accent_neon" />
+    <corners android:radius="16dp" />
+</shape>
