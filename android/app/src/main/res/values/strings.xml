@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">PawGate</string>
+    <string name="splash_subtitle">Puerta inteligente para tu perro</string>
+    <string name="login_welcome">Bienvenido</string>
+    <string name="login_subtitle">Ingresá para controlar la puerta de Toby</string>
+    <string name="login_button">Iniciar sesión</string>
+    <string name="dashboard_greeting">Bienvenido %1$s</string>
+    <string name="loading">Cargando…</string>
+    <string name="login_no_account">¿No tenés cuenta?</string>
+    <string name="login_signup">Registrate</string>
+    <string name="login_forgot_password">Olvidé mi contraseña</string>
+    <string name="login_email_placeholder">Email</string>
+    <string name="login_password_placeholder">Contraseña</string>
+
+</resources>
