@@ -1,16 +1,20 @@
 <resources>
+    <!-- Splash -->
     <string name="app_name">PawGate</string>
     <string name="splash_subtitle">Puerta inteligente para tu perro</string>
+
+    <!-- Login -->
     <string name="login_welcome">Bienvenido</string>
     <string name="login_subtitle">Ingresá para controlar la puerta de Toby</string>
     <string name="login_button">Iniciar sesión</string>
-    <string name="dashboard_greeting">Bienvenido %1$s</string>
     <string name="loading">Cargando…</string>
     <string name="login_no_account">¿No tenés cuenta?</string>
     <string name="login_signup">Registrate</string>
     <string name="login_forgot_password">Olvidé mi contraseña</string>
     <string name="login_email_placeholder">Email</string>
     <string name="login_password_placeholder">Contraseña</string>
+
+    <!-- Register -->
     <string name="register_title">Crear cuenta</string>
     <string name="register_welcome">Bienvenido a PawGate</string>
     <string name="register_subtitle">Completá tus datos para crear una cuenta.</string>
@@ -23,4 +27,40 @@
     <string name="register_have_account">¿Ya tenés cuenta?</string>
     <string name="register_login_link">Iniciar sesión</string>
     <string name="cd_back_button">Volver</string>
+
+    <!-- BottomNav -->
+    <string name="dashboard_tab_inicio">Inicio</string>
+    <string name="dashboard_tab_puerta">Puerta</string>
+    <string name="dashboard_tab_historial">Historial</string>
+    <string name="dashboard_tab_ajustes">Ajustes</string>
+
+    <!-- Dashboard - TopBar -->
+    <string name="dashboard_title">Inicio</string>
+    <string name="cd_notifications">Notificaciones</string>
+
+    <!-- Dashboard - Saludo -->
+    <string name="dashboard_greeting_template">Hola, %1$s</string>
+
+    <!-- Dashboard - Card estado puerta -->
+    <string name="dashboard_door_closed">Puerta · Cerrada</string>
+    <string name="dashboard_door_open">Puerta · Abierta</string>
+    <string name="dashboard_door_locked">Puerta · Bloqueada</string>
+    <string name="dashboard_last_activity_template">Última actividad: hace %1$s</string>
+
+    <!-- Dashboard - Metric cards -->
+    <string name="dashboard_metric_openings_label">Aperturas hoy</string>
+    <string name="dashboard_metric_light_label">Tiempo de luz encendida</string>
+
+    <!-- Dashboard - Acciones rápidas -->
+    <string name="dashboard_quick_actions">Acciones rápidas</string>
+    <string name="action_open">Abrir</string>
+    <string name="action_block">Bloquear</string>
+    <string name="action_call">Llamar</string>
+    <string name="action_schedules">Horarios</string>
+
+    <!-- Toast placeholders -->
+    <string name="toast_coming_soon">Próximamente</string>
+    <string name="toast_action_open">Abriendo puerta…</string>
+    <string name="toast_action_block">Puerta bloqueada</string>
+    <string name="toast_action_call">Llamando a Toby…</string>
 </resources>
