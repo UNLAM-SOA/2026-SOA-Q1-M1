@@ -1,6 +1,7 @@
 package com.unlam.pawgate;
 
 import android.content.Context;
+import android.os.SystemClock;
 
 /**
  * State machine de la puerta basada en SharedPreferences + timestamps.
@@ -19,6 +20,11 @@ import android.content.Context;
  * Tradeoff: el timer real corre en background siempre (no se pausa cuando la
  * Activity esta paused). Para una puerta de IoT eso es lo correcto: la puerta
  * fisica sigue abriendose aunque el user navegue lejos.
+ *
+ * Reloj: usamos SystemClock.elapsedRealtime() (monotonic, incluye deep sleep)
+ * en vez de System.currentTimeMillis() (wall-clock, afectado por cambios de
+ * hora del usuario o sincronizacion NTP). Para medir duraciones cortas la
+ * diferencia rara vez importa; en background largo el monotonic es seguro.
  *
  * Diagrama temporal del ciclo OPEN_DOOR (0ms = startCycle):
  *
@@ -50,7 +56,7 @@ public final class DoorStateMachine {
         if (PrefsHelper.isDoorBlocked(ctx)) return DoorState.BLOCKED;
 
         String cycle = PrefsHelper.getCycleType(ctx);
-        long elapsed = System.currentTimeMillis() - PrefsHelper.getCycleStartMs(ctx);
+        long elapsed = SystemClock.elapsedRealtime() - PrefsHelper.getCycleStartMs(ctx);
 
         if (PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)) {
             if (elapsed < OPENING_MS) return DoorState.OPENING;
@@ -78,7 +84,7 @@ public final class DoorStateMachine {
         if (PrefsHelper.isDoorBlocked(ctx)) return 0;
 
         String cycle = PrefsHelper.getCycleType(ctx);
-        long elapsed = System.currentTimeMillis() - PrefsHelper.getCycleStartMs(ctx);
+        long elapsed = SystemClock.elapsedRealtime() - PrefsHelper.getCycleStartMs(ctx);
 
         if (PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)
                 && elapsed >= OPENING_MS && elapsed < OPENING_MS + OPEN_MS) {

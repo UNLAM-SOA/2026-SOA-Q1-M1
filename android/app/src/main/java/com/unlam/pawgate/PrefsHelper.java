@@ -2,6 +2,7 @@ package com.unlam.pawgate;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 
 /**
  * Wrapper sobre SharedPreferences para evitar repetir las keys / nombre del file
@@ -77,11 +78,14 @@ public final class PrefsHelper {
         return prefs(ctx).getLong(KEY_CYCLE_START, 0L);
     }
 
-    /** Arranca un ciclo nuevo (cycleType + timestamp = now). */
+    /** Arranca un ciclo nuevo (cycleType + timestamp = now).
+     *  Usa SystemClock.elapsedRealtime() (monotonic) en vez de
+     *  System.currentTimeMillis() para que cambios de hora del usuario
+     *  no afecten la medicion de la duracion del ciclo. */
     public static void startCycle(Context ctx, String type) {
         prefs(ctx).edit()
                 .putString(KEY_CYCLE_TYPE, type)
-                .putLong(KEY_CYCLE_START, System.currentTimeMillis())
+                .putLong(KEY_CYCLE_START, SystemClock.elapsedRealtime())
                 .apply();
     }
 
