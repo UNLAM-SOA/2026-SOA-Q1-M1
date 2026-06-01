@@ -26,3 +26,9 @@ Thumbs.db
 # Backups y temporales
 *.bak
 *.swp
+
+# Secrets: certificados X.509, claves privadas y configs sensibles.
+# NUNCA commitear esto al repo publico. Los compas que necesiten
+# correr el simulador o el firmware deben pedir los archivos por canal
+# privado (Slack/Drive del equipo).
+secrets/
