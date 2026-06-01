@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pill outlined rojo. Para status "MODO SEGURIDAD ACTIVO" en estado BLOQUEADO. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/bg_card" />
+    <stroke
+        android:width="1.5dp"
+        android:color="@color/accent_block" />
+    <corners android:radius="999dp" />
+</shape>

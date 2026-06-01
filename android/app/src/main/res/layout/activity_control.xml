@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Control de puerta — pantalla con 4 estados visuales manejados por ControlActivity:
+  IDLE (default), OPENING (W06a), OPEN (W06b), BLOCKED (W06c), CALLING (W06d).
+
+  La logica de render esta en ControlActivity.java -> render(ControlState).
+  Los IDs marcados con // dynamic en los comentarios cambian segun el estado.
+-->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -8,6 +15,8 @@
     android:paddingTop="24dp"
     android:background="@color/bg_base"
     tools:context=".ControlActivity">
+
+    <!-- Title: cambia entre "Control de puerta" / "Modo seguridad" / "Llamando a Toby" -->
     <TextView
         android:id="@+id/control_title"
         android:layout_width="match_parent"
@@ -16,9 +25,11 @@
         android:text="@string/control_title"
         android:textSize="22sp"
         android:textStyle="bold"
+        android:textColor="@color/text_primary"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
     <ScrollView android:id="@+id/control_scroll"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -26,18 +37,29 @@
         app:layout_constraintBottom_toTopOf="@id/bottom_nav"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
+
         <LinearLayout android:orientation="vertical"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="16dp">
-            <LinearLayout android:orientation="horizontal"
-                android:layout_width="match_parent"
+
+            <!-- Status pill (dot + texto). Background y colores cambian dinamicamente. -->
+            <LinearLayout android:id="@+id/control_status_pill"
+                android:orientation="horizontal"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center">
-                <View android:background="@drawable/bg_circle_muted"
+                android:layout_gravity="center_horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp">
+
+                <View android:id="@+id/control_status_dot"
+                    android:background="@drawable/bg_circle_muted"
                     android:layout_width="6dp"
-                    android:layout_height="6dp"/>
-                <TextView android:text="@string/control_status_live"
+                    android:layout_height="6dp" />
+
+                <TextView android:id="@+id/control_status_text"
+                    android:text="@string/control_status_live"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
@@ -46,22 +68,28 @@
                     android:textColor="@color/text_muted"
                     android:letterSpacing="0.15" />
             </LinearLayout>
-            <LinearLayout android:orientation="vertical"
+
+            <!-- BigBtn: background, icon e label cambian dinamicamente. -->
+            <LinearLayout android:id="@+id/control_btn_open"
+                android:orientation="vertical"
                 android:layout_width="match_parent"
                 android:layout_height="200dp"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="16dp"
                 android:background="@drawable/bg_button_primary"
                 android:gravity="center"
-                android:id="@+id/control_btn_open"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
-                <ImageView android:src="@drawable/ic_door_open"
+
+                <ImageView android:id="@+id/control_btn_icon"
+                    android:src="@drawable/ic_door_open"
                     android:layout_width="56dp"
                     android:layout_height="56dp"
                     app:tint="@color/bg_card"
-                    android:contentDescription="@string/control_btn_open"/>
-                <TextView android:layout_marginTop="12dp"
+                    android:contentDescription="@string/control_btn_open" />
+
+                <TextView android:id="@+id/control_btn_label"
+                    android:layout_marginTop="12dp"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/control_btn_open"
@@ -70,20 +98,46 @@
                     android:textColor="@color/bg_card"
                     android:letterSpacing="0.15" />
             </LinearLayout>
-            <TextView android:layout_marginTop="12dp"
+
+            <!-- Hint: cambia dinamicamente (Manten presionado / Solta para cancelar / etc) -->
+            <TextView android:id="@+id/control_btn_hint"
+                android:layout_marginTop="12dp"
                 android:layout_marginBottom="8dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/control_btn_open_hint"
                 android:textSize="12sp"
                 android:textColor="@color/text_muted"
-                android:gravity="center"/>
+                android:gravity="center" />
+
+            <!-- Boton secundario: "Desbloquear" (BLOQUEADO) o "Detener llamada" (LLAMANDO).
+                 visibility=gone por default; se muestra solo en esos 2 estados. -->
+            <TextView android:id="@+id/control_btn_secondary"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_button_outline_neutral"
+                android:gravity="center"
+                android:text="@string/control_secondary_unblock"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!-- Row de 2 cards: Bloquear (izq) + Llamar a Toby (der) -->
             <LinearLayout android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp">
-                <LinearLayout android:orientation="vertical"
+                android:layout_marginTop="12dp">
+
+                <!-- Card Bloquear: background cambia a bg_card_active_danger cuando BLOCKED -->
+                <LinearLayout android:id="@+id/control_card_block"
+                    android:orientation="vertical"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -91,89 +145,106 @@
                     android:background="@drawable/bg_card"
                     android:padding="14dp"
                     android:gravity="start"
-                    android:id="@+id/control_card_block"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground">
+
                     <LinearLayout android:orientation="horizontal"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="center_vertical"
-                        android:contentDescription="@null"
-                        android:layout_marginBottom="5dp" >
-                        <ImageView android:contentDescription="@null"
+                        android:layout_marginBottom="5dp">
+
+                        <ImageView android:id="@+id/control_card_block_icon"
                             android:src="@drawable/ic_lock"
                             android:layout_width="18dp"
                             android:layout_height="18dp"
-                            app:tint="@color/text_primary" />
+                            app:tint="@color/text_primary"
+                            android:contentDescription="@null" />
+
                         <View android:layout_weight="1"
                             android:layout_width="0dp"
                             android:layout_height="0dp" />
+
                         <ImageView android:src="@drawable/ic_arrow_up_right"
                             android:layout_width="14dp"
                             android:layout_height="14dp"
                             app:tint="@color/text_muted"
-                            android:contentDescription="@null"/>
+                            android:contentDescription="@null" />
                     </LinearLayout>
+
                     <LinearLayout android:orientation="vertical"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="5dp">
+
                         <TextView android:text="@string/control_card_block_title"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textSize="14sp"
                             android:textStyle="bold"
                             android:textColor="@color/text_primary" />
-                        <TextView android:text="@string/control_card_block_subtitle"
+
+                        <TextView android:id="@+id/control_card_block_subtitle"
+                            android:text="@string/control_card_block_subtitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textSize="11sp"
                             android:textColor="@color/text_muted" />
                     </LinearLayout>
                 </LinearLayout>
-                <LinearLayout android:orientation="vertical"
+
+                <!-- Card Llamar: background cambia a bg_card_active_info cuando CALLING -->
+                <LinearLayout android:id="@+id/control_card_call"
+                    android:orientation="vertical"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
                     android:background="@drawable/bg_card"
                     android:padding="14dp"
-                    android:id="@+id/control_card_call"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground">
+
                     <LinearLayout android:orientation="horizontal"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="center_vertical"
-                        android:layout_marginBottom="5dp"
-                        android:contentDescription="@null">
-                        <ImageView android:contentDescription="@null"
+                        android:layout_marginBottom="5dp">
+
+                        <ImageView android:id="@+id/control_card_call_icon"
                             android:src="@drawable/ic_megaphone"
                             android:layout_width="18dp"
                             android:layout_height="18dp"
-                            app:tint="@color/text_primary" />
+                            app:tint="@color/text_primary"
+                            android:contentDescription="@null" />
+
                         <View android:layout_weight="1"
                             android:layout_width="0dp"
                             android:layout_height="0dp" />
+
                         <ImageView android:src="@drawable/ic_arrow_up_right"
                             android:layout_width="14dp"
                             android:layout_height="14dp"
                             app:tint="@color/text_muted"
-                            android:contentDescription="@null"/>
+                            android:contentDescription="@null" />
                     </LinearLayout>
+
                     <LinearLayout android:orientation="vertical"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="5dp" >
+                        android:layout_marginTop="5dp">
+
                         <TextView android:text="@string/control_card_call_title"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textSize="14sp"
                             android:textStyle="bold"
                             android:textColor="@color/text_primary" />
-                        <TextView android:text="@string/control_card_call_subtitle"
+
+                        <TextView android:id="@+id/control_card_call_subtitle"
+                            android:text="@string/control_card_call_subtitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textSize="11sp"
@@ -181,7 +252,10 @@
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
-            <LinearLayout android:baselineAligned="false"
+
+            <!-- Bottom info strip: cambia entre sensor / ultima apertura / modo seguridad / Toby notificado -->
+            <LinearLayout android:id="@+id/control_info_strip"
+                android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -189,28 +263,37 @@
                 android:background="@drawable/bg_card"
                 android:padding="14dp"
                 android:gravity="center_vertical">
-                <FrameLayout android:background="@drawable/bg_icon_outlined"
+
+                <FrameLayout android:id="@+id/control_info_icon_box"
+                    android:background="@drawable/bg_icon_outlined"
                     android:layout_width="36dp"
                     android:layout_height="36dp">
-                    <ImageView android:src="@drawable/ic_radio"
+
+                    <ImageView android:id="@+id/control_info_icon"
+                        android:src="@drawable/ic_radio"
                         android:layout_width="18dp"
                         android:layout_height="18dp"
                         android:layout_gravity="center"
                         app:tint="@color/text_primary"
-                        android:contentDescription="@null"/>
+                        android:contentDescription="@null" />
                 </FrameLayout>
+
                 <LinearLayout android:orientation="vertical"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="12dp">
-                    <TextView android:text="@string/control_sensor_title"
+
+                    <TextView android:id="@+id/control_info_title"
+                        android:text="@string/control_sensor_title"
                         android:textStyle="bold"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="13sp"
                         android:textColor="@color/text_primary" />
-                    <TextView android:text="@string/control_sensor_subtitle"
+
+                    <TextView android:id="@+id/control_info_subtitle"
+                        android:text="@string/control_sensor_subtitle"
                         android:layout_marginTop="2dp"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -220,6 +303,7 @@
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
+
     <include android:id="@+id/bottom_nav"
         layout="@layout/bottom_nav"
         android:layout_width="0dp"

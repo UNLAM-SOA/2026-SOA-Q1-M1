@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Boton primario coral. Estado BLOQUEADO del Control de puerta (modo seguridad). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/accent_block" />
+    <corners android:radius="14dp" />
+</shape>

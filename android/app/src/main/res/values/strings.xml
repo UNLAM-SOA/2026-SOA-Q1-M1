@@ -81,4 +81,42 @@
     <string name="control_block_dialog_message">No se podrá abrir hasta que la desbloquees manualmente.</string>
     <string name="control_block_dialog_confirm">Bloquear</string>
     <string name="control_block_dialog_cancel">Cancelar</string>
+
+    <!-- Control de puerta - Estados (W06a/b/c/d) -->
+    <!-- Titles segun estado -->
+    <string name="control_title_blocked">Modo seguridad</string>
+    <string name="control_title_calling">Llamando a Toby</string>
+
+    <!-- Status pills segun estado -->
+    <string name="control_status_opening">ABRIENDO PUERTA</string>
+    <string name="control_status_open">PUERTA ABIERTA · CERRARÁ EN %1$ds</string>
+    <string name="control_status_blocked">MODO SEGURIDAD ACTIVO</string>
+    <string name="control_status_calling">BUZZER ACTIVO · %1$ds</string>
+
+    <!-- BigBtn labels segun estado -->
+    <string name="control_btn_opening">ABRIENDO</string>
+    <string name="control_btn_open_state">ABIERTA</string>
+    <string name="control_btn_blocked">BLOQUEADO</string>
+    <string name="control_btn_calling">LLAMANDO</string>
+
+    <!-- Hints segun estado -->
+    <string name="control_hint_opening">Soltá para cancelar</string>
+    <string name="control_hint_open">Cerrará automáticamente en %1$ds</string>
+    <string name="control_hint_blocked">Tocá Desbloquear para reactivar la puerta</string>
+    <string name="control_hint_calling">Buzzer activo · %1$ds restantes</string>
+
+    <!-- Botones secundarios (visibles solo en BLOQUEADO / LLAMANDO) -->
+    <string name="control_secondary_unblock">Desbloquear</string>
+    <string name="control_secondary_stop_call">Detener llamada</string>
+
+    <!-- Card highlight cuando esta activo -->
+    <string name="control_card_active">Activo</string>
+
+    <!-- Bottom info strip - variantes -->
+    <string name="control_info_last_open_title">Última apertura: ahora</string>
+    <string name="control_info_last_open_subtitle">Manual · desde Control</string>
+    <string name="control_info_blocked_title">Modo seguridad activado</string>
+    <string name="control_info_blocked_subtitle">Activado 14:32 · 2h</string>
+    <string name="control_info_calling_title">Toby fue notificado</string>
+    <string name="control_info_calling_subtitle">Esperando respuesta · %1$ds</string>
 </resources>
