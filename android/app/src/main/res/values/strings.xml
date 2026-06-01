@@ -1,0 +1,122 @@
+<resources>
+    <!-- Splash -->
+    <string name="app_name">PawGate</string>
+    <string name="splash_subtitle">Puerta inteligente para tu perro</string>
+
+    <!-- Login -->
+    <string name="login_welcome">Bienvenido</string>
+    <string name="login_subtitle">Ingresá para controlar la puerta de Toby</string>
+    <string name="login_button">Iniciar sesión</string>
+    <string name="loading">Cargando…</string>
+    <string name="login_no_account">¿No tenés cuenta?</string>
+    <string name="login_signup">Registrate</string>
+    <string name="login_forgot_password">Olvidé mi contraseña</string>
+    <string name="login_email_placeholder">Email</string>
+    <string name="login_password_placeholder">Contraseña</string>
+
+    <!-- Register -->
+    <string name="register_title">Crear cuenta</string>
+    <string name="register_welcome">Bienvenido a PawGate</string>
+    <string name="register_subtitle">Completá tus datos para crear una cuenta.</string>
+    <string name="register_name_hint">Nombre</string>
+    <string name="register_email_hint">Email</string>
+    <string name="register_password_hint">Contraseña</string>
+    <string name="register_confirm_password_hint">Confirmar contraseña</string>
+    <string name="register_terms_text">Acepto los términos y condiciones</string>
+    <string name="register_button">Crear cuenta</string>
+    <string name="register_have_account">¿Ya tenés cuenta?</string>
+    <string name="register_login_link">Iniciar sesión</string>
+    <string name="cd_back_button">Volver</string>
+
+    <!-- BottomNav -->
+    <string name="dashboard_tab_inicio">Inicio</string>
+    <string name="dashboard_tab_puerta">Puerta</string>
+    <string name="dashboard_tab_historial">Historial</string>
+    <string name="dashboard_tab_ajustes">Ajustes</string>
+
+    <!-- Dashboard - TopBar -->
+    <string name="dashboard_title">Inicio</string>
+    <string name="cd_notifications">Notificaciones</string>
+
+    <!-- Dashboard - Saludo -->
+    <string name="dashboard_greeting_template">Hola, %1$s</string>
+
+    <!-- Dashboard - Card estado puerta -->
+    <string name="dashboard_door_closed">Puerta · Cerrada</string>
+    <string name="dashboard_door_open">Puerta · Abierta</string>
+    <string name="dashboard_door_locked">Puerta · Bloqueada</string>
+    <string name="dashboard_last_activity_template">Última actividad: hace %1$s</string>
+
+    <!-- Dashboard - Metric cards -->
+    <string name="dashboard_metric_openings_label">Aperturas hoy</string>
+    <string name="dashboard_metric_light_label">Tiempo de luz encendida</string>
+
+    <!-- Dashboard - Acciones rápidas -->
+    <string name="dashboard_quick_actions">Acciones rápidas</string>
+    <string name="action_open">Abrir</string>
+    <string name="action_block">Bloquear</string>
+    <string name="action_call">Llamar</string>
+    <string name="action_schedules">Horarios</string>
+
+    <!-- Toast placeholders -->
+    <string name="toast_coming_soon">Próximamente</string>
+    <string name="toast_action_open">Abriendo puerta…</string>
+    <string name="toast_action_block">Puerta bloqueada</string>
+    <string name="toast_action_call">Llamando a Toby…</string>
+    <string name="action_cancel">Cancelar</string>
+
+    <!-- Control de puerta -->
+    <string name="control_title">Control de puerta</string>
+    <string name="cd_more_actions">Más acciones</string>
+    <string name="control_status_live">EN VIVO · ESP32 CONECTADO</string>
+    <string name="control_btn_open">ABRIR PUERTA</string>
+    <string name="control_btn_open_hint">Mantené presionado para abrir</string>
+    <string name="control_card_block_title">Bloquear</string>
+    <string name="control_card_block_subtitle">Modo seguridad</string>
+    <string name="control_card_call_title">Llamar a Toby</string>
+    <string name="control_card_call_subtitle">Activar buzzer 3s</string>
+    <string name="control_sensor_title">Sensor de ultrasonido activo</string>
+    <string name="control_sensor_subtitle">Distancia detectada: 14 cm</string>
+    <string name="control_block_dialog_title">¿Bloquear puerta?</string>
+    <string name="control_block_dialog_message">No se podrá abrir hasta que la desbloquees manualmente.</string>
+    <string name="control_block_dialog_confirm">Bloquear</string>
+    <string name="control_block_dialog_cancel">Cancelar</string>
+
+    <!-- Control de puerta - Estados (W06a/b/c/d) -->
+    <!-- Titles segun estado -->
+    <string name="control_title_blocked">Modo seguridad</string>
+    <string name="control_title_calling">Llamando a Toby</string>
+
+    <!-- Status pills segun estado -->
+    <string name="control_status_opening">ABRIENDO PUERTA</string>
+    <string name="control_status_open">PUERTA ABIERTA · CERRARÁ EN %1$ds</string>
+    <string name="control_status_blocked">MODO SEGURIDAD ACTIVO</string>
+    <string name="control_status_calling">BUZZER ACTIVO · %1$ds</string>
+
+    <!-- BigBtn labels segun estado -->
+    <string name="control_btn_opening">ABRIENDO</string>
+    <string name="control_btn_open_state">ABIERTA</string>
+    <string name="control_btn_blocked">BLOQUEADO</string>
+    <string name="control_btn_calling">LLAMANDO</string>
+
+    <!-- Hints segun estado -->
+    <string name="control_hint_opening">Soltá para cancelar</string>
+    <string name="control_hint_open">Cerrará automáticamente en %1$ds</string>
+    <string name="control_hint_blocked">Tocá Desbloquear para reactivar la puerta</string>
+    <string name="control_hint_calling">Buzzer activo · %1$ds restantes</string>
+
+    <!-- Botones secundarios (visibles solo en BLOQUEADO / LLAMANDO) -->
+    <string name="control_secondary_unblock">Desbloquear</string>
+    <string name="control_secondary_stop_call">Detener llamada</string>
+
+    <!-- Card highlight cuando esta activo -->
+    <string name="control_card_active">Activo</string>
+
+    <!-- Bottom info strip - variantes -->
+    <string name="control_info_last_open_title">Última apertura: ahora</string>
+    <string name="control_info_last_open_subtitle">Manual · desde Control</string>
+    <string name="control_info_blocked_title">Modo seguridad activado</string>
+    <string name="control_info_blocked_subtitle">Activado 14:32 · 2h</string>
+    <string name="control_info_calling_title">Toby fue notificado</string>
+    <string name="control_info_calling_subtitle">Esperando respuesta · %1$ds</string>
+</resources>

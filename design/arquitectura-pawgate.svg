@@ -1,0 +1,191 @@
+<svg viewBox="0 0 1400 820" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4F576D"/>
+    </marker>
+    <marker id="arrow-neon" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5BC900"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7C5CFF"/>
+    </marker>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0098B6"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="820" fill="#FFFFFF"/>
+  <text x="40" y="42" font-size="22" font-weight="700" fill="#0A0F1F">PawGate · Arquitectura Cloud</text>
+  <text x="40" y="66" font-size="13" fill="#4F576D">ESP32 + FreeRTOS  →  AWS IoT Core  →  Serverless (Lambda · DynamoDB · SNS)  →  App Android / Node-RED</text>
+  <g font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1.5">
+    <text x="120" y="100" text-anchor="middle">EDGE</text>
+    <text x="365" y="100" text-anchor="middle">INGEST</text>
+    <text x="640" y="100" text-anchor="middle">COMPUTE + STORE</text>
+    <text x="940" y="100" text-anchor="middle">API + AUTH</text>
+    <text x="1240" y="100" text-anchor="middle">CLIENTS</text>
+  </g>
+  <g>
+    <rect x="40" y="130" width="170" height="370" rx="14" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="40" y="130" width="170" height="34" rx="14" fill="#5BC900"/>
+    <rect x="40" y="150" width="170" height="14" fill="#5BC900"/>
+    <text x="125" y="152" font-size="13" font-weight="700" text-anchor="middle" fill="#FFFFFF">ESP32 (FreeRTOS)</text>
+    <text x="55" y="186" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">FIRMWARE ACTUAL</text>
+    <text x="55" y="206" font-size="11" fill="#0A0F1F">· Máquina de estados</text>
+    <text x="55" y="222" font-size="11" fill="#0A0F1F">· Colas FreeRTOS</text>
+    <text x="55" y="238" font-size="11" fill="#0A0F1F">· xTimer (no delay)</text>
+    <text x="55" y="266" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">HARDWARE</text>
+    <text x="55" y="284" font-size="11" fill="#4F576D">LDR · HC-SR04 · RFID</text>
+    <text x="55" y="300" font-size="11" fill="#4F576D">Servo · LED · Buzzer</text>
+    <text x="55" y="328" font-size="10" font-weight="700" fill="#5BC900" letter-spacing="1">A AGREGAR</text>
+    <text x="55" y="346" font-size="11" font-weight="600" fill="#0A0F1F">+ WiFi</text>
+    <text x="55" y="362" font-size="11" font-weight="600" fill="#0A0F1F">+ MQTT-TLS</text>
+    <text x="55" y="378" font-size="11" font-weight="600" fill="#0A0F1F">+ Cert X.509</text>
+    <rect x="55" y="408" width="140" height="76" rx="8" fill="#F6F7FB" stroke="#E2E6F0"/>
+    <text x="125" y="426" font-size="10" font-weight="700" text-anchor="middle" fill="#8A91A8">TOPICS MQTT</text>
+    <text x="125" y="446" font-family="ui-monospace, monospace" font-size="10" text-anchor="middle" fill="#5BC900">.../events ↑</text>
+    <text x="125" y="462" font-family="ui-monospace, monospace" font-size="10" text-anchor="middle" fill="#5BC900">.../state ↑</text>
+    <text x="125" y="478" font-family="ui-monospace, monospace" font-size="10" text-anchor="middle" fill="#7C5CFF">.../commands ↓</text>
+  </g>
+  <path d="M 210 270 Q 260 270 280 220" stroke="#5BC900" stroke-width="2" fill="none" marker-end="url(#arrow-neon)"/>
+  <text x="245" y="248" font-size="10" font-weight="700" fill="#5BC900">events ↑</text>
+  <path d="M 280 320 Q 260 320 210 380" stroke="#7C5CFF" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+  <text x="232" y="362" font-size="10" font-weight="700" fill="#7C5CFF">commands ↓</text>
+  <g>
+    <rect x="280" y="130" width="170" height="370" rx="14" fill="#FFFFFF" stroke="#5BC900" stroke-width="1.5"/>
+    <rect x="280" y="130" width="170" height="34" rx="14" fill="#0098B6"/>
+    <rect x="280" y="150" width="170" height="14" fill="#0098B6"/>
+    <text x="365" y="152" font-size="13" font-weight="700" text-anchor="middle" fill="#FFFFFF">AWS IoT Core</text>
+    <text x="295" y="190" font-size="11" font-weight="700" fill="#0A0F1F">Thing: pawgate-001</text>
+    <text x="295" y="208" font-size="11" fill="#4F576D">+ Cert X.509 + Policy</text>
+    <text x="295" y="240" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">RULES</text>
+    <rect x="295" y="252" width="140" height="48" rx="6" fill="#F6F7FB" stroke="#E2E6F0"/>
+    <text x="305" y="270" font-size="10" font-weight="700" fill="#5BC900">events → Lambda</text>
+    <text x="305" y="284" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">SELECT * FROM</text>
+    <text x="305" y="295" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">'.../events'</text>
+    <rect x="295" y="306" width="140" height="48" rx="6" fill="#F6F7FB" stroke="#E2E6F0"/>
+    <text x="305" y="324" font-size="10" font-weight="700" fill="#0098B6">state → DynamoDB</text>
+    <text x="305" y="338" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">SELECT * FROM</text>
+    <text x="305" y="349" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">'.../state'</text>
+    <rect x="295" y="360" width="140" height="48" rx="6" fill="#F6F7FB" stroke="#E2E6F0"/>
+    <text x="305" y="378" font-size="10" font-weight="700" fill="#7C5CFF">alerts → SNS</text>
+    <text x="305" y="392" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">WHERE type IN</text>
+    <text x="305" y="403" font-family="ui-monospace, monospace" font-size="9" fill="#4F576D">('intruder',...)</text>
+    <text x="295" y="436" font-size="10" font-style="italic" fill="#8A91A8">mTLS · puerto 8883</text>
+    <text x="295" y="452" font-size="10" font-style="italic" fill="#8A91A8">500k msg/mes free</text>
+  </g>
+  <path d="M 450 280 L 540 280" stroke="#5BC900" stroke-width="2" fill="none" marker-end="url(#arrow-neon)"/>
+  <path d="M 450 330 Q 510 330 540 380" stroke="#0098B6" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+  <path d="M 450 384 Q 490 384 540 480" stroke="#7C5CFF" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+  <g>
+    <rect x="540" y="240" width="200" height="80" rx="10" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="540" y="240" width="6" height="80" rx="3" fill="#5BC900"/>
+    <text x="558" y="262" font-size="12" font-weight="700" fill="#0A0F1F">Lambda · ProcessEvent</text>
+    <text x="558" y="280" font-size="10" fill="#4F576D">· Valida + transforma</text>
+    <text x="558" y="294" font-size="10" fill="#4F576D">· Escribe en DynamoDB</text>
+    <text x="558" y="308" font-size="10" fill="#4F576D">· Dispara SNS si crítico</text>
+  </g>
+  <g>
+    <rect x="540" y="350" width="200" height="100" rx="10" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="540" y="350" width="6" height="100" rx="3" fill="#0098B6"/>
+    <text x="558" y="372" font-size="12" font-weight="700" fill="#0A0F1F">DynamoDB</text>
+    <text x="558" y="392" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">· DeviceState</text>
+    <text x="558" y="406" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">· Events (history)</text>
+    <text x="558" y="420" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">· Schedules</text>
+    <text x="558" y="434" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">· Users</text>
+  </g>
+  <g>
+    <rect x="540" y="480" width="200" height="74" rx="10" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="540" y="480" width="6" height="74" rx="3" fill="#7C5CFF"/>
+    <text x="558" y="502" font-size="12" font-weight="700" fill="#0A0F1F">SNS · pawgate-alerts</text>
+    <text x="558" y="520" font-size="10" fill="#4F576D">Platform App → FCM</text>
+    <text x="558" y="536" font-size="10" fill="#4F576D">Fan-out: app, email, ...</text>
+  </g>
+  <path d="M 640 320 L 640 350" stroke="#4F576D" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="650" y="340" font-size="10" fill="#8A91A8">writes</text>
+  <path d="M 740 280 Q 800 280 800 480 L 740 480" stroke="#4F576D" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#arrow)"/>
+  <text x="780" y="380" font-size="10" fill="#8A91A8">si crítico</text>
+  <g>
+    <rect x="845" y="180" width="200" height="220" rx="14" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="845" y="180" width="200" height="34" rx="14" fill="#0098B6"/>
+    <rect x="845" y="200" width="200" height="14" fill="#0098B6"/>
+    <text x="945" y="202" font-size="13" font-weight="700" text-anchor="middle" fill="#FFFFFF">API Gateway (REST)</text>
+    <text x="860" y="240" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">POST /auth/login</text>
+    <text x="860" y="256" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">GET  /devices/me/state</text>
+    <text x="860" y="272" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">POST /devices/me/commands</text>
+    <text x="860" y="288" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">GET  /events</text>
+    <text x="860" y="304" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">GET  /schedules</text>
+    <text x="860" y="320" font-family="ui-monospace, monospace" font-size="10" fill="#4F576D">PUT  /schedules</text>
+    <line x1="855" y1="338" x2="1035" y2="338" stroke="#E2E6F0"/>
+    <text x="860" y="358" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">AUTH</text>
+    <text x="860" y="376" font-size="11" font-weight="700" fill="#0A0F1F">Cognito User Pool</text>
+    <text x="860" y="390" font-size="10" fill="#4F576D">JWT en header</text>
+  </g>
+  <path d="M 845 290 L 740 290" stroke="#4F576D" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="755" y="282" font-size="9" fill="#8A91A8">invoke</text>
+  <g>
+    <rect x="845" y="430" width="200" height="80" rx="10" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="845" y="430" width="6" height="80" rx="3" fill="#7C5CFF"/>
+    <text x="863" y="452" font-size="12" font-weight="700" fill="#0A0F1F">Lambda · SendCommand</text>
+    <text x="863" y="470" font-size="10" fill="#4F576D">POST /commands →</text>
+    <text x="863" y="484" font-size="10" fill="#4F576D">iot-data publish</text>
+    <text x="863" y="498" font-family="ui-monospace, monospace" font-size="9" fill="#7C5CFF">.../commands</text>
+  </g>
+  <path d="M 945 400 L 945 430" stroke="#4F576D" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 845 470 Q 600 470 460 380 Q 440 360 365 200" stroke="#7C5CFF" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+  <text x="540" y="465" font-size="10" font-weight="700" fill="#7C5CFF">publish</text>
+  <g>
+    <rect x="1145" y="180" width="210" height="220" rx="14" fill="#FFFFFF" stroke="#E2E6F0"/>
+    <rect x="1145" y="180" width="210" height="34" rx="14" fill="#5BC900"/>
+    <rect x="1145" y="200" width="210" height="14" fill="#5BC900"/>
+    <text x="1250" y="202" font-size="13" font-weight="700" text-anchor="middle" fill="#FFFFFF">App Android (Java)</text>
+    <text x="1160" y="240" font-size="11" font-weight="700" fill="#0A0F1F">Cliente principal</text>
+    <text x="1160" y="258" font-size="10" fill="#4F576D">· Retrofit (REST)</text>
+    <text x="1160" y="272" font-size="10" fill="#4F576D">· Cognito SDK (auth)</text>
+    <text x="1160" y="286" font-size="10" fill="#4F576D">· FCM (push)</text>
+    <line x1="1155" y1="304" x2="1345" y2="304" stroke="#E2E6F0"/>
+    <text x="1160" y="322" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">PANTALLAS</text>
+    <text x="1160" y="340" font-size="10" fill="#4F576D">Splash · Login · Dashboard</text>
+    <text x="1160" y="354" font-size="10" fill="#4F576D">Control · Historial · etc.</text>
+    <text x="1160" y="376" font-size="10" font-style="italic" fill="#8A91A8">3 comandos: abrir,</text>
+    <text x="1160" y="390" font-size="10" font-style="italic" fill="#8A91A8">bloquear, llamar</text>
+  </g>
+  <g>
+    <rect x="1145" y="430" width="210" height="180" rx="14" fill="#FFFFFF" stroke="#7C5CFF" stroke-width="1.5"/>
+    <rect x="1145" y="430" width="210" height="34" rx="14" fill="#7C5CFF"/>
+    <rect x="1145" y="450" width="210" height="14" fill="#7C5CFF"/>
+    <text x="1250" y="452" font-size="13" font-weight="700" text-anchor="middle" fill="#FFFFFF">Node-RED Dashboard</text>
+    <text x="1160" y="486" font-size="11" font-weight="700" fill="#0A0F1F">Cliente paralelo</text>
+    <text x="1160" y="504" font-size="10" fill="#4F576D">Docker en tu Mac</text>
+    <text x="1160" y="520" font-size="10" fill="#4F576D">Cliente MQTT-TLS</text>
+    <text x="1160" y="534" font-size="10" fill="#4F576D">a IoT Core</text>
+    <line x1="1155" y1="552" x2="1345" y2="552" stroke="#E2E6F0"/>
+    <text x="1160" y="572" font-size="10" font-style="italic" fill="#8A91A8">Monitoreo + control</text>
+    <text x="1160" y="586" font-size="10" font-style="italic" fill="#8A91A8">manual para demo</text>
+    <text x="1160" y="600" font-size="10" font-style="italic" fill="#8A91A8">de defensa</text>
+  </g>
+  <path d="M 1045 280 L 1145 280" stroke="#4F576D" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="1070" y="270" font-size="10" font-weight="700" fill="#4F576D">HTTPS + JWT</text>
+  <path d="M 740 510 Q 950 510 1145 380" stroke="#7C5CFF" stroke-width="2" fill="none" marker-end="url(#arrow-violet)" stroke-dasharray="6,3"/>
+  <text x="900" y="500" font-size="10" font-weight="700" fill="#7C5CFF">push via FCM</text>
+  <path d="M 1145 500 Q 800 600 460 360" stroke="#7C5CFF" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#arrow-violet)"/>
+  <text x="800" y="600" font-size="10" font-style="italic" fill="#7C5CFF">subscribe (observador)</text>
+  <g transform="translate(40, 650)">
+    <text x="0" y="0" font-size="10" font-weight="700" fill="#8A91A8" letter-spacing="1">LEYENDA</text>
+    <line x1="0" y1="20" x2="30" y2="20" stroke="#5BC900" stroke-width="2"/>
+    <text x="40" y="24" font-size="11" fill="#4F576D">eventos (ESP32 → cloud)</text>
+    <line x1="220" y1="20" x2="250" y2="20" stroke="#0098B6" stroke-width="2"/>
+    <text x="260" y="24" font-size="11" fill="#4F576D">estado / queries</text>
+    <line x1="400" y1="20" x2="430" y2="20" stroke="#7C5CFF" stroke-width="2"/>
+    <text x="440" y="24" font-size="11" fill="#4F576D">comandos / push</text>
+    <line x1="600" y1="20" x2="630" y2="20" stroke="#4F576D" stroke-width="1.5"/>
+    <text x="640" y="24" font-size="11" fill="#4F576D">flujo interno AWS</text>
+    <line x1="780" y1="20" x2="810" y2="20" stroke="#7C5CFF" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="820" y="24" font-size="11" fill="#4F576D">opcional / asincrónico</text>
+  </g>
+  <g transform="translate(40, 700)">
+    <rect width="1320" height="90" rx="10" fill="#F6F7FB" stroke="#E2E6F0"/>
+    <text x="20" y="22" font-size="11" font-weight="700" fill="#7C5CFF" letter-spacing="1">¿POR QUÉ NO HAY SQS?</text>
+    <text x="20" y="42" font-size="11" fill="#0A0F1F">SNS y SQS son patrones distintos. SNS = pub/sub fan-out (1 publisher → N suscribers); ideal para push notifications.</text>
+    <text x="20" y="58" font-size="11" fill="#0A0F1F">SQS = cola punto a punto (1 producer → 1 consumer); útil cuando el consumer no autoescala.</text>
+    <text x="20" y="74" font-size="11" fill="#4F576D">En nuestra arquitectura Lambda autoescala, no hay backpressure → no necesitamos SQS. Lo agregaríamos solo para Dead Letter Queue o procesamiento batch.</text>
+  </g>
+</svg>
