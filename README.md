@@ -25,12 +25,11 @@ Splash · Login · Registro · Dashboard · Control de puerta (7 estados: IDLE/O
 
 ### Equipo M1
 
-- Agustín Brocani
-- Juan Bianchi
-- Gonzalo Ghiano
-- Federico Martucci
-- Lucas Minaudo
-
+- Bianchi, Juan Alberto
+- Brocani, Agustín Nicolás
+- Ghiano, Gonzalo Agustín
+- Martucci, Federico Ariel
+- Minaudo, Lucas
 
 ### Cátedra
 
