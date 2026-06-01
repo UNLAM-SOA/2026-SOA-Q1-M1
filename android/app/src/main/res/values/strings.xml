@@ -4,8 +4,6 @@
     <string name="splash_subtitle">Puerta inteligente para tu mascota</string>
 
     <!-- Login -->
-    <string name="login_welcome">Bienvenido</string>
-    <string name="login_subtitle">Ingresá para controlar la puerta de tu mascota</string>
     <string name="login_button">Iniciar sesión</string>
     <string name="loading">Cargando…</string>
     <string name="login_no_account">¿No tenés cuenta?</string>
@@ -16,7 +14,6 @@
 
     <!-- Register -->
     <string name="register_title">Crear cuenta</string>
-    <string name="register_welcome">Bienvenido a PawGate</string>
     <string name="register_subtitle">Completá tus datos para crear una cuenta.</string>
     <string name="register_name_hint">Nombre</string>
     <string name="register_email_hint">Email</string>
@@ -71,15 +68,12 @@
 
     <!-- Toast placeholders -->
     <string name="toast_coming_soon">Próximamente</string>
-    <string name="toast_action_open">Abriendo puerta…</string>
     <string name="toast_action_block">Puerta bloqueada</string>
     <string name="toast_action_unblock">Puerta desbloqueada</string>
-    <string name="toast_action_call">Llamando a tu mascota…</string>
     <string name="action_cancel">Cancelar</string>
 
     <!-- Control de puerta -->
     <string name="control_title">Control de puerta</string>
-    <string name="cd_more_actions">Más acciones</string>
     <string name="control_status_live">EN VIVO · ESP32 CONECTADO</string>
     <string name="control_btn_open">ABRIR PUERTA</string>
     <string name="control_card_block_title">Bloquear</string>
@@ -91,7 +85,6 @@
     <string name="control_block_dialog_title">¿Bloquear puerta?</string>
     <string name="control_block_dialog_message">No se podrá abrir hasta que la desbloquees manualmente.</string>
     <string name="control_block_dialog_confirm">Bloquear</string>
-    <string name="control_block_dialog_cancel">Cancelar</string>
 
     <!-- Control de puerta - Estados visuales -->
     <string name="control_title_blocked">Modo seguridad</string>
