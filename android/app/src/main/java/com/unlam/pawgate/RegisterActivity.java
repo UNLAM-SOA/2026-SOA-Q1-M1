@@ -8,11 +8,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 public class RegisterActivity extends AppCompatActivity {
     private EditText name;
@@ -41,9 +37,14 @@ public class RegisterActivity extends AppCompatActivity {
                 return;
             }
 
+            String emailValue = getEmailValue();
+            // Persistimos el email para que AjustesActivity lo lea (mismo patron
+            // que LoginActivity). Si despues el user va a Login, vuelve a escribir.
+            PrefsHelper.setUserEmail(this, emailValue);
+
             Intent intent = new Intent(this, DashboardActivity.class);
+            intent.putExtra(LoginActivity.EXTRA_USER, emailValue);
             intent.putExtra("name", getNameValue());
-            intent.putExtra("email", getEmailValue());
 
             startActivity(intent);
             finish();
