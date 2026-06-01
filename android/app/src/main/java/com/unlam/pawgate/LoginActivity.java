@@ -32,8 +32,13 @@ public class LoginActivity extends AppCompatActivity {
         TextView loginRegisterLink = findViewById(R.id.login_register_link);
 
         login.setOnClickListener(v -> {
+            String emailValue = this.email.getText().toString();
+            // Persistimos el email para que cualquier Activity (Ajustes, etc.) pueda
+            // leerlo sin tener que pasarlo por Intent extras a traves de toda la app.
+            PrefsHelper.setUserEmail(this, emailValue);
+
             Intent i = new Intent(this, DashboardActivity.class);
-            i.putExtra(EXTRA_USER, this.email.getText().toString());
+            i.putExtra(EXTRA_USER, emailValue);
             i.putExtra(EXTRA_PASSWORD, this.password.getText().toString());
             startActivity(i);
             finish();
