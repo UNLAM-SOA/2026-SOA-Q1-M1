@@ -57,7 +57,7 @@
                 android:layout_marginTop="20dp"
                 android:id="@+id/dashboard_greeting"
                 android:text="@string/dashboard_greeting_template"
-                tools:text="Hola, Fede"
+                tools:text="Hola, Esteban"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"/>
@@ -67,10 +67,7 @@
                 android:orientation="vertical"
                 android:background="@drawable/bg_card"
                 android:padding="20dp"
-                android:id="@+id/dashboard_door_card"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?attr/selectableItemBackground">
+                android:id="@+id/dashboard_door_card">
                 <TextView android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:id="@+id/dashboard_door_status"
@@ -179,25 +176,27 @@
                         android:layout_height="80dp"
                         android:layout_weight="1"
                         android:layout_marginStart="6dp"
-                        android:background="@drawable/bg_button_secondary"
+                        android:background="@drawable/bg_button_outline_danger"
                         android:gravity="center"
                         android:padding="10dp"
                         android:id="@+id/action_block"
                         android:clickable="true"
                         android:focusable="true"
                         android:foreground="?attr/selectableItemBackground">
-                        <ImageView app:tint="@color/text_primary"
+                        <ImageView android:id="@+id/action_block_icon"
+                            app:tint="@color/accent_block"
                             android:layout_width="28dp"
                             android:layout_height="28dp"
                             android:src="@drawable/ic_lock"
                             android:contentDescription="@string/action_block" />
-                        <TextView android:layout_marginTop="8dp"
+                        <TextView android:id="@+id/action_block_label"
+                            android:layout_marginTop="8dp"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/action_block"
                             android:textSize="14sp"
                             android:textStyle="bold"
-                            android:textColor="@color/text_primary" />
+                            android:textColor="@color/accent_block" />
                     </LinearLayout>
                 </LinearLayout>
                 <LinearLayout android:orientation="horizontal"

@@ -11,7 +11,6 @@ import android.view.animation.RotateAnimation;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -19,35 +18,62 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 /**
- * Control de puerta - pantalla con 5 estados visuales:
+ * Control de puerta - render del estado que computa DoorStateMachine.
  *
- *   IDLE     -> default, puerta cerrada, listo para abrir.
- *   OPENING  -> W06a, abriendo (transient, dura 2s antes de pasar a OPEN).
- *   OPEN     -> W06b, abierta, se auto-cierra en 5s.
- *   BLOCKED  -> W06c, modo seguridad activo (hasta desbloquear manualmente).
- *   CALLING  -> W06d, buzzer activo (dura 3s antes de volver a IDLE).
+ * La Activity no mantiene el estado in-memory. En cada onResume y cada tick
+ * (1s) consulta a DoorStateMachine.currentState(ctx) y rendera. Asi el
+ * estado se mantiene aunque el user navegue Dashboard <-> Control: la fuente
+ * de verdad es SharedPreferences + clock.
  *
- * El estado se cambia via transitionTo(state) que dispara render(state).
- * Los timers de transicion automatica usan Handler.postDelayed.
+ * Reglas de interaccion (por requerimiento del producto):
  *
- * En onDestroy() limpiamos los callbacks pendientes para no leakear la Activity.
+ *   BigBtn (ABRIR/ABRIENDO/ABIERTA/CERRANDO/etc):
+ *     - IDLE      -> arranca ciclo OPEN_DOOR
+ *     - OPENING   -> cancela ciclo (tap big btn = mismo efecto que tap Cancelar)
+ *     - OPEN      -> NO clickable
+ *     - CLOSING   -> NO clickable
+ *     - BLOCKED   -> no hace nada (visualmente no clickable)
+ *     - CALLING   -> no hace nada
+ *     - CALL_ENDING -> no hace nada
+ *
+ *   Cards Bloquear y Llamar:
+ *     - Disabled (no clickable, dim al 50%) en OPENING / OPEN / CLOSING
+ *       (durante el ciclo de apertura no se puede ni bloquear ni llamar)
+ *     - Habilitadas en el resto (con la logica interna de cada listener)
+ *
+ *   Boton secundario abajo:
+ *     - OPENING        -> "Cancelar"
+ *     - BLOCKED        -> "Desbloquear"
+ *     - CALLING / CALL_ENDING -> "Detener llamada"
+ *     - resto          -> oculto
+ *
+ *   Info strip abajo:
+ *     - BLOCKED        -> "Modo seguridad activado"
+ *     - CALLING/CALL_ENDING -> "Tu mascota fue notificada"
+ *     - resto          -> "Ultima apertura: ahora · Manual · desde Control"
+ *       (reemplaza a la info del sensor de proximidad)
  */
 public class ControlActivity extends AppCompatActivity {
 
-    private enum ControlState {
-        IDLE, OPENING, OPEN, BLOCKED, CALLING
-    }
+    /** Si el Dashboard lanza Control con este extra=true, fuerza estado BLOCKED al arrancar. */
+    public static final String EXTRA_START_BLOCKED = "start_blocked";
 
-    // Duraciones de las transiciones automaticas (ms)
-    private static final long OPENING_DURATION_MS = 2_000L;
-    private static final long OPEN_DURATION_MS = 5_000L;
-    private static final long CALLING_DURATION_MS = 3_000L;
-
-    // Estado actual + handler para transiciones temporizadas
-    private ControlState currentState = ControlState.IDLE;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    // Refs a Views (cacheadas en bindViews() para no llamar findViewById en cada render)
+    /** Tick que re-renderiza el estado actual cada 1s.
+     *  Se autosuspende cuando llegamos a un estado terminal (IDLE / BLOCKED). */
+    private final Runnable refreshTickRunnable = new Runnable() {
+        @Override public void run() {
+            DoorStateMachine.DoorState now = currentState();
+            render(now);
+            if (now != DoorStateMachine.DoorState.IDLE
+                    && now != DoorStateMachine.DoorState.BLOCKED) {
+                handler.postDelayed(this, 1000);
+            }
+        }
+    };
+
+    // ===== Views cacheadas =====
     private TextView title;
     private LinearLayout statusPill;
     private View statusDot;
@@ -59,8 +85,10 @@ public class ControlActivity extends AppCompatActivity {
     private TextView btnSecondary;
     private LinearLayout cardBlock;
     private TextView cardBlockSubtitle;
+    private ImageView cardBlockArrow;
     private LinearLayout cardCall;
     private TextView cardCallSubtitle;
+    private ImageView cardCallArrow;
     private ImageView infoIcon;
     private TextView infoTitle;
     private TextView infoSubtitle;
@@ -69,30 +97,39 @@ public class ControlActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_control);
-        BottomNavHelper.markActive(this, R.id.nav_puerta_icon, R.id.nav_puerta_label);
 
         bindViews();
 
-        // Listeners de la pantalla
+        // Listeners
         bigBtn.setOnClickListener(v -> onBigBtnClick());
         cardBlock.setOnClickListener(v -> onBlockCardClick());
         cardCall.setOnClickListener(v -> onCallCardClick());
         btnSecondary.setOnClickListener(v -> onSecondaryBtnClick());
+        findViewById(R.id.control_back).setOnClickListener(v -> finish());
 
-        // Listeners del BottomNav
-        findViewById(R.id.nav_inicio).setOnClickListener(v -> finish());
-        findViewById(R.id.nav_historial).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
-        findViewById(R.id.nav_ajustes).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
+        BottomNavHelper.bind(this, R.id.nav_puerta);
 
-        // Render inicial (IDLE)
-        render(currentState);
+        // Si el Dashboard pidio arrancar BLOQUEADO, forzamos el flag antes del render.
+        if (getIntent().getBooleanExtra(EXTRA_START_BLOCKED, false)) {
+            PrefsHelper.setDoorBlocked(this, true);
+            PrefsHelper.clearCycle(this);
+        }
     }
 
     @Override
-    protected void onDestroy() {
-        // Cancelar callbacks pendientes para evitar leak/crash al destruir la Activity
-        handler.removeCallbacksAndMessages(null);
-        super.onDestroy();
+    protected void onResume() {
+        super.onResume();
+        // Arranca el tick. La primera ejecucion es inmediata (renderiza el estado actual)
+        // y se reagenda solo si el estado no es terminal.
+        refreshTickRunnable.run();
+    }
+
+    @Override
+    protected void onPause() {
+        // Pausamos el tick: ya no hace falta refrescar la UI cuando la Activity no es visible.
+        // El estado de la puerta sigue vivo en SharedPreferences; cuando volvamos lo re-leemos.
+        handler.removeCallbacks(refreshTickRunnable);
+        super.onPause();
     }
 
     // ============================================================
@@ -111,11 +148,17 @@ public class ControlActivity extends AppCompatActivity {
         btnSecondary = findViewById(R.id.control_btn_secondary);
         cardBlock = findViewById(R.id.control_card_block);
         cardBlockSubtitle = findViewById(R.id.control_card_block_subtitle);
+        cardBlockArrow = findViewById(R.id.control_card_block_arrow);
         cardCall = findViewById(R.id.control_card_call);
         cardCallSubtitle = findViewById(R.id.control_card_call_subtitle);
+        cardCallArrow = findViewById(R.id.control_card_call_arrow);
         infoIcon = findViewById(R.id.control_info_icon);
         infoTitle = findViewById(R.id.control_info_title);
         infoSubtitle = findViewById(R.id.control_info_subtitle);
+    }
+
+    private DoorStateMachine.DoorState currentState() {
+        return DoorStateMachine.currentState(this);
     }
 
     // ============================================================
@@ -123,79 +166,90 @@ public class ControlActivity extends AppCompatActivity {
     // ============================================================
 
     private void onBigBtnClick() {
-        switch (currentState) {
-            case IDLE:
-                // IDLE -> OPENING -> OPEN -> IDLE (ciclo completo simulado)
-                transitionTo(ControlState.OPENING);
-                handler.postDelayed(() -> transitionTo(ControlState.OPEN), OPENING_DURATION_MS);
-                handler.postDelayed(() -> transitionTo(ControlState.IDLE), OPENING_DURATION_MS + OPEN_DURATION_MS);
-                break;
-            case OPENING:
-            case OPEN:
-                // Cancelar ciclo actual y volver a IDLE
-                handler.removeCallbacksAndMessages(null);
-                transitionTo(ControlState.IDLE);
-                break;
-            case BLOCKED:
-            case CALLING:
-                // No se puede abrir mientras esta bloqueado/llamando
-                break;
+        DoorStateMachine.DoorState s = currentState();
+        if (s == DoorStateMachine.DoorState.IDLE) {
+            PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+            refreshTickRunnable.run();
+        } else if (s == DoorStateMachine.DoorState.OPENING) {
+            // Cancelar el ciclo en curso
+            PrefsHelper.clearCycle(this);
+            refreshTickRunnable.run();
         }
+        // En OPEN, CLOSING, BLOCKED, CALLING, CALL_ENDING -> no hace nada
     }
 
     private void onBlockCardClick() {
-        if (currentState == ControlState.BLOCKED) {
+        DoorStateMachine.DoorState s = currentState();
+        // Si estamos en un ciclo de apertura, las cards estan disabled
+        // (igualmente esto es safety net por si el setClickable falla).
+        if (s == DoorStateMachine.DoorState.OPENING
+                || s == DoorStateMachine.DoorState.OPEN
+                || s == DoorStateMachine.DoorState.CLOSING
+                || s == DoorStateMachine.DoorState.BLOCKED) {
             return;
         }
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.control_block_dialog_title)
                 .setMessage(R.string.control_block_dialog_message)
-                .setPositiveButton(R.string.control_block_dialog_confirm,
-                        (dialog, which) -> {
-                            handler.removeCallbacksAndMessages(null);
-                            transitionTo(ControlState.BLOCKED);
-                        })
+                .setPositiveButton(R.string.control_block_dialog_confirm, (dialog, which) -> {
+                    PrefsHelper.setDoorBlocked(this, true);
+                    PrefsHelper.clearCycle(this);
+                    refreshTickRunnable.run();
+                })
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
     }
 
     private void onCallCardClick() {
-        if (currentState == ControlState.CALLING || currentState == ControlState.BLOCKED) {
+        DoorStateMachine.DoorState s = currentState();
+        if (s == DoorStateMachine.DoorState.OPENING
+                || s == DoorStateMachine.DoorState.OPEN
+                || s == DoorStateMachine.DoorState.CLOSING
+                || s == DoorStateMachine.DoorState.BLOCKED
+                || s == DoorStateMachine.DoorState.CALLING
+                || s == DoorStateMachine.DoorState.CALL_ENDING) {
             return;
         }
-        handler.removeCallbacksAndMessages(null);
-        transitionTo(ControlState.CALLING);
-        handler.postDelayed(() -> transitionTo(ControlState.IDLE), CALLING_DURATION_MS);
+        PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
+        refreshTickRunnable.run();
     }
 
     private void onSecondaryBtnClick() {
-        // El boton secundario solo se muestra en BLOCKED ("Desbloquear")
-        // o en CALLING ("Detener llamada"). En ambos casos vuelve a IDLE.
-        if (currentState == ControlState.BLOCKED || currentState == ControlState.CALLING) {
-            handler.removeCallbacksAndMessages(null);
-            transitionTo(ControlState.IDLE);
+        DoorStateMachine.DoorState s = currentState();
+        switch (s) {
+            case BLOCKED:
+                PrefsHelper.setDoorBlocked(this, false);
+                PrefsHelper.clearCycle(this);
+                refreshTickRunnable.run();
+                break;
+            case OPENING:
+            case CALLING:
+            case CALL_ENDING:
+                PrefsHelper.clearCycle(this);
+                refreshTickRunnable.run();
+                break;
+            default:
+                // No deberia llegar (el boton solo es visible en los anteriores)
+                break;
         }
     }
 
     // ============================================================
-    // STATE MACHINE
+    // RENDER
     // ============================================================
 
-    private void transitionTo(ControlState newState) {
-        currentState = newState;
-        render(newState);
-    }
-
-    private void render(ControlState state) {
-        // Limpiar animacion previa (en caso de venir desde OPENING con spinner girando)
+    private void render(DoorStateMachine.DoorState state) {
+        // Limpia animacion previa del icono (spinner).
         bigBtnIcon.clearAnimation();
 
         switch (state) {
-            case IDLE:    renderIdle();    break;
-            case OPENING: renderOpening(); break;
-            case OPEN:    renderOpen();    break;
-            case BLOCKED: renderBlocked(); break;
-            case CALLING: renderCalling(); break;
+            case IDLE:        renderIdle();       break;
+            case OPENING:     renderOpening();    break;
+            case OPEN:        renderOpen();       break;
+            case CLOSING:     renderClosing();    break;
+            case BLOCKED:     renderBlocked();    break;
+            case CALLING:     renderCalling();    break;
+            case CALL_ENDING: renderCallEnding(); break;
         }
     }
 
@@ -208,25 +262,19 @@ public class ControlActivity extends AppCompatActivity {
         statusText.setTextColor(color(R.color.text_muted));
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_primary);
+        bigBtn.setClickable(true);
         bigBtnIcon.setImageResource(R.drawable.ic_door_open);
         bigBtnIcon.setColorFilter(color(R.color.bg_card));
         bigBtnLabel.setText(R.string.control_btn_open);
 
-        hint.setText(R.string.control_btn_open_hint);
+        hint.setVisibility(View.GONE);
         btnSecondary.setVisibility(View.GONE);
 
-        cardBlock.setBackgroundResource(R.drawable.bg_card);
-        cardBlockSubtitle.setText(R.string.control_card_block_subtitle);
-        cardBlockSubtitle.setTextColor(color(R.color.text_muted));
-
-        cardCall.setBackgroundResource(R.drawable.bg_card);
-        cardCallSubtitle.setText(R.string.control_card_call_subtitle);
-        cardCallSubtitle.setTextColor(color(R.color.text_muted));
-
-        infoIcon.setImageResource(R.drawable.ic_radio);
-        infoIcon.setColorFilter(color(R.color.text_primary));
-        infoTitle.setText(R.string.control_sensor_title);
-        infoSubtitle.setText(R.string.control_sensor_subtitle);
+        setActionCardsEnabled(true);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
+        renderCardCallInactive();
+        renderInfoLastOpen();
     }
 
     private void renderOpening() {
@@ -238,26 +286,24 @@ public class ControlActivity extends AppCompatActivity {
         statusText.setTextColor(color(R.color.accent_neon));
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_primary);
+        bigBtn.setClickable(true); // tap = cancelar (igual que el boton secundario)
         bigBtnIcon.setImageResource(R.drawable.ic_loader_circle);
         bigBtnIcon.setColorFilter(color(R.color.bg_card));
         startSpinningIcon();
         bigBtnLabel.setText(R.string.control_btn_opening);
 
-        hint.setText(R.string.control_hint_opening);
-        btnSecondary.setVisibility(View.GONE);
+        hint.setVisibility(View.GONE);
 
-        cardBlock.setBackgroundResource(R.drawable.bg_card);
-        cardBlockSubtitle.setText(R.string.control_card_block_subtitle);
-        cardBlockSubtitle.setTextColor(color(R.color.text_muted));
+        // "Cancelar" abajo
+        btnSecondary.setVisibility(View.VISIBLE);
+        btnSecondary.setText(R.string.control_secondary_cancel);
 
-        cardCall.setBackgroundResource(R.drawable.bg_card);
-        cardCallSubtitle.setText(R.string.control_card_call_subtitle);
-        cardCallSubtitle.setTextColor(color(R.color.text_muted));
-
-        infoIcon.setImageResource(R.drawable.ic_radio);
-        infoIcon.setColorFilter(color(R.color.text_primary));
-        infoTitle.setText(R.string.control_sensor_title);
-        infoSubtitle.setText(R.string.control_sensor_subtitle);
+        // Cards disabled durante el ciclo de apertura
+        setActionCardsEnabled(false);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
+        renderCardCallInactive();
+        renderInfoLastOpen();
     }
 
     private void renderOpen() {
@@ -265,29 +311,52 @@ public class ControlActivity extends AppCompatActivity {
 
         statusPill.setBackground(null);
         tintDot(R.color.accent_success);
-        statusText.setText(getString(R.string.control_status_open, OPEN_DURATION_MS / 1000));
         statusText.setTextColor(color(R.color.accent_success));
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_open_dark);
+        bigBtn.setClickable(false); // NO clickable en estado ABIERTA
         bigBtnIcon.setImageResource(R.drawable.ic_check);
         bigBtnIcon.setColorFilter(color(R.color.bg_card));
         bigBtnLabel.setText(R.string.control_btn_open_state);
 
-        hint.setText(getString(R.string.control_hint_open, OPEN_DURATION_MS / 1000));
+        hint.setVisibility(View.VISIBLE);
         btnSecondary.setVisibility(View.GONE);
 
-        cardBlock.setBackgroundResource(R.drawable.bg_card);
-        cardBlockSubtitle.setText(R.string.control_card_block_subtitle);
-        cardBlockSubtitle.setTextColor(color(R.color.text_muted));
+        setActionCardsEnabled(false);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
+        renderCardCallInactive();
+        renderInfoLastOpen();
 
-        cardCall.setBackgroundResource(R.drawable.bg_card);
-        cardCallSubtitle.setText(R.string.control_card_call_subtitle);
-        cardCallSubtitle.setTextColor(color(R.color.text_muted));
+        // Countdown (5..1) computado desde el helper.
+        int remaining = DoorStateMachine.secondsRemainingInCountdown(this);
+        statusText.setText(getString(R.string.control_status_open, remaining));
+        hint.setText(getString(R.string.control_hint_open, remaining));
+    }
 
-        infoIcon.setImageResource(R.drawable.ic_check_check);
-        infoIcon.setColorFilter(color(R.color.accent_success));
-        infoTitle.setText(R.string.control_info_last_open_title);
-        infoSubtitle.setText(R.string.control_info_last_open_subtitle);
+    private void renderClosing() {
+        title.setText(R.string.control_title);
+
+        statusPill.setBackground(null);
+        tintDot(R.color.accent_success);
+        statusText.setText(R.string.control_status_closing);
+        statusText.setTextColor(color(R.color.accent_success));
+
+        bigBtn.setBackgroundResource(R.drawable.bg_button_open_dark);
+        bigBtn.setClickable(false); // NO clickable en estado CERRANDO
+        bigBtnIcon.setImageResource(R.drawable.ic_loader_circle);
+        bigBtnIcon.setColorFilter(color(R.color.bg_card));
+        startSpinningIcon();
+        bigBtnLabel.setText(R.string.control_btn_closing);
+
+        hint.setVisibility(View.GONE);
+        btnSecondary.setVisibility(View.GONE);
+
+        setActionCardsEnabled(false);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
+        renderCardCallInactive();
+        renderInfoLastOpen();
     }
 
     private void renderBlocked() {
@@ -299,23 +368,29 @@ public class ControlActivity extends AppCompatActivity {
         statusText.setTextColor(color(R.color.accent_block));
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_blocked);
+        bigBtn.setClickable(false); // No se puede abrir mientras esta bloqueada
         bigBtnIcon.setImageResource(R.drawable.ic_lock);
         bigBtnIcon.setColorFilter(color(R.color.bg_card));
         bigBtnLabel.setText(R.string.control_btn_blocked);
 
+        hint.setVisibility(View.VISIBLE);
         hint.setText(R.string.control_hint_blocked);
 
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_unblock);
 
+        // Las cards no funcionan en BLOCKED (logica interna en cada listener),
+        // pero las dejamos clickables para no hacerlas ver disabled.
+        setActionCardsEnabled(true);
+        setCardsArrowsVisible(false); // sin flechita: indican que no hay accion
+
         cardBlock.setBackgroundResource(R.drawable.bg_card_active_danger);
         cardBlockSubtitle.setText(R.string.control_card_active);
         cardBlockSubtitle.setTextColor(color(R.color.accent_block));
 
-        cardCall.setBackgroundResource(R.drawable.bg_card);
-        cardCallSubtitle.setText(R.string.control_card_call_subtitle);
-        cardCallSubtitle.setTextColor(color(R.color.text_muted));
+        renderCardCallInactive();
 
+        // Info strip propio del modo seguridad
         infoIcon.setImageResource(R.drawable.ic_shield_check);
         infoIcon.setColorFilter(color(R.color.accent_block));
         infoTitle.setText(R.string.control_info_blocked_title);
@@ -327,22 +402,60 @@ public class ControlActivity extends AppCompatActivity {
 
         statusPill.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_pill_outlined_info));
         tintDot(R.color.accent_cyan);
-        statusText.setText(getString(R.string.control_status_calling, CALLING_DURATION_MS / 1000));
         statusText.setTextColor(color(R.color.accent_cyan));
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_calling);
+        bigBtn.setClickable(false);
         bigBtnIcon.setImageResource(R.drawable.ic_megaphone);
         bigBtnIcon.setColorFilter(color(R.color.bg_card));
         bigBtnLabel.setText(R.string.control_btn_calling);
 
-        hint.setText(getString(R.string.control_hint_calling, CALLING_DURATION_MS / 1000));
+        hint.setVisibility(View.VISIBLE);
 
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_stop_call);
 
-        cardBlock.setBackgroundResource(R.drawable.bg_card);
-        cardBlockSubtitle.setText(R.string.control_card_block_subtitle);
-        cardBlockSubtitle.setTextColor(color(R.color.text_muted));
+        setActionCardsEnabled(true);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
+
+        cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
+        cardCallSubtitle.setText(R.string.control_card_active);
+        cardCallSubtitle.setTextColor(color(R.color.accent_cyan));
+
+        // Info strip propio de la llamada
+        infoIcon.setImageResource(R.drawable.ic_bell);
+        infoIcon.setColorFilter(color(R.color.accent_cyan));
+        infoTitle.setText(R.string.control_info_calling_title);
+
+        // Countdown (3..1)
+        int remaining = DoorStateMachine.secondsRemainingInCountdown(this);
+        statusText.setText(getString(R.string.control_status_calling, remaining));
+        hint.setText(getString(R.string.control_hint_calling, remaining));
+        infoSubtitle.setText(getString(R.string.control_info_calling_subtitle, remaining));
+    }
+
+    private void renderCallEnding() {
+        title.setText(R.string.control_title_calling);
+
+        statusPill.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_pill_outlined_info));
+        tintDot(R.color.accent_cyan);
+        statusText.setText(R.string.control_status_call_ending);
+        statusText.setTextColor(color(R.color.accent_cyan));
+
+        bigBtn.setBackgroundResource(R.drawable.bg_button_calling);
+        bigBtn.setClickable(false);
+        bigBtnIcon.setImageResource(R.drawable.ic_loader_circle);
+        bigBtnIcon.setColorFilter(color(R.color.bg_card));
+        startSpinningIcon();
+        bigBtnLabel.setText(R.string.control_btn_call_ending);
+
+        hint.setVisibility(View.GONE);
+        btnSecondary.setVisibility(View.GONE);
+
+        setActionCardsEnabled(true);
+        setCardsArrowsVisible(true);
+        renderCardBlockInactive();
 
         cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
         cardCallSubtitle.setText(R.string.control_card_active);
@@ -351,19 +464,60 @@ public class ControlActivity extends AppCompatActivity {
         infoIcon.setImageResource(R.drawable.ic_bell);
         infoIcon.setColorFilter(color(R.color.accent_cyan));
         infoTitle.setText(R.string.control_info_calling_title);
-        infoSubtitle.setText(getString(R.string.control_info_calling_subtitle, CALLING_DURATION_MS / 1000));
+        infoSubtitle.setText(getString(R.string.control_info_calling_subtitle, 0));
+    }
+
+    // ============================================================
+    // RENDER HELPERS (partes reusables)
+    // ============================================================
+
+    private void renderCardBlockInactive() {
+        cardBlock.setBackgroundResource(R.drawable.bg_card);
+        cardBlockSubtitle.setText(R.string.control_card_block_subtitle);
+        cardBlockSubtitle.setTextColor(color(R.color.text_muted));
+    }
+
+    private void renderCardCallInactive() {
+        cardCall.setBackgroundResource(R.drawable.bg_card);
+        cardCallSubtitle.setText(R.string.control_card_call_subtitle);
+        cardCallSubtitle.setTextColor(color(R.color.text_muted));
+    }
+
+    /**
+     * Info strip "Ultima apertura: ahora · Manual · desde Control".
+     * Reemplaza al sensor de proximidad que mostrabamos antes en IDLE/OPENING.
+     */
+    private void renderInfoLastOpen() {
+        infoIcon.setImageResource(R.drawable.ic_check_check);
+        infoIcon.setColorFilter(color(R.color.accent_success));
+        infoTitle.setText(R.string.control_info_last_open_title);
+        infoSubtitle.setText(R.string.control_info_last_open_subtitle);
+    }
+
+    /** Habilita o deshabilita las cards Bloquear y Llamar.
+     *  Cuando esta disabled: no responde a clicks + alpha 50% para feedback visual. */
+    private void setActionCardsEnabled(boolean enabled) {
+        cardBlock.setClickable(enabled);
+        cardCall.setClickable(enabled);
+        float alpha = enabled ? 1.0f : 0.5f;
+        cardBlock.setAlpha(alpha);
+        cardCall.setAlpha(alpha);
+    }
+
+    private void setCardsArrowsVisible(boolean visible) {
+        int v = visible ? View.VISIBLE : View.GONE;
+        cardBlockArrow.setVisibility(v);
+        cardCallArrow.setVisibility(v);
     }
 
     // ============================================================
     // HELPERS
     // ============================================================
 
-    /** Tinta el dot del pill con el color indicado (usa background tint). */
     private void tintDot(int colorRes) {
         statusDot.setBackgroundTintList(ColorStateList.valueOf(color(colorRes)));
     }
 
-    /** Aplica una RotateAnimation infinita (1s por vuelta) al icono del bigBtn. */
     private void startSpinningIcon() {
         RotateAnimation rotate = new RotateAnimation(
                 0f, 360f,
@@ -378,9 +532,5 @@ public class ControlActivity extends AppCompatActivity {
 
     private int color(int resId) {
         return ContextCompat.getColor(this, resId);
-    }
-
-    private void showToast(int messageRes) {
-        Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show();
     }
 }

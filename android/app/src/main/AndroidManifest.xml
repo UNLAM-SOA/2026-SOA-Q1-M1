@@ -19,7 +19,22 @@
             android:exported="false" />
         <activity
             android:name=".DashboardActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".HistorialActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".HorariosActivity"
             android:exported="false" />
+        <activity
+            android:name=".NotificacionesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".AjustesActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
         <activity
             android:name=".LoginActivity"
             android:exported="false" />

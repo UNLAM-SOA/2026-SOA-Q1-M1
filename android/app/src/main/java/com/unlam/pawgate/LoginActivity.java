@@ -6,11 +6,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 public class LoginActivity extends AppCompatActivity {
     private EditText email;
@@ -18,12 +14,9 @@ public class LoginActivity extends AppCompatActivity {
     public static final String EXTRA_USER = "user";
     public static final String EXTRA_PASSWORD = "password";
 
-
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_login);
 
         this.email = findViewById(R.id.login_email_input);
@@ -32,8 +25,13 @@ public class LoginActivity extends AppCompatActivity {
         TextView loginRegisterLink = findViewById(R.id.login_register_link);
 
         login.setOnClickListener(v -> {
+            String emailValue = this.email.getText().toString();
+            // Persistimos el email para que cualquier Activity (Ajustes, etc.) pueda
+            // leerlo sin tener que pasarlo por Intent extras a traves de toda la app.
+            PrefsHelper.setUserEmail(this, emailValue);
+
             Intent i = new Intent(this, DashboardActivity.class);
-            i.putExtra(EXTRA_USER, this.email.getText().toString());
+            i.putExtra(EXTRA_USER, emailValue);
             i.putExtra(EXTRA_PASSWORD, this.password.getText().toString());
             startActivity(i);
             finish();
@@ -44,6 +42,4 @@ public class LoginActivity extends AppCompatActivity {
             startActivity(i);
         });
     }
-
-
 }

@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Control de puerta — pantalla con 4 estados visuales manejados por ControlActivity:
-  IDLE (default), OPENING (W06a), OPEN (W06b), BLOCKED (W06c), CALLING (W06d).
+  Control de puerta - pantalla con 7 estados visuales manejados por ControlActivity:
+    IDLE, OPENING (W06a), OPEN (W06b), CLOSING, BLOCKED (W06c), CALLING (W06d), CALL_ENDING.
 
-  La logica de render esta en ControlActivity.java -> render(ControlState).
-  Los IDs marcados con // dynamic en los comentarios cambian segun el estado.
+  Logica en ControlActivity.java -> render(ControlState).
+  Vistas con id @+id/control_* son las que mutan dinamicamente.
+
+  Topbar restructurado como LinearLayout horizontal (igual que Historial/Horarios)
+  con back button a la izquierda + title centrado + spacer a la derecha para
+  balancear visualmente.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -16,29 +20,67 @@
     android:background="@color/bg_base"
     tools:context=".ControlActivity">
 
-    <!-- Title: cambia entre "Control de puerta" / "Modo seguridad" / "Llamando a Toby" -->
-    <TextView
-        android:id="@+id/control_title"
-        android:layout_width="match_parent"
+    <!-- TopBar: [back] [title centrado] [spacer para balancear] -->
+    <LinearLayout
+        android:id="@+id/control_topbar"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/control_title"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="@color/text_primary"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent">
 
-    <ScrollView android:id="@+id/control_scroll"
+        <FrameLayout
+            android:id="@+id/control_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="12dp"
+            android:background="@drawable/bg_topbar_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:contentDescription="@string/cd_back_button">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_chevron_left"
+                app:tint="@color/text_primary"
+                android:contentDescription="@string/cd_back_button" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/control_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:gravity="center"
+            android:text="@string/control_title"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <!-- Spacer del mismo width que el back para que el title quede visualmente centrado -->
+        <View
+            android:layout_width="44dp"
+            android:layout_height="44dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/control_scroll"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@id/control_title"
+        app:layout_constraintTop_toBottomOf="@id/control_topbar"
         app:layout_constraintBottom_toTopOf="@id/bottom_nav"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout android:orientation="vertical"
+        <LinearLayout
+            android:orientation="vertical"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="16dp">
@@ -99,19 +141,21 @@
                     android:letterSpacing="0.15" />
             </LinearLayout>
 
-            <!-- Hint: cambia dinamicamente (Manten presionado / Solta para cancelar / etc) -->
+            <!-- Hint: se muestra solo cuando hace falta (OPEN/BLOCKED/CALLING).
+                 visibility=gone por default; ControlActivity la prende segun el estado. -->
             <TextView android:id="@+id/control_btn_hint"
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="8dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/control_btn_open_hint"
                 android:textSize="12sp"
                 android:textColor="@color/text_muted"
-                android:gravity="center" />
+                android:gravity="center"
+                android:visibility="gone"
+                tools:text="Cerrará automáticamente en 5s"
+                tools:visibility="visible" />
 
-            <!-- Boton secundario: "Desbloquear" (BLOQUEADO) o "Detener llamada" (LLAMANDO).
-                 visibility=gone por default; se muestra solo en esos 2 estados. -->
+            <!-- Boton secundario: "Desbloquear" o "Detener llamada". gone por default. -->
             <TextView android:id="@+id/control_btn_secondary"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
@@ -128,14 +172,13 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
 
-            <!-- Row de 2 cards: Bloquear (izq) + Llamar a Toby (der) -->
+            <!-- Row de 2 cards: Bloquear (izq) + Llamar (der) -->
             <LinearLayout android:baselineAligned="false"
                 android:orientation="horizontal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp">
 
-                <!-- Card Bloquear: background cambia a bg_card_active_danger cuando BLOCKED -->
                 <LinearLayout android:id="@+id/control_card_block"
                     android:orientation="vertical"
                     android:layout_width="0dp"
@@ -166,7 +209,9 @@
                             android:layout_width="0dp"
                             android:layout_height="0dp" />
 
-                        <ImageView android:src="@drawable/ic_arrow_up_right"
+                        <!-- Arrow se oculta cuando esta BLOQUEADO -->
+                        <ImageView android:id="@+id/control_card_block_arrow"
+                            android:src="@drawable/ic_arrow_up_right"
                             android:layout_width="14dp"
                             android:layout_height="14dp"
                             app:tint="@color/text_muted"
@@ -194,7 +239,6 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Card Llamar: background cambia a bg_card_active_info cuando CALLING -->
                 <LinearLayout android:id="@+id/control_card_call"
                     android:orientation="vertical"
                     android:layout_width="0dp"
@@ -224,7 +268,9 @@
                             android:layout_width="0dp"
                             android:layout_height="0dp" />
 
-                        <ImageView android:src="@drawable/ic_arrow_up_right"
+                        <!-- Arrow se oculta cuando esta BLOQUEADO -->
+                        <ImageView android:id="@+id/control_card_call_arrow"
+                            android:src="@drawable/ic_arrow_up_right"
                             android:layout_width="14dp"
                             android:layout_height="14dp"
                             app:tint="@color/text_muted"
@@ -253,7 +299,7 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Bottom info strip: cambia entre sensor / ultima apertura / modo seguridad / Toby notificado -->
+            <!-- Bottom info strip: sensor / ultima apertura / modo seguridad / mascota notificada -->
             <LinearLayout android:id="@+id/control_info_strip"
                 android:baselineAligned="false"
                 android:orientation="horizontal"
