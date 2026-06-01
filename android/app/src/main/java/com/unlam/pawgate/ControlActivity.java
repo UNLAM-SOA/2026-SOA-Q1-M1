@@ -11,7 +11,6 @@ import android.view.animation.RotateAnimation;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -69,7 +68,7 @@ public class ControlActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_control);
-        BottomNavHelper.markActive(this, R.id.nav_puerta_icon, R.id.nav_puerta_label);
+        BottomNavHelper.bind(this, R.id.nav_puerta);
 
         bindViews();
 
@@ -78,11 +77,6 @@ public class ControlActivity extends AppCompatActivity {
         cardBlock.setOnClickListener(v -> onBlockCardClick());
         cardCall.setOnClickListener(v -> onCallCardClick());
         btnSecondary.setOnClickListener(v -> onSecondaryBtnClick());
-
-        // Listeners del BottomNav
-        findViewById(R.id.nav_inicio).setOnClickListener(v -> finish());
-        findViewById(R.id.nav_historial).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
-        findViewById(R.id.nav_ajustes).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
 
         // Render inicial (IDLE)
         render(currentState);
@@ -378,9 +372,5 @@ public class ControlActivity extends AppCompatActivity {
 
     private int color(int resId) {
         return ContextCompat.getColor(this, resId);
-    }
-
-    private void showToast(int messageRes) {
-        Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show();
     }
 }

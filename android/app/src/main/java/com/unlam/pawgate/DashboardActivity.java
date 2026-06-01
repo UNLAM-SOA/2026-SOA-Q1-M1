@@ -12,7 +12,6 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_dashboard);
-        BottomNavHelper.markActive(this, R.id.nav_inicio_icon, R.id.nav_inicio_label);
 
         String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
 
@@ -25,12 +24,9 @@ public class DashboardActivity extends AppCompatActivity {
         findViewById(R.id.action_open).setOnClickListener(v -> showToast(R.string.toast_action_open));
         findViewById(R.id.action_block).setOnClickListener(v -> showToast(R.string.toast_action_block));
         findViewById(R.id.action_call).setOnClickListener(v -> showToast(R.string.toast_action_call));
-        findViewById(R.id.nav_puerta).setOnClickListener(v -> openControl());
-        findViewById(R.id.nav_historial).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
-        findViewById(R.id.nav_ajustes).setOnClickListener(v -> showToast(R.string.toast_coming_soon));
         findViewById(R.id.action_schedules).setOnClickListener(v -> startActivity(new Intent(this, HorariosActivity.class)));
 
-        BottomNavBinder.bind(this, R.id.nav_inicio);
+        BottomNavHelper.bind(this, R.id.nav_inicio);
     }
 
     private void showToast(int messageRes) {

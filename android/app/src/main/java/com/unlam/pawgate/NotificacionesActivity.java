@@ -65,7 +65,7 @@ public class NotificacionesActivity extends AppCompatActivity {
             list.addView(renderizarNotificacion(inflater, list, notificaciones[i]));
         }
 
-        BottomNavBinder.bind(this, R.id.nav_inicio);
+        BottomNavHelper.bind(this, R.id.nav_inicio);
     }
 
     private View renderizarNotificacion(LayoutInflater inflater, ViewGroup parent, Notificacion n) {

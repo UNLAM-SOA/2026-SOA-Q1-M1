@@ -61,7 +61,7 @@ public class HorariosActivity extends AppCompatActivity {
             list.addView(renderizarHorario(inflater, list, h));
         }
 
-        BottomNavBinder.bind(this, R.id.nav_ajustes);
+        BottomNavHelper.bind(this, R.id.nav_ajustes);
     }
 
     private View renderizarHorario(LayoutInflater inflater, ViewGroup parent, Horario h) {

@@ -68,7 +68,7 @@ public class HistorialActivity extends AppCompatActivity {
             list.addView(renderizarEvento(inflater, list, eventos[i]));
         }
 
-        BottomNavBinder.bind(this, R.id.nav_historial);
+        BottomNavHelper.bind(this, R.id.nav_historial);
     }
 
     private View renderizarEvento(LayoutInflater inflater, ViewGroup parent, Evento e) {

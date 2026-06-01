@@ -45,7 +45,7 @@ public class AjustesActivity extends AppCompatActivity {
         LinearLayout notificaciones = agregarSeccion(R.string.ajustes_section_notifications, null);
         agregarFila(notificaciones, setToggle(crearFila(R.drawable.ic_bell, R.string.ajustes_notif_push, null)));
 
-        BottomNavBinder.bind(this, R.id.nav_ajustes);
+        BottomNavHelper.bind(this, R.id.nav_ajustes);
     }
 
     private LinearLayout agregarSeccion(int tituloRes, String badge) {
