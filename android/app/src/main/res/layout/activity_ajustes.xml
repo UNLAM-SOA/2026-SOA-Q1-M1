@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ajustes - Configuracion del dispositivo, sensores, horarios y notificaciones.
+
+  Estructura 100% estatica en XML (sin builders programaticos en la Activity).
+  La AjustesActivity solo wirea:
+    - Texto del profile (nombre/email del Login via PrefsHelper).
+    - Click del row Horarios -> abre HorariosActivity.
+    - Click del row Push -> toggle del switch + persistir en PrefsHelper.
+
+  Patron de seccion: header (10sp bold text_muted letterSpacing=0.15)
+  seguido de un LinearLayout vertical con bg_card que contiene rows
+  separados por <View height=1dp bg=border_subtle/>.
+
+  Patron de row: LinearLayout horizontal con icono + (titulo + subtitulo)
+  + accessory (chevron / badge / toggle).
+
+  Los strings y los iconos estan hardcodeados como placeholder. Cuando
+  conectemos al backend (Fase 17), reemplazamos los TextView/ImageView
+  por bindings que lean del API o de SharedPreferences.
+-->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -45,6 +65,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- ============== PROFILE CARD ============== -->
             <LinearLayout
                 android:id="@+id/ajustes_profile_card"
                 android:layout_width="match_parent"
@@ -100,16 +121,158 @@
                     android:contentDescription="@null" />
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/ajustes_sections"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
+            <!-- ============== SECTION: DISPOSITIVO ============== -->
+            <LinearLayout style="@style/AjustesSectionHeader">
+                <TextView style="@style/AjustesSectionTitle"
+                    android:text="@string/ajustes_section_device" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/AjustesSectionCard">
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_cpu" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_esp32" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="Conectado · v1.0.3" />
+                    </LinearLayout>
+                    <ImageView style="@style/AjustesRowChevron" />
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_wifi" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_wifi" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="PawGate_5G · -42 dBm" />
+                    </LinearLayout>
+                    <ImageView style="@style/AjustesRowChevron" />
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_globe" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_ip" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="192.168.1.42" />
+                    </LinearLayout>
+                    <ImageView style="@style/AjustesRowChevron" />
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_timer" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_uptime" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="3 d · 12 h · 24 min" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_hash" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_mac" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="AC:67:B2:1F:88:42" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============== SECTION: SENSORES ============== -->
+            <LinearLayout style="@style/AjustesSectionHeader">
+                <TextView style="@style/AjustesSectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/ajustes_section_sensors" />
+                <TextView style="@style/AjustesBadgeSuccess"
+                    android:text="@string/ajustes_badge_all_ok" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/AjustesSectionCard">
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_radio" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_sensor_ultrasound" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="Distancia: 14 cm · 20 Hz" />
+                    </LinearLayout>
+                    <TextView style="@style/AjustesBadgeSuccess" android:text="@string/ajustes_badge_active" />
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_settings" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_sensor_servo" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="Posición: 0° · cerrado" />
+                    </LinearLayout>
+                    <TextView style="@style/AjustesBadgeSuccess" android:text="@string/ajustes_badge_ok" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============== SECTION: HORARIOS ============== -->
+            <LinearLayout style="@style/AjustesSectionHeader">
+                <TextView style="@style/AjustesSectionTitle"
+                    android:text="@string/ajustes_section_schedules" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/AjustesSectionCard">
+                <!-- Row clickable que abre HorariosActivity -->
+                <LinearLayout
+                    android:id="@+id/ajustes_row_schedules"
+                    style="@style/AjustesRow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_calendar" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_schedules_row" />
+                        <TextView style="@style/AjustesRowSubtitle" android:text="@string/ajustes_schedules_subtitle" />
+                    </LinearLayout>
+                    <ImageView style="@style/AjustesRowChevron" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============== SECTION: NOTIFICACIONES ============== -->
+            <LinearLayout style="@style/AjustesSectionHeader">
+                <TextView style="@style/AjustesSectionTitle"
+                    android:text="@string/ajustes_section_notifications" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/AjustesSectionCard">
+
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_bell" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_notif_push" />
+                    </LinearLayout>
+
+                    <!-- Toggle Push: estilo custom (track 40x22dp + knob 16x16dp).
+                         AjustesActivity le aplica el estado encendido/apagado
+                         leyendo PrefsHelper.isPushEnabled() en onCreate y al toque. -->
+                    <FrameLayout
+                        android:id="@+id/ajustes_push_toggle"
+                        android:layout_width="40dp"
+                        android:layout_height="22dp"
+                        android:layout_marginStart="12dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <View
+                            android:id="@+id/ajustes_push_knob"
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:background="@drawable/bg_toggle_knob" />
+                    </FrameLayout>
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
-    <include
-        android:id="@+id/bottom_nav"
+    <include android:id="@+id/bottom_nav"
         layout="@layout/bottom_nav"
         android:layout_width="0dp"
         android:layout_height="wrap_content"

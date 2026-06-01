@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Estilos compartidos por activity_ajustes.xml para no repetir las mismas
+  10 propiedades en cada uno de los ~10 rows. Mantenerlos aca permite que
+  un cambio (por ej. mas padding) se aplique a todas las filas a la vez.
+-->
+<resources>
+
+    <!-- Header de seccion (ej: "DISPOSITIVO" arriba de cada card). -->
+    <style name="AjustesSectionHeader">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingHorizontal">4dp</item>
+        <item name="android:layout_marginTop">14dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+    </style>
+
+    <!-- Titulo del header de seccion (texto en mayusculas pequenas). -->
+    <style name="AjustesSectionTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_muted</item>
+        <item name="android:letterSpacing">0.15</item>
+    </style>
+
+    <!-- Card que agrupa las filas de una seccion. -->
+    <style name="AjustesSectionCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@drawable/bg_card</item>
+    </style>
+
+    <!-- Container horizontal de una fila (icono + textos + accessory). -->
+    <style name="AjustesRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:paddingVertical">12dp</item>
+    </style>
+
+    <!-- Icono de la fila (a la izquierda). -->
+    <style name="AjustesRowIcon">
+        <item name="android:layout_width">18dp</item>
+        <item name="android:layout_height">18dp</item>
+        <item name="android:tint">@color/text_secondary</item>
+        <item name="android:contentDescription">@null</item>
+    </style>
+
+    <!-- Container vertical para titulo + subtitulo (entre icono y accessory). -->
+    <style name="AjustesRowTexts">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <!-- Titulo de la fila. -->
+    <style name="AjustesRowTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- Subtitulo de la fila (mas chico, gris). -->
+    <style name="AjustesRowSubtitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">1dp</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+    </style>
+
+    <!-- Chevron derecho como accessory (indica row clickeable). -->
+    <style name="AjustesRowChevron">
+        <item name="android:layout_width">18dp</item>
+        <item name="android:layout_height">18dp</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:src">@drawable/ic_chevron_right</item>
+        <item name="android:tint">@color/text_muted</item>
+        <item name="android:contentDescription">@null</item>
+    </style>
+
+    <!-- Linea divisora entre filas de una misma card. -->
+    <style name="AjustesRowDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">@color/border_subtle</item>
+    </style>
+
+    <!-- Badge verde "Activo / OK / Todo OK" como accessory o en header. -->
+    <style name="AjustesBadgeSuccess">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/accent_success</item>
+        <item name="android:background">@drawable/bg_badge_success</item>
+        <item name="android:paddingHorizontal">8dp</item>
+        <item name="android:paddingVertical">3dp</item>
+    </style>
+</resources>
