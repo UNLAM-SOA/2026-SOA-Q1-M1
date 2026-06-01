@@ -40,7 +40,6 @@
 
     <!-- Dashboard - Card estado puerta -->
     <string name="dashboard_door_closed">Puerta · Cerrada</string>
-    <string name="dashboard_door_open">Puerta · Abierta</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
     <string name="dashboard_door_opening">Puerta · Abriendo…</string>
     <string name="dashboard_door_open_countdown">Puerta · Abierta · %1$ds</string>
