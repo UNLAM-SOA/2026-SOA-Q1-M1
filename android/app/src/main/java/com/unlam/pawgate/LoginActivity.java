@@ -6,11 +6,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 public class LoginActivity extends AppCompatActivity {
     private EditText email;
@@ -18,12 +14,9 @@ public class LoginActivity extends AppCompatActivity {
     public static final String EXTRA_USER = "user";
     public static final String EXTRA_PASSWORD = "password";
 
-
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_login);
 
         this.email = findViewById(R.id.login_email_input);
@@ -49,6 +42,4 @@ public class LoginActivity extends AppCompatActivity {
             startActivity(i);
         });
     }
-
-
 }
