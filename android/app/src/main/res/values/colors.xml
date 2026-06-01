@@ -13,4 +13,5 @@
     <color name="accent_cyan">#0098B6</color>
     <color name="accent_warning">#C97300</color>
     <color name="accent_danger">#D8203A</color>
+    <color name="accent_block">#F0535B</color>
 </resources>
