@@ -24,11 +24,10 @@ public final class BottomNavHelper {
         View tab = host.findViewById(tabId);
         if (tab == null) return;
 
-        boolean active = tabId == activeTabId;
-        markActive(host, iconId, labelId, active);
+        markActive(host, iconId, labelId, tabId == activeTabId);
 
         tab.setOnClickListener(v -> {
-            if (active) return;
+            if (target.isInstance(host)) return;
             Intent intent = new Intent(host, target);
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             host.startActivity(intent);
