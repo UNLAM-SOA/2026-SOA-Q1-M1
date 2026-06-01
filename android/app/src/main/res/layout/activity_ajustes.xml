@@ -1,24 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Ajustes - Configuracion del dispositivo, sensores, horarios y notificaciones.
-
-  Estructura 100% estatica en XML (sin builders programaticos en la Activity).
-  La AjustesActivity solo wirea:
-    - Texto del profile (nombre/email del Login via PrefsHelper).
-    - Click del row Horarios -> abre HorariosActivity.
-    - Click del row Push -> toggle del switch + persistir en PrefsHelper.
-
-  Patron de seccion: header (10sp bold text_muted letterSpacing=0.15)
-  seguido de un LinearLayout vertical con bg_card que contiene rows
-  separados por <View height=1dp bg=border_subtle/>.
-
-  Patron de row: LinearLayout horizontal con icono + (titulo + subtitulo)
-  + accessory (chevron / badge / toggle).
-
-  Los strings y los iconos estan hardcodeados como placeholder. Cuando
-  conectemos al backend (Fase 17), reemplazamos los TextView/ImageView
-  por bindings que lean del API o de SharedPreferences.
--->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"

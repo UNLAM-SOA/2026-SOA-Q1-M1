@@ -12,17 +12,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
-/**
- * Ajustes - Configuracion del dispositivo, sensores, horarios y notificaciones.
- *
- * 100% de la estructura visual esta en activity_ajustes.xml + styles_ajustes.xml.
- * Esta Activity solo wirea 4 cosas:
- *   1) Profile card: pone el nombre/email leyendo PrefsHelper (vienen del Login).
- *   2) Row "Horarios programados": click abre HorariosActivity.
- *   3) Toggle Push: lee/escribe PrefsHelper.isPushEnabled() y mueve visualmente
- *      el knob a izq/der segun el estado.
- *   4) BottomNavHelper.bind para marcar Ajustes como tab activo.
- */
 public class AjustesActivity extends AppCompatActivity {
 
     private FrameLayout pushToggle;
