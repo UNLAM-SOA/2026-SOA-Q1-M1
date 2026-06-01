@@ -4,4 +4,25 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
+    <path
+        android:pathData="M13 12a1 1 0 1 1-2 0a1 1 0 0 1 2 0z"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/black"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/black"/>
+    <path
+        android:pathData="M20 12a1 1 0 1 1-2 0a1 1 0 0 1 2 0z"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/black"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/black"/>
+    <path
+        android:pathData="M6 12a1 1 0 1 1-2 0a1 1 0 0 1 2 0z"
+        android:strokeWidth="2"
+        android:strokeColor="@android:color/black"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/black"/>
 </vector>
