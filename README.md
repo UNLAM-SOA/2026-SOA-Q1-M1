@@ -25,9 +25,12 @@ Splash · Login · Registro · Dashboard · Control de puerta (7 estados: IDLE/O
 
 ### Equipo M1
 
-- Federico Martucci
 - Agustín Brocani
-- Juan Esteban
+- Juan Bianchi
+- Gonzalo Ghiano
+- Federico Martucci
+- Lucas Minaudo
+
 
 ### Cátedra
 
