@@ -1,5 +1,7 @@
 package com.unlam.pawgate;
 
+import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -16,6 +18,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 public class AjustesActivity extends AppCompatActivity {
+
+    private static final String PREFS = "pawgate_prefs";
+    private static final String KEY_PUSH = "push_enabled";
 
     private LinearLayout container;
     private LayoutInflater inflater;
@@ -116,18 +121,40 @@ public class AjustesActivity extends AppCompatActivity {
     private View setToggle(View row) {
         FrameLayout track = new FrameLayout(this);
         track.setLayoutParams(new FrameLayout.LayoutParams(dp(40), dp(22)));
-        track.setBackgroundResource(R.drawable.bg_chip_active);
+        track.setClickable(true);
+        track.setFocusable(true);
 
         View knob = new View(this);
-        FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(dp(16), dp(16));
-        knobParams.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
-        knobParams.setMarginEnd(dp(3));
-        knob.setLayoutParams(knobParams);
-        knob.setBackgroundResource(R.drawable.bg_toggle_knob);
         track.addView(knob);
+
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        boolean[] encendido = {prefs.getBoolean(KEY_PUSH, true)};
+        aplicarToggle(track, knob, encendido[0]);
+
+        track.setOnClickListener(v -> {
+            encendido[0] = !encendido[0];
+            aplicarToggle(track, knob, encendido[0]);
+            prefs.edit().putBoolean(KEY_PUSH, encendido[0]).apply();
+        });
 
         accessory(row).addView(track);
         return row;
+    }
+
+    private void aplicarToggle(FrameLayout track, View knob, boolean encendido) {
+        track.setBackgroundResource(encendido ? R.drawable.bg_chip_active : R.drawable.bg_chip_inactive);
+
+        FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(dp(16), dp(16));
+        knobParams.gravity = (encendido ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
+        if (encendido) {
+            knobParams.setMarginEnd(dp(3));
+        } else {
+            knobParams.setMarginStart(dp(3));
+        }
+        knob.setLayoutParams(knobParams);
+        knob.setBackgroundResource(R.drawable.bg_toggle_knob);
+        knob.setBackgroundTintList(ColorStateList.valueOf(
+                ContextCompat.getColor(this, encendido ? R.color.bg_card : R.color.text_muted)));
     }
 
     private FrameLayout accessory(View row) {
