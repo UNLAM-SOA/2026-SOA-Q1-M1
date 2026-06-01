@@ -63,4 +63,69 @@
     <string name="toast_action_open">Abriendo puerta…</string>
     <string name="toast_action_block">Puerta bloqueada</string>
     <string name="toast_action_call">Llamando a Toby…</string>
+
+    <!-- Historial -->
+    <string name="historial_title">Historial</string>
+    <string name="cd_filter">Filtrar</string>
+    <string name="historial_filter_todas">Todas</string>
+    <string name="historial_filter_hoy">Hoy</string>
+    <string name="historial_filter_ayer">Ayer</string>
+    <string name="historial_filter_7d">7d</string>
+    <string name="historial_event_puerta_abierta">Puerta abierta</string>
+    <string name="historial_event_luz_apagada">Luz apagada</string>
+    <string name="historial_event_puerta_bloqueada">Puerta bloqueada</string>
+    <string name="historial_event_luz_encendida">Luz encendida</string>
+    <string name="historial_event_wifi">WiFi reconectado</string>
+    <string name="historial_event_nocturno">Horario nocturno activado</string>
+    <string name="historial_event_puerta_desbloqueada">Puerta desbloqueada</string>
+
+    <!-- Horarios -->
+    <string name="horarios_title">Horarios</string>
+    <string name="cd_add">Agregar</string>
+    <string name="horarios_programados">Horarios programados</string>
+    <string name="horarios_add_button">+ Agregar horario</string>
+    <string name="horarios_tipo_abrir">Abrir automático</string>
+    <string name="horarios_tipo_nocturno">Modo nocturno</string>
+    <string name="horarios_tipo_paseo">Paseo tarde</string>
+    <string name="horarios_estado_on">ON</string>
+    <string name="horarios_estado_off">OFF</string>
+    <string name="horarios_day_l">L</string>
+    <string name="horarios_day_m1">M</string>
+    <string name="horarios_day_x">X</string>
+    <string name="horarios_day_j">J</string>
+    <string name="horarios_day_v">V</string>
+    <string name="horarios_day_s">S</string>
+    <string name="horarios_day_d">D</string>
+
+    <!-- Notificaciones -->
+    <string name="notificaciones_title">Notificaciones</string>
+    <string name="notificaciones_mark_read">Marcar leídas</string>
+    <string name="notificaciones_filter_todas">Todas</string>
+    <string name="notificaciones_filter_noleidas">No leídas</string>
+    <string name="notif_puerta_abierta">Puerta abierta por Toby</string>
+    <string name="notif_bateria_baja">Batería baja en ESP32</string>
+    <string name="notif_puerta_bloqueada">Puerta bloqueada manualmente</string>
+    <string name="notif_llamada_perdida">Llamada perdida del dispositivo</string>
+    <string name="notif_wifi">WiFi reconectado</string>
+    <string name="notif_nocturno">Horario nocturno activado</string>
+    <string name="notif_entro">Toby entró a casa</string>
+
+    <!-- Ajustes -->
+    <string name="ajustes_title">Ajustes</string>
+    <string name="ajustes_user_name">ESTEBAN CARNUCCIO</string>
+    <string name="ajustes_user_email">esteban@pawgate.io</string>
+    <string name="ajustes_section_device">DISPOSITIVO</string>
+    <string name="ajustes_section_sensors">SENSORES Y DIAGNÓSTICO</string>
+    <string name="ajustes_section_notifications">NOTIFICACIONES</string>
+    <string name="ajustes_badge_all_ok">Todo OK</string>
+    <string name="ajustes_badge_active">Activo</string>
+    <string name="ajustes_badge_ok">OK</string>
+    <string name="ajustes_device_esp32">ESP32</string>
+    <string name="ajustes_device_wifi">Red WiFi</string>
+    <string name="ajustes_device_ip">Dirección IP</string>
+    <string name="ajustes_device_uptime">Tiempo activo</string>
+    <string name="ajustes_device_mac">MAC address</string>
+    <string name="ajustes_sensor_ultrasound">Ultrasonido HC-SR04</string>
+    <string name="ajustes_sensor_servo">Servomotor SG90</string>
+    <string name="ajustes_notif_push">Push</string>
 </resources>

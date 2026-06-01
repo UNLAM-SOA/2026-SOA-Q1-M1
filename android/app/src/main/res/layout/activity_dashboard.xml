@@ -57,7 +57,7 @@
                 android:layout_marginTop="20dp"
                 android:id="@+id/dashboard_greeting"
                 android:text="@string/dashboard_greeting_template"
-                tools:text="Hola, Fede"
+                tools:text="Hola, Esteban"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"/>
