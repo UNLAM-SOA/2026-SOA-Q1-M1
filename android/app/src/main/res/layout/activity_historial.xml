@@ -141,13 +141,14 @@
                     android:focusable="true" />
             </LinearLayout>
 
-            <LinearLayout
+            <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/event_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:orientation="vertical"
-                android:background="@drawable/bg_card" />
+                android:background="@drawable/bg_card"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false" />
         </LinearLayout>
     </ScrollView>
 
