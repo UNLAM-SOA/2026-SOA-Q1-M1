@@ -40,21 +40,20 @@
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <ImageView
+            <ImageView android:id="@+id/nav_inicio_icon"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_house"
                 android:contentDescription="@string/dashboard_tab_inicio"
-                app:tint="@color/accent_neon" />
+                app:tint="@color/text_muted" />
 
-            <TextView
+            <TextView android:id="@+id/nav_inicio_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="@string/dashboard_tab_inicio"
                 android:textSize="11sp"
-                android:textStyle="bold"
-                android:textColor="@color/accent_neon" />
+                android:textColor="@color/text_muted" />
         </LinearLayout>
 
         <!-- Tab Puerta -->
@@ -70,14 +69,14 @@
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <ImageView
+            <ImageView android:id="@+id/nav_puerta_icon"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_door_open"
                 android:contentDescription="@string/dashboard_tab_puerta"
                 app:tint="@color/text_muted" />
 
-            <TextView
+            <TextView android:id="@+id/nav_puerta_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -99,14 +98,14 @@
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <ImageView
+            <ImageView android:id="@+id/nav_historial_icon"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_chart_column"
                 android:contentDescription="@string/dashboard_tab_historial"
                 app:tint="@color/text_muted" />
 
-            <TextView
+            <TextView android:id="@+id/nav_historial_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -128,14 +127,14 @@
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <ImageView
+            <ImageView android:id="@+id/nav_ajustes_icon"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_settings"
                 android:contentDescription="@string/dashboard_tab_ajustes"
                 app:tint="@color/text_muted" />
 
-            <TextView
+            <TextView android:id="@+id/nav_ajustes_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"

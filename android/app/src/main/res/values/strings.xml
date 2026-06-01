@@ -63,4 +63,22 @@
     <string name="toast_action_open">Abriendo puerta…</string>
     <string name="toast_action_block">Puerta bloqueada</string>
     <string name="toast_action_call">Llamando a Toby…</string>
+    <string name="action_cancel">Cancelar</string>
+
+    <!-- Control de puerta -->
+    <string name="control_title">Control de puerta</string>
+    <string name="cd_more_actions">Más acciones</string>
+    <string name="control_status_live">EN VIVO · ESP32 CONECTADO</string>
+    <string name="control_btn_open">ABRIR PUERTA</string>
+    <string name="control_btn_open_hint">Mantené presionado para abrir</string>
+    <string name="control_card_block_title">Bloquear</string>
+    <string name="control_card_block_subtitle">Modo seguridad</string>
+    <string name="control_card_call_title">Llamar a Toby</string>
+    <string name="control_card_call_subtitle">Activar buzzer 3s</string>
+    <string name="control_sensor_title">Sensor de ultrasonido activo</string>
+    <string name="control_sensor_subtitle">Distancia detectada: 14 cm</string>
+    <string name="control_block_dialog_title">¿Bloquear puerta?</string>
+    <string name="control_block_dialog_message">No se podrá abrir hasta que la desbloquees manualmente.</string>
+    <string name="control_block_dialog_confirm">Bloquear</string>
+    <string name="control_block_dialog_cancel">Cancelar</string>
 </resources>
