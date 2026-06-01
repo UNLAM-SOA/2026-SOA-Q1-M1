@@ -105,19 +105,36 @@ public class DashboardActivity extends AppCompatActivity {
     private void renderDoorState() {
         DoorStateMachine.DoorState state = DoorStateMachine.currentState(this);
 
-        // Label de la card "Puerta · X"
-        int doorStringRes;
+        // Label de la card "Puerta · X". Para OPEN y CALLING incluimos el
+        // countdown leido del state machine (mismo tick que en Control).
+        String doorLabel;
         switch (state) {
-            case OPENING:     doorStringRes = R.string.dashboard_door_opening; break;
-            case OPEN:        doorStringRes = R.string.dashboard_door_open; break;
-            case CLOSING:     doorStringRes = R.string.dashboard_door_closing; break;
-            case BLOCKED:     doorStringRes = R.string.dashboard_door_locked; break;
-            case CALLING:     doorStringRes = R.string.dashboard_door_calling; break;
-            case CALL_ENDING: doorStringRes = R.string.dashboard_door_ending_call; break;
+            case OPENING:
+                doorLabel = getString(R.string.dashboard_door_opening);
+                break;
+            case OPEN:
+                doorLabel = getString(R.string.dashboard_door_open_countdown,
+                        DoorStateMachine.secondsRemainingInCountdown(this));
+                break;
+            case CLOSING:
+                doorLabel = getString(R.string.dashboard_door_closing);
+                break;
+            case BLOCKED:
+                doorLabel = getString(R.string.dashboard_door_locked);
+                break;
+            case CALLING:
+                doorLabel = getString(R.string.dashboard_door_calling_countdown,
+                        DoorStateMachine.secondsRemainingInCountdown(this));
+                break;
+            case CALL_ENDING:
+                doorLabel = getString(R.string.dashboard_door_ending_call);
+                break;
             case IDLE:
-            default:          doorStringRes = R.string.dashboard_door_closed; break;
+            default:
+                doorLabel = getString(R.string.dashboard_door_closed);
+                break;
         }
-        doorStatusLabel.setText(doorStringRes);
+        doorStatusLabel.setText(doorLabel);
 
         // Toggle Bloquear/Desbloquear
         if (state == DoorStateMachine.DoorState.BLOCKED) {

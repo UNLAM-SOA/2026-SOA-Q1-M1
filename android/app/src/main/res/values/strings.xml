@@ -43,8 +43,9 @@
     <string name="dashboard_door_open">Puerta · Abierta</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
     <string name="dashboard_door_opening">Puerta · Abriendo…</string>
+    <string name="dashboard_door_open_countdown">Puerta · Abierta · %1$ds</string>
     <string name="dashboard_door_closing">Puerta · Cerrando…</string>
-    <string name="dashboard_door_calling">Puerta · Llamando…</string>
+    <string name="dashboard_door_calling_countdown">Puerta · Llamando · %1$ds</string>
     <string name="dashboard_door_ending_call">Puerta · Finalizando llamada…</string>
     <string name="dashboard_last_activity_template">Última actividad: hace %1$s</string>
 
