@@ -12,7 +12,12 @@ import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.util.Arrays;
+import com.unlam.pawgate.api.ApiCallback;
+import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.dto.DeviceDtos;
+
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -34,10 +39,21 @@ public class HistorialActivity extends AppCompatActivity {
     private TextView chipAyer;
     private TextView chip7d;
 
+    private HistorialAdapter adapter;
+    private DeviceRepository deviceRepo;
+    private String deviceId;
+
+    // Filtro temporal seleccionado actualmente (null = "todas")
+    private Long currentFromMs = null;
+    private Long currentToMs = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_historial);
+
+        this.deviceRepo = new DeviceRepository(this);
+        this.deviceId = getString(R.string.default_device_id);
 
         findViewById(R.id.historial_back).setOnClickListener(v -> finish());
         findViewById(R.id.historial_filter).setOnClickListener(
@@ -45,24 +61,45 @@ public class HistorialActivity extends AppCompatActivity {
 
         wireChips();
 
-        // 1) Modelo: lista de eventos a mostrar
-        List<HistorialAdapter.Evento> data = Arrays.asList(
-                new HistorialAdapter.Evento(R.drawable.ic_door_open, R.string.historial_event_puerta_abierta, "hace 2m"),
-                new HistorialAdapter.Evento(R.drawable.ic_lightbulb_off, R.string.historial_event_luz_apagada, "hace 18m"),
-                new HistorialAdapter.Evento(R.drawable.ic_lock, R.string.historial_event_puerta_bloqueada, "hace 1h"),
-                new HistorialAdapter.Evento(R.drawable.ic_lightbulb, R.string.historial_event_luz_encendida, "ayer · 22:16"),
-                new HistorialAdapter.Evento(R.drawable.ic_wifi, R.string.historial_event_wifi, "ayer · 21:14"),
-                new HistorialAdapter.Evento(R.drawable.ic_calendar, R.string.historial_event_nocturno, "ayer · 20:00"),
-                new HistorialAdapter.Evento(R.drawable.ic_lock_open, R.string.historial_event_puerta_desbloqueada, "ayer · 18:42")
-        );
-
-        // 2) RecyclerView: LayoutManager + Adapter + ItemDecoration (divider)
+        // RecyclerView arranca vacio. Lo llenamos en onResume() con la respuesta del backend.
         RecyclerView list = findViewById(R.id.event_list);
         list.setLayoutManager(new LinearLayoutManager(this));
-        list.setAdapter(new HistorialAdapter(data));
+        this.adapter = new HistorialAdapter(Collections.emptyList());
+        list.setAdapter(adapter);
         list.addItemDecoration(new InsetDividerDecoration(this));
 
         BottomNavHelper.bind(this, R.id.nav_historial);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Refrescamos cada vez que la activity se vuelve visible. Asi el user ve
+        // los eventos nuevos sin tener que cerrar/reabrir la app.
+        // (Si queremos refresh "vivo" mientras esta en pantalla, agregamos polling
+        // como en ControlActivity. Por ahora un refresh por entrada alcanza.)
+        loadHistory();
+    }
+
+    // ============================================================
+    // BACKEND CALL
+    // ============================================================
+
+    private void loadHistory() {
+        deviceRepo.history(deviceId, currentFromMs, currentToMs,
+                new ApiCallback<DeviceDtos.HistoryResponse>() {
+            @Override
+            public void onSuccess(DeviceDtos.HistoryResponse result) {
+                List<DeviceDtos.Event> events = result.events != null
+                        ? result.events
+                        : new ArrayList<>();
+                adapter.setData(HistorialMapper.mapAll(events));
+            }
+            @Override
+            public void onError(String message) {
+                Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void wireChips() {
@@ -86,6 +123,33 @@ public class HistorialActivity extends AppCompatActivity {
                     isActive ? R.color.text_primary : R.color.text_secondary));
             chip.setPadding(dp(12), dp(6), dp(12), dp(6));
         }
+        // Calculamos el rango temporal del chip y refetcheamos.
+        long nowMs = System.currentTimeMillis();
+        long dayMs = 24L * 60L * 60L * 1000L;
+        if (active == chipHoy) {
+            currentFromMs = startOfTodayMs();
+            currentToMs = nowMs;
+        } else if (active == chipAyer) {
+            currentFromMs = startOfTodayMs() - dayMs;
+            currentToMs = startOfTodayMs();
+        } else if (active == chip7d) {
+            currentFromMs = nowMs - 7 * dayMs;
+            currentToMs = nowMs;
+        } else { // chipTodas
+            currentFromMs = null;
+            currentToMs = null;
+        }
+        loadHistory();
+    }
+
+    /** Epoch ms del 00:00:00 de hoy en la timezone del device. */
+    private long startOfTodayMs() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis();
     }
 
     private void showToast(int messageRes) {
