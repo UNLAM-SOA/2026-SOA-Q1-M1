@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowDynamoDB",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_events",
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_schedules",
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_users"
+      ]
+    },
+    {
+      "Sid": "AllowIoTPublish",
+      "Effect": "Allow",
+      "Action": "iot:Publish",
+      "Resource": "arn:aws:iot:us-east-1:075138626693:topic/pawgate/*/cmd/*"
+    },
+    {
+      "Sid": "AllowCognito",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:SignUp",
+        "cognito-idp:ConfirmSignUp",
+        "cognito-idp:InitiateAuth",
+        "cognito-idp:AdminGetUser"
+      ],
+      "Resource": "arn:aws:cognito-idp:us-east-1:075138626693:userpool/*"
+    },
+    {
+      "Sid": "AllowCloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-east-1:075138626693:*"
+    }
+  ]
+}
