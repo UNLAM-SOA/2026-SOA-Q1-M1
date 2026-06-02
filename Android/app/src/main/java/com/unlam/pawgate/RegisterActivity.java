@@ -1,16 +1,26 @@
 package com.unlam.pawgate;
 
-import android.content.Intent;
+import android.content.DialogInterface;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Patterns;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.unlam.pawgate.api.ApiCallback;
+import com.unlam.pawgate.api.AuthRepository;
+import com.unlam.pawgate.api.dto.AuthDtos;
+
 public class RegisterActivity extends AppCompatActivity {
+
     private EditText name;
     private EditText email;
     private EditText password;
@@ -18,6 +28,11 @@ public class RegisterActivity extends AppCompatActivity {
     private FrameLayout registerBack;
     private Button registerSubmit;
     private TextView registerLoginLink;
+
+    private AuthRepository authRepo;
+    // Email usado para signup, lo necesitamos al confirmar el codigo
+    private String pendingEmail;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -31,25 +46,121 @@ public class RegisterActivity extends AppCompatActivity {
         this.registerSubmit = findViewById(R.id.register_submit_button);
         this.registerLoginLink = findViewById(R.id.register_login_link);
 
+        this.authRepo = new AuthRepository(this);
+
         this.registerBack.setOnClickListener(v -> finish());
-        this.registerSubmit.setOnClickListener(v -> {
-            if (!validateForm()) {
-                return;
+        this.registerLoginLink.setOnClickListener(v -> finish());
+        this.registerSubmit.setOnClickListener(v -> onSubmit());
+    }
+
+    // ============================================================
+    // Submit: dispara signup contra Cognito
+    // ============================================================
+    private void onSubmit() {
+        if (!validateForm()) return;
+
+        final String emailValue = getEmailValue();
+        final String passwordValue = getPasswordValue();
+        final String nameValue = getNameValue();
+
+        setLoading(true);
+
+        authRepo.signup(emailValue, passwordValue, nameValue, new ApiCallback<AuthDtos.SignupResponse>() {
+            @Override
+            public void onSuccess(AuthDtos.SignupResponse result) {
+                setLoading(false);
+                Toast.makeText(RegisterActivity.this, R.string.register_signup_ok, Toast.LENGTH_SHORT).show();
+                // Guardamos email para el confirm
+                pendingEmail = emailValue;
+                // Persistimos email "tentativo" para que la pantalla de Ajustes lo lea
+                // si el user despues hace login sin re-tipear
+                PrefsHelper.setUserEmail(RegisterActivity.this, emailValue);
+                showConfirmationDialog(emailValue);
             }
 
-            String emailValue = getEmailValue();
-            // Persistimos el email para que AjustesActivity lo lea (mismo patron
-            // que LoginActivity). Si despues el user va a Login, vuelve a escribir.
-            PrefsHelper.setUserEmail(this, emailValue);
-
-            Intent intent = new Intent(this, DashboardActivity.class);
-            intent.putExtra(LoginActivity.EXTRA_USER, emailValue);
-            intent.putExtra("name", getNameValue());
-
-            startActivity(intent);
-            finish();
+            @Override
+            public void onError(String message) {
+                setLoading(false);
+                Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
+            }
         });
-        this.registerLoginLink.setOnClickListener(v -> finish());
+    }
+
+    // ============================================================
+    // Dialog: el user ingresa el codigo que recibio por email
+    // ============================================================
+    private void showConfirmationDialog(String emailValue) {
+        final EditText codeInput = new EditText(this);
+        codeInput.setHint(R.string.register_confirm_dialog_hint);
+        codeInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        codeInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+
+        // Container con padding para que no quede el input pegado al borde del dialog
+        int paddingPx = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(paddingPx, paddingPx / 2, paddingPx, 0);
+        container.addView(codeInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.register_confirm_dialog_title)
+                .setMessage(getString(R.string.register_confirm_dialog_message, emailValue))
+                .setView(container)
+                .setCancelable(false)
+                .setPositiveButton(R.string.register_confirm_dialog_confirm, null) // override mas abajo
+                .setNegativeButton(R.string.register_confirm_dialog_cancel, (d, w) -> {
+                    // Si cancela, dejamos el form como estaba; podra reintentar
+                    // (en una proxima iteracion podriamos guardar el "estado pendiente" en SharedPrefs)
+                })
+                .create();
+
+        dialog.show();
+
+        // Override del positive button para NO cerrar el dialog si hay error de validacion
+        // (el comportamiento default cierra siempre)
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String code = codeInput.getText().toString().trim();
+            if (code.length() < 6) {
+                codeInput.setError(getString(R.string.register_confirm_code_required));
+                return;
+            }
+            doConfirm(dialog, code);
+        });
+    }
+
+    private void doConfirm(AlertDialog dialog, String code) {
+        if (pendingEmail == null) return;
+
+        Button positive = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        Button negative = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+        positive.setEnabled(false);
+        negative.setEnabled(false);
+
+        authRepo.confirm(pendingEmail, code, new ApiCallback<AuthDtos.ConfirmResponse>() {
+            @Override
+            public void onSuccess(AuthDtos.ConfirmResponse result) {
+                dialog.dismiss();
+                Toast.makeText(RegisterActivity.this, R.string.register_confirm_ok, Toast.LENGTH_LONG).show();
+                // Volvemos al Login. El user ingresa sus creds y a partir de ahi
+                // empieza el flow normal con tokens.
+                finish();
+            }
+
+            @Override
+            public void onError(String message) {
+                positive.setEnabled(true);
+                negative.setEnabled(true);
+                Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    // ============================================================
+    // UI helpers
+    // ============================================================
+    private void setLoading(boolean loading) {
+        registerSubmit.setEnabled(!loading);
+        registerSubmit.setText(loading ? R.string.loading : R.string.register_button);
     }
 
     private boolean validateForm() {
@@ -122,7 +233,6 @@ public class RegisterActivity extends AppCompatActivity {
         boolean hasUppercase = value.matches(".*[A-Z].*");
         boolean hasLowercase = value.matches(".*[a-z].*");
         boolean hasNumber = value.matches(".*\\d.*");
-
         return hasMinimumLength && hasUppercase && hasLowercase && hasNumber;
     }
 
