@@ -27,23 +27,54 @@ import java.util.List;
  */
 public class HistorialAdapter extends RecyclerView.Adapter<HistorialAdapter.EventoVH> {
 
-    /** Modelo de un evento del historial. Inmutable a proposito. */
+    /**
+     * Modelo de un evento del historial. Inmutable a proposito.
+     *
+     * Hay dos formas de construirlo:
+     *   1) Con titulo desde recursos (Evento(icon, R.string.xxx, "subtitulo"))
+     *      - usado por los mocks hardcodeados
+     *   2) Con titulo como String (Evento(icon, "Texto literal", "subtitulo"))
+     *      - usado por HistorialMapper cuando los datos vienen del backend
+     *
+     * El ViewHolder.bind() decide cual usar segun cual de los dos campos esta seteado.
+     */
     public static final class Evento {
         public final int iconRes;
-        public final int tituloRes;
+        public final int tituloRes;       // 0 si se usa tituloLiteral
+        public final String tituloLiteral; // null si se usa tituloRes
         public final String subtitulo;
 
+        /** Constructor original: titulo desde string resource. */
         public Evento(int iconRes, int tituloRes, String subtitulo) {
             this.iconRes = iconRes;
             this.tituloRes = tituloRes;
+            this.tituloLiteral = null;
+            this.subtitulo = subtitulo;
+        }
+
+        /** Constructor para datos dinamicos del backend: titulo literal. */
+        public Evento(int iconRes, String tituloLiteral, String subtitulo) {
+            this.iconRes = iconRes;
+            this.tituloRes = 0;
+            this.tituloLiteral = tituloLiteral;
             this.subtitulo = subtitulo;
         }
     }
 
-    private final List<Evento> data;
+    // Mutable para permitir refresh del backend sin recrear el adapter.
+    // notifyDataSetChanged es suficiente por ahora; si querramos diffs (animaciones
+    // por insert/remove individual), pasaremos a ListAdapter + DiffUtil.
+    private final java.util.ArrayList<Evento> data;
 
-    public HistorialAdapter(List<Evento> data) {
-        this.data = data;
+    public HistorialAdapter(List<Evento> initialData) {
+        this.data = new java.util.ArrayList<>(initialData);
+    }
+
+    /** Reemplaza el dataset completo y notifica al RecyclerView. */
+    public void setData(List<Evento> newData) {
+        data.clear();
+        data.addAll(newData);
+        notifyDataSetChanged();
     }
 
     /** Crea un ViewHolder nuevo. Llamado por el RV solo cuando no hay reciclables disponibles. */
@@ -85,7 +116,11 @@ public class HistorialAdapter extends RecyclerView.Adapter<HistorialAdapter.Even
 
         void bind(Evento e) {
             icon.setImageResource(e.iconRes);
-            title.setText(e.tituloRes);
+            if (e.tituloLiteral != null) {
+                title.setText(e.tituloLiteral);
+            } else {
+                title.setText(e.tituloRes);
+            }
             subtitle.setText(e.subtitulo);
         }
     }
