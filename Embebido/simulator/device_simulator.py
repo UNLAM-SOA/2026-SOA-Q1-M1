@@ -117,11 +117,21 @@ class DeviceSimulator:
         self._state_lock = threading.RLock()
         self._pending_timers: list[threading.Timer] = []
 
-        # MQTT client (sin client_id automatico - usamos thing_name para que matche con la policy)
-        self.client = mqtt.Client(client_id=self.thing_name, clean_session=True)
+        # MQTT client. Usamos CallbackAPIVersion.VERSION2 (paho-mqtt 2.x) para
+        # evitar el DeprecationWarning del API antiguo. Las firmas de los
+        # callbacks cambian: ahora reciben `reason_code` + `properties`.
+        # client_id = thing_name para que matche con ${iot:ClientId} de la policy.
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=self.thing_name,
+            clean_session=True,
+        )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
+        self.client.on_subscribe = self._on_subscribe
+        # Activamos el logger interno de paho para debuggear handshakes y CONNACKs.
+        self.client.enable_logger(logging.getLogger("paho"))
 
         # Configurar TLS (mTLS: server cert + client cert)
         self.client.tls_set(
@@ -143,22 +153,44 @@ class DeviceSimulator:
         self.client.connect(endpoint, port, keepalive=60)
         self.client.loop_forever(retry_first_connection=True)
 
-    def _on_connect(self, client, userdata, flags, rc):
-        if rc != 0:
-            log.error("Fallo conexion MQTT (rc=%d). Revisa cert/policy/endpoint.", rc)
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        # Firma de CallbackAPIVersion.VERSION2.
+        if reason_code != 0:
+            log.error(
+                "Fallo conexion MQTT (reason_code=%s). Revisa cert/policy/endpoint.",
+                reason_code,
+            )
             return
-        log.info("Conectado a IoT Core. Suscribiendo a comandos...")
+        log.info("✅ Conectado a IoT Core. Suscribiendo a comandos...")
         # Suscribirse a todos los comandos del device
-        client.subscribe(f"{self.topic_prefix}/cmd/+", qos=1)
+        subscribe_topic = f"{self.topic_prefix}/cmd/+"
+        result, mid = client.subscribe(subscribe_topic, qos=1)
+        if result == mqtt.MQTT_ERR_SUCCESS:
+            log.info("📨 SUB request enviado a %s (mid=%d) - esperando SUBACK...", subscribe_topic, mid)
+        else:
+            log.error("Fallo el subscribe a %s (rc=%d)", subscribe_topic, result)
         # Publicar estado inicial (IDLE) para que la app sepa que estamos vivos
         self._publish_status()
         # Arrancar los loops periodicos
         threading.Thread(target=self._telemetry_loop, daemon=True).start()
         threading.Thread(target=self._sensor_loop, daemon=True).start()
 
-    def _on_disconnect(self, client, userdata, rc):
-        if rc != 0:
-            log.warning("Desconectado inesperadamente (rc=%d). Reintentando...", rc)
+    def _on_subscribe(self, client, userdata, mid, reason_code_list, properties):
+        # Callback de CallbackAPIVersion.VERSION2 cuando AWS responde el SUBACK.
+        # reason_code_list es una lista (una entrada por cada topic filter del request).
+        for rc in reason_code_list:
+            if hasattr(rc, "is_failure") and rc.is_failure:
+                log.error("❌ SUBSCRIBE rechazado por broker: %s (mid=%d)", rc, mid)
+            else:
+                log.info("✅ SUBSCRIBE confirmado por broker: %s (mid=%d)", rc, mid)
+
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties):
+        # Firma de CallbackAPIVersion.VERSION2.
+        if reason_code != 0:
+            log.warning(
+                "Desconectado inesperadamente (reason_code=%s). Reintentando...",
+                reason_code,
+            )
         else:
             log.info("Desconectado limpiamente.")
 
