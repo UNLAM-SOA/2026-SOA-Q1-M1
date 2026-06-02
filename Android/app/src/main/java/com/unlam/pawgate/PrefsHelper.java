@@ -23,6 +23,12 @@ public final class PrefsHelper {
     private static final String KEY_CYCLE_TYPE = "cycle_type";
     private static final String KEY_CYCLE_START = "cycle_start_ms";
 
+    // Tokens JWT de Cognito (vienen del endpoint POST /auth/login)
+    private static final String KEY_ID_TOKEN = "auth_id_token";
+    private static final String KEY_ACCESS_TOKEN = "auth_access_token";
+    private static final String KEY_REFRESH_TOKEN = "auth_refresh_token";
+    private static final String KEY_TOKEN_EXPIRES_AT = "auth_token_expires_at_ms";
+
     /** Tipos de ciclo persistente. NONE = ningun ciclo activo. */
     public static final String CYCLE_NONE = "NONE";
     public static final String CYCLE_OPEN_DOOR = "OPEN_DOOR";
@@ -94,6 +100,55 @@ public final class PrefsHelper {
         prefs(ctx).edit()
                 .putString(KEY_CYCLE_TYPE, CYCLE_NONE)
                 .putLong(KEY_CYCLE_START, 0L)
+                .apply();
+    }
+
+    // ===== tokens JWT de Cognito =====
+
+    /** Guarda los 3 tokens devueltos por POST /auth/login + calcula expiresAt absoluto. */
+    public static void setTokens(Context ctx,
+                                 String idToken,
+                                 String accessToken,
+                                 String refreshToken,
+                                 int expiresInSeconds) {
+        long expiresAtMs = System.currentTimeMillis() + (expiresInSeconds * 1000L);
+        prefs(ctx).edit()
+                .putString(KEY_ID_TOKEN, idToken)
+                .putString(KEY_ACCESS_TOKEN, accessToken)
+                .putString(KEY_REFRESH_TOKEN, refreshToken)
+                .putLong(KEY_TOKEN_EXPIRES_AT, expiresAtMs)
+                .apply();
+    }
+
+    /** El token que el API Gateway Cognito Authorizer espera en el header Authorization. */
+    public static String getIdToken(Context ctx) {
+        return prefs(ctx).getString(KEY_ID_TOKEN, null);
+    }
+
+    public static String getAccessToken(Context ctx) {
+        return prefs(ctx).getString(KEY_ACCESS_TOKEN, null);
+    }
+
+    public static String getRefreshToken(Context ctx) {
+        return prefs(ctx).getString(KEY_REFRESH_TOKEN, null);
+    }
+
+    /** True si hay un token guardado y todavia no vencio. */
+    public static boolean isLoggedIn(Context ctx) {
+        String idToken = getIdToken(ctx);
+        if (idToken == null) return false;
+        long expiresAt = prefs(ctx).getLong(KEY_TOKEN_EXPIRES_AT, 0L);
+        return System.currentTimeMillis() < expiresAt;
+    }
+
+    /** Borra los 3 tokens + el email. Llamar al hacer logout. */
+    public static void clearAuth(Context ctx) {
+        prefs(ctx).edit()
+                .remove(KEY_ID_TOKEN)
+                .remove(KEY_ACCESS_TOKEN)
+                .remove(KEY_REFRESH_TOKEN)
+                .remove(KEY_TOKEN_EXPIRES_AT)
+                .remove(KEY_USER_EMAIL)
                 .apply();
     }
 }
