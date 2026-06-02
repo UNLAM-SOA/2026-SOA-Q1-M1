@@ -13,6 +13,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.unlam.pawgate.api.ApiCallback;
+import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.dto.DeviceDtos;
+
+import java.util.List;
 
 /**
  * Dashboard - pantalla principal.
@@ -54,6 +59,23 @@ public class DashboardActivity extends AppCompatActivity {
     private ImageView actionBlockIcon;
     private TextView actionBlockLabel;
     private TextView doorStatusLabel;
+    private TextView lastActivityLabel;
+
+    // Backend
+    private DeviceRepository deviceRepo;
+    private String deviceId;
+
+    // Polling cada 3s al backend para refrescar "ultima actividad" + sync BLOQUEADO
+    private static final long BACKEND_POLL_INTERVAL_MS = 3_000L;
+    // Ventana de "eventos recientes" que pedimos al backend (5min suele alcanzar)
+    private static final long BACKEND_POLL_WINDOW_MS = 5L * 60L * 1000L;
+
+    private final Runnable backendPollRunnable = new Runnable() {
+        @Override public void run() {
+            pollBackend();
+            handler.postDelayed(this, BACKEND_POLL_INTERVAL_MS);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +86,11 @@ public class DashboardActivity extends AppCompatActivity {
         actionBlockIcon = findViewById(R.id.action_block_icon);
         actionBlockLabel = findViewById(R.id.action_block_label);
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
+        lastActivityLabel = findViewById(R.id.dashboard_last_activity);
+
+        // Backend hookup (igual que ControlActivity)
+        this.deviceRepo = new DeviceRepository(this);
+        this.deviceId = getString(R.string.default_device_id);
 
         // Greeting
         String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
@@ -90,12 +117,96 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshTickRunnable.run();
+        // Arrancamos el polling al backend. Primera ejecucion inmediata para no esperar 3s.
+        backendPollRunnable.run();
     }
 
     @Override
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
+        handler.removeCallbacks(backendPollRunnable);
         super.onPause();
+    }
+
+    // ============================================================
+    // BACKEND POLLING (reconciliacion minima)
+    // ============================================================
+
+    /**
+     * Polling al backend cada BACKEND_POLL_INTERVAL_MS. Trae los eventos de los
+     * ultimos 5 minutos y usa el mas reciente para:
+     *   1) Mostrar "Ultima actividad: hace Xm" actualizado en tiempo real.
+     *   2) Sincronizar el flag BLOQUEADO si el server lo cambio por su cuenta
+     *      (ej: el simulador respondio a un horario programado mientras la app
+     *       estaba cerrada, o desde otro device).
+     *
+     * Estrategia conservadora: solo reconciliamos para los eventos
+     * blocked/unblocked. El resto (opened/closed/etc) sigue siendo manejado por
+     * el ciclo local de DoorStateMachine - es transient y no vale la pena
+     * complicar la sincronizacion.
+     */
+    private void pollBackend() {
+        long now = System.currentTimeMillis();
+        Long from = now - BACKEND_POLL_WINDOW_MS;
+        deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
+            @Override
+            public void onSuccess(DeviceDtos.HistoryResponse result) {
+                if (result == null || result.events == null || result.events.isEmpty()) {
+                    return;
+                }
+                DeviceDtos.Event mostRecent = pickMostRecent(result.events);
+                if (mostRecent == null) return;
+                updateLastActivityLabel(mostRecent);
+                reconcileBlockedFlag(mostRecent);
+            }
+            @Override
+            public void onError(String message) {
+                // Silencio en error - el polling es best-effort, no queremos
+                // bombardear toasts. Si el user tiene problemas reales de red, se
+                // entera al hacer una accion (Control/Historial muestran toast).
+            }
+        });
+    }
+
+    /**
+     * Devuelve el evento con created_at mas reciente. No asumimos orden del backend
+     * para ser robustos.
+     */
+    private DeviceDtos.Event pickMostRecent(List<DeviceDtos.Event> events) {
+        DeviceDtos.Event best = null;
+        long bestMs = -1L;
+        for (DeviceDtos.Event e : events) {
+            long ms = HistorialMapper.parseIsoToMs(e.created_at);
+            if (ms > bestMs) {
+                bestMs = ms;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    private void updateLastActivityLabel(DeviceDtos.Event e) {
+        if (lastActivityLabel == null) return;
+        String rel = HistorialMapper.relativeTimeFor(e.created_at, System.currentTimeMillis());
+        lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
+    }
+
+    /**
+     * Si el ultimo evento del server dice blocked/unblocked y el flag local NO
+     * coincide, sincronizamos el local. Re-rendereamos para reflejar el cambio
+     * inmediatamente en el toggle.
+     */
+    private void reconcileBlockedFlag(DeviceDtos.Event e) {
+        if (e.event_type == null) return;
+        boolean locallyBlocked = PrefsHelper.isDoorBlocked(this);
+        if ("blocked".equals(e.event_type) && !locallyBlocked) {
+            PrefsHelper.setDoorBlocked(this, true);
+            PrefsHelper.clearCycle(this);
+            renderDoorState();
+        } else if ("unblocked".equals(e.event_type) && locallyBlocked) {
+            PrefsHelper.setDoorBlocked(this, false);
+            renderDoorState();
+        }
     }
 
     // ============================================================
