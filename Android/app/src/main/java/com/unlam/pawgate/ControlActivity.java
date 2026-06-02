@@ -11,11 +11,15 @@ import android.view.animation.RotateAnimation;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.unlam.pawgate.api.ApiCallback;
+import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.dto.DeviceDtos;
 
 /**
  * Control de puerta - render del estado que computa DoorStateMachine.
@@ -73,6 +77,10 @@ public class ControlActivity extends AppCompatActivity {
         }
     };
 
+    // ===== Backend =====
+    private DeviceRepository deviceRepo;
+    private String deviceId;
+
     // ===== Views cacheadas =====
     private TextView title;
     private LinearLayout statusPill;
@@ -99,6 +107,10 @@ public class ControlActivity extends AppCompatActivity {
         setContentView(R.layout.activity_control);
 
         bindViews();
+
+        // Backend hookup
+        this.deviceRepo = new DeviceRepository(this);
+        this.deviceId = getString(R.string.default_device_id);
 
         // Listeners
         bigBtn.setOnClickListener(v -> onBigBtnClick());
@@ -168,10 +180,13 @@ public class ControlActivity extends AppCompatActivity {
     private void onBigBtnClick() {
         DoorStateMachine.DoorState s = currentState();
         if (s == DoorStateMachine.DoorState.IDLE) {
+            // 1) Feedback inmediato: arrancamos ciclo local (UI optimista)
             PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
             refreshTickRunnable.run();
+            // 2) Disparamos el POST real al backend en paralelo
+            dispatchCommand(DeviceRepository.CMD_OPEN);
         } else if (s == DoorStateMachine.DoorState.OPENING) {
-            // Cancelar el ciclo en curso
+            // Cancelar el ciclo en curso (solo local - el backend no tiene "cancelar")
             PrefsHelper.clearCycle(this);
             refreshTickRunnable.run();
         }
@@ -195,6 +210,7 @@ public class ControlActivity extends AppCompatActivity {
                     PrefsHelper.setDoorBlocked(this, true);
                     PrefsHelper.clearCycle(this);
                     refreshTickRunnable.run();
+                    dispatchCommand(DeviceRepository.CMD_BLOCK);
                 })
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
@@ -212,19 +228,25 @@ public class ControlActivity extends AppCompatActivity {
         }
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
         refreshTickRunnable.run();
+        dispatchCommand(DeviceRepository.CMD_CALL);
     }
 
     private void onSecondaryBtnClick() {
         DoorStateMachine.DoorState s = currentState();
         switch (s) {
             case BLOCKED:
+                // Desbloquear: local + POST unblock
                 PrefsHelper.setDoorBlocked(this, false);
                 PrefsHelper.clearCycle(this);
                 refreshTickRunnable.run();
+                dispatchCommand(DeviceRepository.CMD_UNBLOCK);
                 break;
             case OPENING:
             case CALLING:
             case CALL_ENDING:
+                // Cancelacion local. El backend no tiene "cancelar" - el simulador
+                // termina su ciclo igual. En una version siguiente podriamos mandar
+                // un cmd "stop" si el contrato MQTT lo soporta.
                 PrefsHelper.clearCycle(this);
                 refreshTickRunnable.run();
                 break;
@@ -232,6 +254,32 @@ public class ControlActivity extends AppCompatActivity {
                 // No deberia llegar (el boton solo es visible en los anteriores)
                 break;
         }
+    }
+
+    // ============================================================
+    // BACKEND DISPATCH
+    // ============================================================
+
+    /**
+     * Manda el comando al backend. UX optimista: la UI ya cambio antes de
+     * llamar este metodo (startCycle local). Si el POST falla, solo toast,
+     * NO revertimos el estado local (el polling de /history terminara
+     * conciliando si el simulador realmente no recibio el cmd).
+     */
+    private void dispatchCommand(String cmd) {
+        deviceRepo.sendCommand(deviceId, cmd, new ApiCallback<DeviceDtos.CommandResponse>() {
+            @Override
+            public void onSuccess(DeviceDtos.CommandResponse result) {
+                // Silencio en exito - el feedback visual ya lo dio el ciclo local.
+                // Si quisieramos log: Log.d(TAG, "cmd queued: " + result.topic);
+            }
+            @Override
+            public void onError(String message) {
+                Toast.makeText(ControlActivity.this,
+                        "Error al enviar comando: " + message,
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     // ============================================================
