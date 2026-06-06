@@ -20,6 +20,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
  * Control de puerta - render del estado que computa DoorStateMachine.
@@ -195,25 +196,67 @@ public class ControlActivity extends AppCompatActivity {
 
     private void onBlockCardClick() {
         DoorStateMachine.DoorState s = currentState();
-        // Si estamos en un ciclo de apertura, las cards estan disabled
-        // (igualmente esto es safety net por si el setClickable falla).
         if (s == DoorStateMachine.DoorState.OPENING
                 || s == DoorStateMachine.DoorState.OPEN
                 || s == DoorStateMachine.DoorState.CLOSING
                 || s == DoorStateMachine.DoorState.BLOCKED) {
             return;
         }
+        promptBlockWithHorarioAwareness();
+    }
+
+    /** Refetch state -> dialog regular o de override segun in_horario. */
+    private void promptBlockWithHorarioAwareness() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                boolean inHorario = state != null && state.currently_in_horario;
+                if (inHorario) showOverrideBlockDialog();
+                else showRegularBlockDialog();
+            }
+            @Override public void onError(String message) {
+                // Si no podemos consultar el state, asumimos fuera de horario.
+                showRegularBlockDialog();
+            }
+        });
+    }
+
+    private void showRegularBlockDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.control_block_dialog_title)
                 .setMessage(R.string.control_block_dialog_message)
-                .setPositiveButton(R.string.control_block_dialog_confirm, (dialog, which) -> {
-                    PrefsHelper.setDoorBlocked(this, true);
-                    PrefsHelper.clearCycle(this);
-                    refreshTickRunnable.run();
-                    dispatchCommand(DeviceRepository.CMD_BLOCK);
-                })
+                .setPositiveButton(R.string.control_block_dialog_confirm,
+                        (d, w) -> applyBlock(false))
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
+    }
+
+    private void showOverrideBlockDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.override_block_title)
+                .setMessage(R.string.override_block_message)
+                .setPositiveButton(R.string.override_block_confirm,
+                        (d, w) -> applyBlock(true))
+                .setNegativeButton(R.string.override_block_cancel, null)
+                .show();
+    }
+
+    private void applyBlock(boolean useOverride) {
+        // UI optimista igual que antes
+        PrefsHelper.setDoorBlocked(this, true);
+        PrefsHelper.clearCycle(this);
+        refreshTickRunnable.run();
+
+        if (useOverride) {
+            deviceRepo.overrideBlock(deviceId, new ApiCallback<ScheduleDtos.OverrideUnblockResponse>() {
+                @Override public void onSuccess(ScheduleDtos.OverrideUnblockResponse r) { /* ok */ }
+                @Override public void onError(String message) {
+                    Toast.makeText(ControlActivity.this,
+                            "Error al bloquear: " + message, Toast.LENGTH_LONG).show();
+                }
+            });
+        } else {
+            dispatchCommand(DeviceRepository.CMD_BLOCK);
+        }
     }
 
     private void onCallCardClick() {
@@ -235,24 +278,72 @@ public class ControlActivity extends AppCompatActivity {
         DoorStateMachine.DoorState s = currentState();
         switch (s) {
             case BLOCKED:
-                // Desbloquear: local + POST unblock
-                PrefsHelper.setDoorBlocked(this, false);
-                PrefsHelper.clearCycle(this);
-                refreshTickRunnable.run();
-                dispatchCommand(DeviceRepository.CMD_UNBLOCK);
+                // Desbloquear con awareness del horario natural.
+                promptUnblockWithHorarioAwareness();
                 break;
             case OPENING:
             case CALLING:
             case CALL_ENDING:
-                // Cancelacion local. El backend no tiene "cancelar" - el simulador
-                // termina su ciclo igual. En una version siguiente podriamos mandar
-                // un cmd "stop" si el contrato MQTT lo soporta.
+                // Cancelacion local. El backend no tiene "cancelar" - el device
+                // termina su ciclo igual. En una version siguiente podriamos
+                // mandar un cmd "stop" si el contrato MQTT lo soporta.
                 PrefsHelper.clearCycle(this);
                 refreshTickRunnable.run();
                 break;
             default:
                 // No deberia llegar (el boton solo es visible en los anteriores)
                 break;
+        }
+    }
+
+    // ============================================================
+    // UNBLOCK con awareness de horario natural
+    // ============================================================
+
+    private void promptUnblockWithHorarioAwareness() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                boolean inHorario = state != null && state.currently_in_horario;
+                if (inHorario) {
+                    // Dentro de horario: desbloquear es coherente con el natural.
+                    applyUnblock(false);
+                } else {
+                    // Fuera de horario: confirmar override.
+                    showOverrideUnblockDialog();
+                }
+            }
+            @Override public void onError(String message) {
+                // Si no podemos consultar, default a override (mas conservador).
+                showOverrideUnblockDialog();
+            }
+        });
+    }
+
+    private void showOverrideUnblockDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.override_unblock_title)
+                .setMessage(R.string.override_unblock_message)
+                .setPositiveButton(R.string.override_unblock_confirm,
+                        (d, w) -> applyUnblock(true))
+                .setNegativeButton(R.string.override_unblock_cancel, null)
+                .show();
+    }
+
+    private void applyUnblock(boolean useOverride) {
+        PrefsHelper.setDoorBlocked(this, false);
+        PrefsHelper.clearCycle(this);
+        refreshTickRunnable.run();
+
+        if (useOverride) {
+            deviceRepo.overrideUnblock(deviceId, new ApiCallback<ScheduleDtos.OverrideUnblockResponse>() {
+                @Override public void onSuccess(ScheduleDtos.OverrideUnblockResponse r) { /* ok */ }
+                @Override public void onError(String message) {
+                    Toast.makeText(ControlActivity.this,
+                            "Error al desbloquear: " + message, Toast.LENGTH_LONG).show();
+                }
+            });
+        } else {
+            dispatchCommand(DeviceRepository.CMD_UNBLOCK);
         }
     }
 
@@ -264,7 +355,7 @@ public class ControlActivity extends AppCompatActivity {
      * Manda el comando al backend. UX optimista: la UI ya cambio antes de
      * llamar este metodo (startCycle local). Si el POST falla, solo toast,
      * NO revertimos el estado local (el polling de /history terminara
-     * conciliando si el simulador realmente no recibio el cmd).
+     * conciliando si el device realmente no recibio el cmd).
      */
     private void dispatchCommand(String cmd) {
         deviceRepo.sendCommand(deviceId, cmd, new ApiCallback<DeviceDtos.CommandResponse>() {
