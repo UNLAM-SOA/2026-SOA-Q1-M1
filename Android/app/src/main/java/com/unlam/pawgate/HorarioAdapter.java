@@ -11,43 +11,42 @@ import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.unlam.pawgate.horarios.Horario;
+
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Adapter para el RecyclerView de Horarios programados.
+ * Adapter de horarios. Cada item es una card con:
+ *   - hora_inicio / hora_fin
+ *   - nombre
+ *   - chips de dias
+ *   - badge ON/OFF
  *
- * Cada item es una card con:
- *   - hora de inicio (07:30)
- *   - rango (- 09:00)
- *   - tipo (Abrir automatico / Modo nocturno / Paseo tarde)
- *   - lista de chips de dias (L M X J V S D)
- *   - badge ON/OFF segun si el horario esta activo
- *
- * Los chips de dias se generan dinamicamente en onBind (no en XML porque
- * cada horario tiene un set de dias distinto).
+ * Tap card -> callback onEditClick (abre form en modo edicion).
  */
 public class HorarioAdapter extends RecyclerView.Adapter<HorarioAdapter.HorarioVH> {
 
-    public static final class Horario {
-        public final String inicio;
-        public final String fin;
-        public final int[] diasRes;
-        public final int tipoRes;
-        public final boolean activo;
-
-        public Horario(String inicio, String fin, int[] diasRes, int tipoRes, boolean activo) {
-            this.inicio = inicio;
-            this.fin = fin;
-            this.diasRes = diasRes;
-            this.tipoRes = tipoRes;
-            this.activo = activo;
-        }
+    public interface OnHorarioClickListener {
+        void onEditClick(Horario h);
     }
 
     private final List<Horario> data;
+    private final OnHorarioClickListener listener;
 
-    public HorarioAdapter(List<Horario> data) {
-        this.data = data;
+    public HorarioAdapter(List<Horario> data, OnHorarioClickListener listener) {
+        this.data = new ArrayList<>(data);
+        this.listener = listener;
+    }
+
+    public void setData(List<Horario> newData) {
+        data.clear();
+        if (newData != null) data.addAll(newData);
+        notifyDataSetChanged();
+    }
+
+    public int getRealItemCount() {
+        return data.size();
     }
 
     @NonNull
@@ -55,7 +54,7 @@ public class HorarioAdapter extends RecyclerView.Adapter<HorarioAdapter.HorarioV
     public HorarioVH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View row = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_horario, parent, false);
-        return new HorarioVH(row);
+        return new HorarioVH(row, listener);
     }
 
     @Override
@@ -71,33 +70,50 @@ public class HorarioAdapter extends RecyclerView.Adapter<HorarioAdapter.HorarioV
     static final class HorarioVH extends RecyclerView.ViewHolder {
         private final TextView time;
         private final TextView range;
-        private final TextView tipo;
+        private final TextView tipo; // re-purposed: nombre del horario
         private final LinearLayout days;
         private final TextView badge;
+        private final OnHorarioClickListener listener;
+        private Horario current;
 
-        HorarioVH(@NonNull View itemView) {
+        private static final int[] DIAS_BITS = {
+                Horario.LUN, Horario.MAR, Horario.MIE, Horario.JUE,
+                Horario.VIE, Horario.SAB, Horario.DOM
+        };
+        private static final int[] DIAS_LABELS = {
+                R.string.horarios_day_l, R.string.horarios_day_m1, R.string.horarios_day_x,
+                R.string.horarios_day_j, R.string.horarios_day_v,
+                R.string.horarios_day_s, R.string.horarios_day_d
+        };
+
+        HorarioVH(@NonNull View itemView, OnHorarioClickListener listener) {
             super(itemView);
             time = itemView.findViewById(R.id.horario_time);
             range = itemView.findViewById(R.id.horario_range);
             tipo = itemView.findViewById(R.id.horario_tipo);
             days = itemView.findViewById(R.id.horario_days);
             badge = itemView.findViewById(R.id.horario_badge);
+            this.listener = listener;
+            itemView.setOnClickListener(v -> {
+                if (this.listener != null && current != null) this.listener.onEditClick(current);
+            });
         }
 
         void bind(Horario h) {
-            time.setText(h.inicio);
-            range.setText(h.fin);
-            tipo.setText(h.tipoRes);
-
-            renderDays(h.diasRes);
+            this.current = h;
+            time.setText(h.formatHoraInicio());
+            range.setText("— " + h.formatHoraFin());
+            tipo.setText(h.nombre);
+            renderDays(h.diasBitmask);
             renderBadge(h.activo);
         }
 
-        private void renderDays(int[] diasRes) {
-            // Limpia chips del binding anterior (ViewHolder se recicla).
+        private void renderDays(int diasBitmask) {
             days.removeAllViews();
-            for (int diaRes : diasRes) {
-                days.addView(makeChip(days.getContext().getString(diaRes)));
+            for (int i = 0; i < DIAS_BITS.length; i++) {
+                if ((diasBitmask & DIAS_BITS[i]) != 0) {
+                    days.addView(makeChip(days.getContext().getString(DIAS_LABELS[i])));
+                }
             }
         }
 
