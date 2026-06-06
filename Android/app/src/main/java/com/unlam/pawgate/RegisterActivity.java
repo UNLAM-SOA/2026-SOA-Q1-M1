@@ -33,6 +33,9 @@ public class RegisterActivity extends AppCompatActivity {
     // Email usado para signup, lo necesitamos al confirmar el codigo
     private String pendingEmail;
 
+    // Key del Bundle para sobrevivir a rotacion / process death.
+    private static final String STATE_PENDING_EMAIL = "pending_email";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -51,6 +54,23 @@ public class RegisterActivity extends AppCompatActivity {
         this.registerBack.setOnClickListener(v -> finish());
         this.registerLoginLink.setOnClickListener(v -> finish());
         this.registerSubmit.setOnClickListener(v -> onSubmit());
+
+        // Restauracion post rotacion: si veniamos con un signup confirmado
+        // pendiente, reabrimos el dialog automaticamente.
+        if (savedInstanceState != null) {
+            this.pendingEmail = savedInstanceState.getString(STATE_PENDING_EMAIL);
+            if (this.pendingEmail != null) {
+                showConfirmationDialog(this.pendingEmail);
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (pendingEmail != null) {
+            outState.putString(STATE_PENDING_EMAIL, pendingEmail);
+        }
     }
 
     // ============================================================
@@ -109,8 +129,8 @@ public class RegisterActivity extends AppCompatActivity {
                 .setCancelable(false)
                 .setPositiveButton(R.string.register_confirm_dialog_confirm, null) // override mas abajo
                 .setNegativeButton(R.string.register_confirm_dialog_cancel, (d, w) -> {
-                    // Si cancela, dejamos el form como estaba; podra reintentar
-                    // (en una proxima iteracion podriamos guardar el "estado pendiente" en SharedPrefs)
+                    // Limpiamos el pending asi al rotar no re-abrimos el dialog.
+                    pendingEmail = null;
                 })
                 .create();
 
