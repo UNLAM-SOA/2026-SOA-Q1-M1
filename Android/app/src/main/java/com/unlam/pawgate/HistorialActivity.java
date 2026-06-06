@@ -46,6 +46,13 @@ public class HistorialActivity extends AppCompatActivity {
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
     private Long currentToMs = null;
+    // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d.
+    private int activeChipIndex = 0;
+
+    // Keys del Bundle (sobreviven rotacion y process death)
+    private static final String STATE_FROM_MS = "filter_from_ms";
+    private static final String STATE_TO_MS = "filter_to_ms";
+    private static final String STATE_CHIP_INDEX = "filter_chip_index";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,7 +75,29 @@ public class HistorialActivity extends AppCompatActivity {
         list.setAdapter(adapter);
         list.addItemDecoration(new InsetDividerDecoration(this));
 
+        // Restauracion del filtro post rotacion.
+        if (savedInstanceState != null) {
+            if (savedInstanceState.containsKey(STATE_FROM_MS)) {
+                currentFromMs = savedInstanceState.getLong(STATE_FROM_MS);
+            }
+            if (savedInstanceState.containsKey(STATE_TO_MS)) {
+                currentToMs = savedInstanceState.getLong(STATE_TO_MS);
+            }
+            activeChipIndex = savedInstanceState.getInt(STATE_CHIP_INDEX, 0);
+            highlightChipByIndex(activeChipIndex);
+        } else {
+            highlightChipByIndex(0); // arranca con "Todas" marcado
+        }
+
         BottomNavHelper.bind(this, R.id.nav_historial);
+    }
+
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (currentFromMs != null) outState.putLong(STATE_FROM_MS, currentFromMs);
+        if (currentToMs != null) outState.putLong(STATE_TO_MS, currentToMs);
+        outState.putInt(STATE_CHIP_INDEX, activeChipIndex);
     }
 
     @Override
@@ -115,15 +144,13 @@ public class HistorialActivity extends AppCompatActivity {
 
     private void seleccionarChip(TextView active) {
         TextView[] chips = {chipTodas, chipHoy, chipAyer, chip7d};
-        for (TextView chip : chips) {
-            boolean isActive = chip == active;
-            chip.setBackgroundResource(isActive
-                    ? R.drawable.bg_filter_chip_active : R.drawable.bg_button_secondary);
-            chip.setTextColor(ContextCompat.getColor(this,
-                    isActive ? R.color.text_primary : R.color.text_secondary));
-            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+        int index = 0;
+        for (int i = 0; i < chips.length; i++) {
+            if (chips[i] == active) { index = i; break; }
         }
-        // Calculamos el rango temporal del chip y refetcheamos.
+        activeChipIndex = index;
+        highlightChipByIndex(index);
+
         long nowMs = System.currentTimeMillis();
         long dayMs = 24L * 60L * 60L * 1000L;
         if (active == chipHoy) {
@@ -140,6 +167,20 @@ public class HistorialActivity extends AppCompatActivity {
             currentToMs = null;
         }
         loadHistory();
+    }
+
+    /** Aplica el highlight visual al chip del indice dado. Usado por seleccionarChip
+     *  y por el restore post rotacion. */
+    private void highlightChipByIndex(int index) {
+        TextView[] chips = {chipTodas, chipHoy, chipAyer, chip7d};
+        for (int i = 0; i < chips.length; i++) {
+            boolean isActive = (i == index);
+            chips[i].setBackgroundResource(isActive
+                    ? R.drawable.bg_filter_chip_active : R.drawable.bg_button_secondary);
+            chips[i].setTextColor(ContextCompat.getColor(this,
+                    isActive ? R.color.text_primary : R.color.text_secondary));
+            chips[i].setPadding(dp(12), dp(6), dp(12), dp(6));
+        }
     }
 
     /** Epoch ms del 00:00:00 de hoy en la timezone del device. */
