@@ -82,4 +82,9 @@ public interface PawGateApi {
     Call<ScheduleDtos.OverrideUnblockResponse> overrideUnblock(
             @Path("id") String deviceId,
             @Body Map<String, Object> body);
+
+    @POST("devices/{id}/state/override-block")
+    Call<ScheduleDtos.OverrideUnblockResponse> overrideBlock(
+            @Path("id") String deviceId,
+            @Body Map<String, Object> body);
 }

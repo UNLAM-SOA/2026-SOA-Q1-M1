@@ -215,6 +215,22 @@ public class DeviceRepository {
         });
     }
 
+    public void overrideBlock(String deviceId,
+                               ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
+        api.overrideBlock(deviceId, Collections.emptyMap())
+                .enqueue(new Callback<ScheduleDtos.OverrideUnblockResponse>() {
+            @Override public void onResponse(Call<ScheduleDtos.OverrideUnblockResponse> call,
+                                             Response<ScheduleDtos.OverrideUnblockResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo bloquear"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.OverrideUnblockResponse> call, Throwable t) {
+                Log.e(TAG, "overrideBlock network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
     // ============================================================
     // HELPERS DE ERROR (mismos que AuthRepository - en una proxima refactor
     // movemos esto a ApiErrors o a una clase base)
