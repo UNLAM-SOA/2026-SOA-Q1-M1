@@ -1,6 +1,12 @@
 package com.unlam.pawgate;
 
+import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -9,33 +15,23 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.unlam.pawgate.api.ApiCallback;
-import com.unlam.pawgate.api.DeviceRepository;
-import com.unlam.pawgate.api.dto.DeviceDtos;
-
-import java.util.List;
 
 /**
  * Dashboard - pantalla principal.
  *
- * Lee el estado de la puerta desde DoorStateMachine (fuente de verdad:
- * SharedPreferences + clock) y lo muestra en:
- *   - La card "Puerta · X" (label que refleja TODOS los estados).
- *   - El toggle Bloquear/Desbloquear con borde rojo o gris.
- *
- * Tick de 1s en onResume mantiene la card sincronizada mientras el user
- * esta en Dashboard (la puerta puede pasar de ABRIENDO -> ABIERTA mientras
- * el user mira el Dashboard).
+ * El estado de la puerta lo computa DoorStateMachine (SharedPreferences + clock).
+ * Los eventos del backend llegan via BroadcastReceiver desde PawGatePollingService.
+ * El tick local de 1s solo refresca el countdown visual (OPEN/CALLING).
  *
  * Acciones:
- *   - dashboard_door_card: NO clickable (solo informacion).
- *   - action_open  -> si BLOQUEADA, solo redirige a Control. Sino, inicia
- *                     el ciclo OPEN_DOOR y redirige.
- *   - action_call  -> inicia el ciclo CALL y redirige.
+ *   - action_open  -> si BLOQUEADA, solo redirige a Control. Sino, inicia ciclo OPEN_DOOR + redirige.
+ *   - action_call  -> inicia ciclo CALL y redirige.
  *   - action_block -> dialog Bloquear/Desbloquear (toggle persistente).
  *   - action_schedules -> abre HorariosActivity.
  *   - bell -> abre NotificacionesActivity.
@@ -43,10 +39,11 @@ import java.util.List;
 public class DashboardActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    /** Tick local de 1s para refrescar countdown del estado. */
     private final Runnable refreshTickRunnable = new Runnable() {
         @Override public void run() {
             renderDoorState();
-            // Solo re-tickear si estamos en un estado dinamico (cycle activo).
             DoorStateMachine.DoorState s = DoorStateMachine.currentState(DashboardActivity.this);
             if (s != DoorStateMachine.DoorState.IDLE
                     && s != DoorStateMachine.DoorState.BLOCKED) {
@@ -61,21 +58,20 @@ public class DashboardActivity extends AppCompatActivity {
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
 
-    // Backend
-    private DeviceRepository deviceRepo;
-    private String deviceId;
-
-    // Polling cada 3s al backend para refrescar "ultima actividad" + sync BLOQUEADO
-    private static final long BACKEND_POLL_INTERVAL_MS = 3_000L;
-    // Ventana de "eventos recientes" que pedimos al backend (5min suele alcanzar)
-    private static final long BACKEND_POLL_WINDOW_MS = 5L * 60L * 1000L;
-
-    private final Runnable backendPollRunnable = new Runnable() {
-        @Override public void run() {
-            pollBackend();
-            handler.postDelayed(this, BACKEND_POLL_INTERVAL_MS);
+    /** Recibe los broadcasts de PawGatePollingService con los eventos del backend. */
+    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handleEventUpdate(intent);
         }
     };
+
+    /** Permiso POST_NOTIFICATIONS (runtime desde Android 13). Si el user niega,
+     *  el Service sigue funcionando pero su notification no se muestra. */
+    private final ActivityResultLauncher<String> notificationPermissionLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.RequestPermission(),
+                    granted -> { /* no-op: funcionamos igual sin la notification */ });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,10 +84,6 @@ public class DashboardActivity extends AppCompatActivity {
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
         lastActivityLabel = findViewById(R.id.dashboard_last_activity);
 
-        // Backend hookup (igual que ControlActivity)
-        this.deviceRepo = new DeviceRepository(this);
-        this.deviceId = getString(R.string.default_device_id);
-
         // Greeting
         String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
         if (user != null) {
@@ -99,8 +91,7 @@ public class DashboardActivity extends AppCompatActivity {
             greeting.setText(getString(R.string.dashboard_greeting_template, user));
         }
 
-        // dashboard_door_card: SIN listener (no clickable, solo informativa).
-        // (Dejamos el ripple visual del XML por estetica, pero no responde a tap.)
+        ensureNotificationPermission();
 
         findViewById(R.id.dashboard_notification).setOnClickListener(
                 v -> startActivity(new Intent(this, NotificacionesActivity.class)));
@@ -117,96 +108,55 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshTickRunnable.run();
-        // Arrancamos el polling al backend. Primera ejecucion inmediata para no esperar 3s.
-        backendPollRunnable.run();
+
+        // RECEIVER_NOT_EXPORTED: solo aceptamos broadcasts del propio Service.
+        IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
+        ContextCompat.registerReceiver(
+                this,
+                eventUpdateReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
-        handler.removeCallbacks(backendPollRunnable);
+        try {
+            unregisterReceiver(eventUpdateReceiver);
+        } catch (IllegalArgumentException ignored) {
+            // defensivo: race conditions en lifecycle
+        }
         super.onPause();
     }
 
     // ============================================================
-    // BACKEND POLLING (reconciliacion minima)
+    // PERMISO RUNTIME: POST_NOTIFICATIONS
     // ============================================================
 
-    /**
-     * Polling al backend cada BACKEND_POLL_INTERVAL_MS. Trae los eventos de los
-     * ultimos 5 minutos y usa el mas reciente para:
-     *   1) Mostrar "Ultima actividad: hace Xm" actualizado en tiempo real.
-     *   2) Sincronizar el flag BLOQUEADO si el server lo cambio por su cuenta
-     *      (ej: el simulador respondio a un horario programado mientras la app
-     *       estaba cerrada, o desde otro device).
-     *
-     * Estrategia conservadora: solo reconciliamos para los eventos
-     * blocked/unblocked. El resto (opened/closed/etc) sigue siendo manejado por
-     * el ciclo local de DoorStateMachine - es transient y no vale la pena
-     * complicar la sincronizacion.
-     */
-    private void pollBackend() {
-        long now = System.currentTimeMillis();
-        Long from = now - BACKEND_POLL_WINDOW_MS;
-        deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
-            @Override
-            public void onSuccess(DeviceDtos.HistoryResponse result) {
-                if (result == null || result.events == null || result.events.isEmpty()) {
-                    return;
-                }
-                DeviceDtos.Event mostRecent = pickMostRecent(result.events);
-                if (mostRecent == null) return;
-                updateLastActivityLabel(mostRecent);
-                reconcileBlockedFlag(mostRecent);
-            }
-            @Override
-            public void onError(String message) {
-                // Silencio en error - el polling es best-effort, no queremos
-                // bombardear toasts. Si el user tiene problemas reales de red, se
-                // entera al hacer una accion (Control/Historial muestran toast).
-            }
-        });
-    }
-
-    /**
-     * Devuelve el evento con created_at mas reciente. No asumimos orden del backend
-     * para ser robustos.
-     */
-    private DeviceDtos.Event pickMostRecent(List<DeviceDtos.Event> events) {
-        DeviceDtos.Event best = null;
-        long bestMs = -1L;
-        for (DeviceDtos.Event e : events) {
-            long ms = HistorialMapper.parseIsoToMs(e.created_at);
-            if (ms > bestMs) {
-                bestMs = ms;
-                best = e;
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            boolean granted = ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED;
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
-        return best;
     }
 
-    private void updateLastActivityLabel(DeviceDtos.Event e) {
-        if (lastActivityLabel == null) return;
-        String rel = HistorialMapper.relativeTimeFor(e.created_at, System.currentTimeMillis());
-        lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
-    }
+    // ============================================================
+    // BROADCAST: actualizacion del backend desde el Service
+    // ============================================================
 
-    /**
-     * Si el ultimo evento del server dice blocked/unblocked y el flag local NO
-     * coincide, sincronizamos el local. Re-rendereamos para reflejar el cambio
-     * inmediatamente en el toggle.
-     */
-    private void reconcileBlockedFlag(DeviceDtos.Event e) {
-        if (e.event_type == null) return;
-        boolean locallyBlocked = PrefsHelper.isDoorBlocked(this);
-        if ("blocked".equals(e.event_type) && !locallyBlocked) {
-            PrefsHelper.setDoorBlocked(this, true);
-            PrefsHelper.clearCycle(this);
-            renderDoorState();
-        } else if ("unblocked".equals(e.event_type) && locallyBlocked) {
-            PrefsHelper.setDoorBlocked(this, false);
-            renderDoorState();
+    private void handleEventUpdate(Intent intent) {
+        String createdAtIso = intent.getStringExtra(PawGatePollingService.EXTRA_CREATED_AT_ISO);
+        if (createdAtIso != null && lastActivityLabel != null) {
+            String rel = HistorialMapper.relativeTimeFor(createdAtIso, System.currentTimeMillis());
+            lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
         }
+        // El Service ya escribio el flag BLOQUEADO en SharedPreferences si correspondia.
+        renderDoorState();
     }
 
     // ============================================================
@@ -216,8 +166,6 @@ public class DashboardActivity extends AppCompatActivity {
     private void renderDoorState() {
         DoorStateMachine.DoorState state = DoorStateMachine.currentState(this);
 
-        // Label de la card "Puerta · X". Para OPEN y CALLING incluimos el
-        // countdown leido del state machine (mismo tick que en Control).
         String doorLabel;
         switch (state) {
             case OPENING:
