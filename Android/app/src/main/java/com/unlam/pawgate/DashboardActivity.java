@@ -21,6 +21,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.unlam.pawgate.api.ApiCallback;
+import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
  * Dashboard - pantalla principal.
@@ -58,6 +61,10 @@ public class DashboardActivity extends AppCompatActivity {
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
 
+    private DeviceRepository deviceRepo;
+    private String deviceId;
+    private boolean toggleInFlight;
+
     /** Recibe los broadcasts de PawGatePollingService con los eventos del backend. */
     private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
         @Override
@@ -83,6 +90,9 @@ public class DashboardActivity extends AppCompatActivity {
         actionBlockLabel = findViewById(R.id.action_block_label);
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
         lastActivityLabel = findViewById(R.id.dashboard_last_activity);
+
+        deviceRepo = new DeviceRepository(this);
+        deviceId = getString(R.string.default_device_id);
 
         // Greeting
         String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
@@ -239,44 +249,148 @@ public class DashboardActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // BLOQUEAR / DESBLOQUEAR
+    // BLOQUEAR / DESBLOQUEAR (con awareness de horario natural)
     // ============================================================
 
+    /**
+     * Flujo del toggle:
+     *   1) Refetch del lock_state + currently_in_horario al backend.
+     *   2) Mostrar el dialog apropiado:
+     *      - Block dentro de horario  -> dialog WARNING (override)
+     *      - Block fuera de horario   -> dialog estandar
+     *      - Unblock dentro de horario -> dialog estandar
+     *      - Unblock fuera de horario -> dialog WARNING (override)
+     *   3) Al confirmar, llamar al endpoint correspondiente (cmd o override).
+     */
     private void onBlockOrUnblockClick() {
-        if (PrefsHelper.isDoorBlocked(this)) {
-            showUnblockDialog();
-        } else {
-            showBlockDialog();
-        }
+        if (toggleInFlight) return;
+        boolean wantToBlock = !PrefsHelper.isDoorBlocked(this);
+        toggleInFlight = true;
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                toggleInFlight = false;
+                boolean inHorario = state != null && state.currently_in_horario;
+                if (wantToBlock) {
+                    if (inHorario) showOverrideBlockDialog();
+                    else showRegularBlockDialog();
+                } else {
+                    if (inHorario) showRegularUnblockDialog();
+                    else showOverrideUnblockDialog();
+                }
+            }
+            @Override
+            public void onError(String message) {
+                toggleInFlight = false;
+                // Fallback: si no podemos consultar el state, asumimos que estamos
+                // fuera de horario (caso mas comun) y mostramos dialog regular.
+                if (wantToBlock) showRegularBlockDialog();
+                else showRegularUnblockDialog();
+            }
+        });
     }
 
-    private void showBlockDialog() {
+    // ---- BLOCK ----
+
+    private void showRegularBlockDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dashboard_block_dialog_title)
                 .setMessage(R.string.dashboard_block_dialog_message)
-                .setPositiveButton(R.string.control_block_dialog_confirm, (dialog, which) -> {
-                    PrefsHelper.setDoorBlocked(this, true);
-                    PrefsHelper.clearCycle(this); // cancela cualquier ciclo en curso
-                    showToast(R.string.toast_action_block);
-                    Intent intent = new Intent(this, ControlActivity.class);
-                    intent.putExtra(ControlActivity.EXTRA_START_BLOCKED, true);
-                    startActivity(intent);
-                })
+                .setPositiveButton(R.string.control_block_dialog_confirm,
+                        (d, w) -> executeBlock(false))
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
     }
 
-    private void showUnblockDialog() {
+    private void showOverrideBlockDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.override_block_title)
+                .setMessage(R.string.override_block_message)
+                .setPositiveButton(R.string.override_block_confirm,
+                        (d, w) -> executeBlock(true))
+                .setNegativeButton(R.string.override_block_cancel, null)
+                .show();
+    }
+
+    private void executeBlock(boolean useOverride) {
+        ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb =
+                new ApiCallback<ScheduleDtos.OverrideUnblockResponse>() {
+            @Override public void onSuccess(ScheduleDtos.OverrideUnblockResponse result) {
+                PrefsHelper.setDoorBlocked(DashboardActivity.this, true);
+                PrefsHelper.clearCycle(DashboardActivity.this);
+                showToast(useOverride
+                        ? R.string.override_block_toast_ok
+                        : R.string.toast_action_block);
+                renderDoorState();
+            }
+            @Override public void onError(String message) {
+                Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        };
+        if (useOverride) deviceRepo.overrideBlock(deviceId, cb);
+        else deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_BLOCK,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                PrefsHelper.setDoorBlocked(DashboardActivity.this, true);
+                PrefsHelper.clearCycle(DashboardActivity.this);
+                showToast(R.string.toast_action_block);
+                renderDoorState();
+            }
+            @Override public void onError(String message) {
+                Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    // ---- UNBLOCK ----
+
+    private void showRegularUnblockDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dashboard_unblock_dialog_title)
                 .setMessage(R.string.dashboard_unblock_dialog_message)
-                .setPositiveButton(R.string.action_unblock, (dialog, which) -> {
-                    PrefsHelper.setDoorBlocked(this, false);
-                    showToast(R.string.toast_action_unblock);
-                    renderDoorState();
-                })
+                .setPositiveButton(R.string.action_unblock,
+                        (d, w) -> executeUnblock(false))
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
+    }
+
+    private void showOverrideUnblockDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.override_unblock_title)
+                .setMessage(R.string.override_unblock_message)
+                .setPositiveButton(R.string.override_unblock_confirm,
+                        (d, w) -> executeUnblock(true))
+                .setNegativeButton(R.string.override_unblock_cancel, null)
+                .show();
+    }
+
+    private void executeUnblock(boolean useOverride) {
+        ApiCallback<ScheduleDtos.OverrideUnblockResponse> overrideCb =
+                new ApiCallback<ScheduleDtos.OverrideUnblockResponse>() {
+            @Override public void onSuccess(ScheduleDtos.OverrideUnblockResponse result) {
+                PrefsHelper.setDoorBlocked(DashboardActivity.this, false);
+                showToast(R.string.override_unblock_toast_ok);
+                renderDoorState();
+            }
+            @Override public void onError(String message) {
+                Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        };
+        if (useOverride) {
+            deviceRepo.overrideUnblock(deviceId, overrideCb);
+        } else {
+            deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_UNBLOCK,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+                @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                    PrefsHelper.setDoorBlocked(DashboardActivity.this, false);
+                    showToast(R.string.toast_action_unblock);
+                    renderDoorState();
+                }
+                @Override public void onError(String message) {
+                    Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
+                }
+            });
+        }
     }
 
     private void showToast(int messageRes) {
