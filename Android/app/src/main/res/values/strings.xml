@@ -215,6 +215,13 @@
     <string name="override_unblock_cancel">Cancelar</string>
     <string name="override_unblock_toast_ok">Desbloqueada manualmente</string>
 
+    <!-- Dialog override (bloquear dentro de horario) -->
+    <string name="override_block_title">Estás dentro de un horario</string>
+    <string name="override_block_message">Hay un horario configurado activo en este momento. Si bloqueás manualmente, la puerta quedará bloqueada hasta que termine este horario.</string>
+    <string name="override_block_confirm">Bloquear igual</string>
+    <string name="override_block_cancel">Cancelar</string>
+    <string name="override_block_toast_ok">Bloqueada manualmente</string>
+
     <!-- Notificaciones -->
     <string name="notificaciones_title">Notificaciones</string>
     <string name="notificaciones_mark_read">Marcar leídas</string>
