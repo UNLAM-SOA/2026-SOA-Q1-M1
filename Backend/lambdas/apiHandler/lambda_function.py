@@ -26,6 +26,7 @@ Endpoints:
 
     GET    /devices/{id}/state                    -> {lock_state, updated_at, currently_in_horario}
     POST   /devices/{id}/state/override-unblock   -> setea lock_state=MANUAL_UNBLOCKED + publish unblock
+    POST   /devices/{id}/state/override-block     -> setea lock_state=MANUAL_BLOCKED + publish block
 
 Modelo de schedules (horarios = ventanas en que la puerta queda DESBLOQUEADA):
     nombre        string
@@ -75,7 +76,7 @@ schedules_table = ddb.Table(SCHEDULES_TABLE)
 device_state_table = ddb.Table(DEVICE_STATE_TABLE)
 
 VALID_DAYS = {"L", "M", "X", "J", "V", "S", "D"}
-VALID_LOCK_STATES = {"AUTO_BLOCKED", "AUTO_UNBLOCKED", "MANUAL_UNBLOCKED"}
+VALID_LOCK_STATES = {"AUTO_BLOCKED", "AUTO_UNBLOCKED", "MANUAL_UNBLOCKED", "MANUAL_BLOCKED"}
 
 
 # ============================================================
@@ -159,6 +160,8 @@ def lambda_handler(event, context):
             return handle_get_state(device_id)
         if method == "POST" and path.endswith("/state/override-unblock"):
             return handle_override_unblock(device_id)
+        if method == "POST" and path.endswith("/state/override-block"):
+            return handle_override_block(device_id)
 
         return _response(404, {"error": f"route not found: {method} {path}"})
 
@@ -453,13 +456,22 @@ def handle_get_state(device_id):
 def handle_override_unblock(device_id):
     """Manual override: el user desbloquea fuera de horario.
        Setea lock_state=MANUAL_UNBLOCKED y publica cmd/unblock al device.
-       El cron lo respeta hasta que entre+salga de un horario natural."""
+       El cron lo respeta hasta que entre a un horario natural."""
+    return _do_override(device_id, "MANUAL_UNBLOCKED", "unblock")
+
+
+def handle_override_block(device_id):
+    """Manual override: el user bloquea dentro de horario.
+       Setea lock_state=MANUAL_BLOCKED y publica cmd/block al device.
+       El cron lo respeta hasta que salga del horario natural."""
+    return _do_override(device_id, "MANUAL_BLOCKED", "block")
+
+
+def _do_override(device_id, target_state, cmd):
     if not device_id:
         return _bad_request("device_id requerido")
-
-    _set_device_state(device_id, "MANUAL_UNBLOCKED")
-
-    topic = f"pawgate/{device_id}/cmd/unblock"
+    _set_device_state(device_id, target_state)
+    topic = f"pawgate/{device_id}/cmd/{cmd}"
     payload = {
         "source": "api_override",
         "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
@@ -469,8 +481,7 @@ def handle_override_unblock(device_id):
     except ClientError as e:
         logger.error("IoT publish failed: %s", e)
         return _server_error("publish failed")
-
-    return _ok({"lock_state": "MANUAL_UNBLOCKED", "topic": topic, "payload": payload})
+    return _ok({"lock_state": target_state, "topic": topic, "payload": payload})
 
 
 # ============================================================

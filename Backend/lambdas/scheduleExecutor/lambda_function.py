@@ -11,19 +11,17 @@ Modelo:
 
 State machine (campo lock_state en pawgate_device_state):
 
-    AUTO_BLOCKED       AUTO_UNBLOCKED       MANUAL_UNBLOCKED
-        |                   |                     |
-    in_horario          in_horario           in_horario
-        ↓                   ↓                     ↓
-    AUTO_UNBLOCKED      AUTO_UNBLOCKED       AUTO_UNBLOCKED
-    (publish unblock)   (no-op)              (no-op, override consumido)
+  in_horario=True:
+    AUTO_BLOCKED      -> AUTO_UNBLOCKED   (publish unblock)
+    AUTO_UNBLOCKED    -> AUTO_UNBLOCKED   (no-op)
+    MANUAL_UNBLOCKED  -> AUTO_UNBLOCKED   (no-op, override consumido)
+    MANUAL_BLOCKED    -> MANUAL_BLOCKED   (no-op, override sigue)
 
-    AUTO_BLOCKED       AUTO_UNBLOCKED       MANUAL_UNBLOCKED
-        |                   |                     |
-    fuera de horario    fuera de horario     fuera de horario
-        ↓                   ↓                     ↓
-    AUTO_BLOCKED        AUTO_BLOCKED         MANUAL_UNBLOCKED
-    (no-op)             (publish block)      (no-op, override sigue activo)
+  in_horario=False:
+    AUTO_BLOCKED      -> AUTO_BLOCKED     (no-op)
+    AUTO_UNBLOCKED    -> AUTO_BLOCKED     (publish block)
+    MANUAL_UNBLOCKED  -> MANUAL_UNBLOCKED (no-op, override sigue)
+    MANUAL_BLOCKED    -> AUTO_BLOCKED     (no-op, override consumido)
 
 Idempotencia:
     Si el state ya es el correcto, no publicamos. Asi el cron puede ejecutarse
@@ -124,6 +122,9 @@ def _transition(current_state, in_horario):
         if current_state == "MANUAL_UNBLOCKED":
             # Override consumido al entrar a horario natural.
             return "AUTO_UNBLOCKED", None
+        if current_state == "MANUAL_BLOCKED":
+            # Override de bloqueo sigue activo aunque entremos a horario.
+            return "MANUAL_BLOCKED", None
     else:
         if current_state == "AUTO_BLOCKED":
             return "AUTO_BLOCKED", None
@@ -131,6 +132,9 @@ def _transition(current_state, in_horario):
             return "AUTO_BLOCKED", "block"
         if current_state == "MANUAL_UNBLOCKED":
             return "MANUAL_UNBLOCKED", None
+        if current_state == "MANUAL_BLOCKED":
+            # Override consumido al salir del horario natural.
+            return "AUTO_BLOCKED", None
     # Defensivo: state desconocido -> reset a AUTO_BLOCKED
     return "AUTO_BLOCKED", "block"
 

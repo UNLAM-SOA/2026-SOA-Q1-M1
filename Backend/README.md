@@ -213,7 +213,7 @@ El backend evolucionó para tratar a los horarios como **ventanas en que la puer
 PK = `device_id`. Item:
 ```
 { device_id, lock_state, updated_at }
-lock_state ∈ {AUTO_BLOCKED, AUTO_UNBLOCKED, MANUAL_UNBLOCKED}
+lock_state ∈ {AUTO_BLOCKED, AUTO_UNBLOCKED, MANUAL_UNBLOCKED, MANUAL_BLOCKED}
 ```
 
 Crear la tabla:
@@ -236,6 +236,8 @@ aws dynamodb create-table \
 | AUTO_UNBLOCKED | no | AUTO_BLOCKED | publish `cmd/block` |
 | MANUAL_UNBLOCKED | sí | AUTO_UNBLOCKED | no-op (override consumido) |
 | MANUAL_UNBLOCKED | no | MANUAL_UNBLOCKED | no-op (override sigue activo) |
+| MANUAL_BLOCKED | sí | MANUAL_BLOCKED | no-op (override sigue activo) |
+| MANUAL_BLOCKED | no | AUTO_BLOCKED | no-op (override consumido) |
 
 ### Endpoints nuevos en `apiHandler`
 
@@ -247,6 +249,7 @@ aws dynamodb create-table \
 | DELETE | `/devices/{id}/schedules/{schedule_id}` | eliminar |
 | GET    | `/devices/{id}/state` | `{lock_state, updated_at, currently_in_horario}` |
 | POST   | `/devices/{id}/state/override-unblock` | manual override → `MANUAL_UNBLOCKED` + publish unblock |
+| POST   | `/devices/{id}/state/override-block` | manual override → `MANUAL_BLOCKED` + publish block |
 
 Hay que registrar estos paths en API Gateway con el Cognito Authorizer. El path `/devices/{id}/schedules/{schedule_id}` requiere dos path parameters; en la consola de API GW usás `{id}` y `{schedule_id}`.
 
