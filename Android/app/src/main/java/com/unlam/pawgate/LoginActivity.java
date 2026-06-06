@@ -79,6 +79,9 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void goToDashboard(String emailValue) {
+        // Arrancamos el Service de polling para toda la sesion. Se detiene en logout.
+        PawGatePollingService.start(this);
+
         Intent i = new Intent(this, DashboardActivity.class);
         if (emailValue != null) {
             i.putExtra(EXTRA_USER, emailValue);
