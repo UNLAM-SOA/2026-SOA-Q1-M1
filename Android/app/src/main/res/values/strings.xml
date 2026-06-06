@@ -161,9 +161,6 @@
     <string name="cd_add">Agregar</string>
     <string name="horarios_programados">Horarios programados</string>
     <string name="horarios_add_button">+ Agregar horario</string>
-    <string name="horarios_tipo_abrir">Abrir automático</string>
-    <string name="horarios_tipo_nocturno">Modo nocturno</string>
-    <string name="horarios_tipo_paseo">Paseo tarde</string>
     <string name="horarios_estado_on">ON</string>
     <string name="horarios_estado_off">OFF</string>
     <string name="horarios_day_l">L</string>
@@ -173,6 +170,50 @@
     <string name="horarios_day_v">V</string>
     <string name="horarios_day_s">S</string>
     <string name="horarios_day_d">D</string>
+    <string name="horarios_empty_title">No hay horarios todavía</string>
+    <string name="horarios_empty_subtitle">Agregá un horario para que tu puerta se desbloquee automáticamente en esa franja.</string>
+    <string name="horarios_loading">Cargando horarios…</string>
+    <string name="horarios_window_subtitle">Puerta destrabada %1$s · %2$s</string>
+
+    <!-- Form horario -->
+    <string name="form_horario_title_nuevo">Nuevo horario</string>
+    <string name="form_horario_title_editar">Editar horario</string>
+    <string name="form_horario_nombre">Nombre</string>
+    <string name="form_horario_nombre_hint">Ej: Horario diurno</string>
+    <string name="form_horario_hora_inicio">Hora de inicio</string>
+    <string name="form_horario_hora_fin">Hora de fin</string>
+    <string name="form_horario_dias">Días</string>
+    <string name="form_horario_activo">Activo</string>
+    <string name="form_horario_guardar">Guardar</string>
+    <string name="form_horario_cancelar">Cancelar</string>
+    <string name="form_horario_eliminar">Eliminar horario</string>
+    <string name="form_horario_info_30min">Los horarios se evalúan en bloques de 30 minutos.</string>
+    <string name="form_horario_saving">Guardando…</string>
+
+    <!-- Validaciones del form -->
+    <string name="form_horario_err_nombre">Ingresá un nombre</string>
+    <string name="form_horario_err_nombre_corto">El nombre debe tener al menos 3 caracteres</string>
+    <string name="form_horario_err_dias">Seleccioná al menos un día</string>
+    <string name="form_horario_err_horas">La hora de fin debe ser distinta a la de inicio</string>
+
+    <!-- Toasts -->
+    <string name="form_horario_toast_creado">Horario creado</string>
+    <string name="form_horario_toast_actualizado">Horario actualizado</string>
+    <string name="form_horario_toast_eliminado">Horario eliminado</string>
+    <string name="form_horario_toast_snap_30min">Ajustado al bloque de 30 min más cercano</string>
+
+    <!-- Modal eliminar horario (BottomSheet custom) -->
+    <string name="modal_delete_horario_title">Eliminar este horario</string>
+    <string name="modal_delete_horario_message">La puerta dejará de desbloquearse automáticamente en esta franja. Podés crear otro horario más tarde.</string>
+    <string name="modal_delete_horario_confirm">Sí, eliminar</string>
+    <string name="modal_delete_horario_cancel">Cancelar</string>
+
+    <!-- Dialog override (desbloquear fuera de horario) -->
+    <string name="override_unblock_title">Fuera de horario</string>
+    <string name="override_unblock_message">No estás dentro de ningún horario configurado. Si desbloqueás manualmente, la puerta quedará destrabada hasta que el próximo horario configurado se cumpla.</string>
+    <string name="override_unblock_confirm">Desbloquear igual</string>
+    <string name="override_unblock_cancel">Cancelar</string>
+    <string name="override_unblock_toast_ok">Desbloqueada manualmente</string>
 
     <!-- Notificaciones -->
     <string name="notificaciones_title">Notificaciones</string>
