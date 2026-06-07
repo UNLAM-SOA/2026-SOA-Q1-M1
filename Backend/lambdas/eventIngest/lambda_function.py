@@ -77,6 +77,11 @@ def lambda_handler(event, context):
     event_type = event.get("type") or event_kind
     sort_key = f"{ts_device:013d}#{event_kind}#{event_type}"
 
+    # direction: solo aplica para events tipo door (opened/closed).
+    # Valores: "in"  (alguien entro a la casa, ej RFID disparo afuera)
+    #         "out" (alguien salio al patio, ej ultrasonido disparo adentro)
+    direction = event.get("direction")
+
     # 3) TTL: epoch SECONDS (no ms) cuando DDB debe purgar el item.
     ttl_epoch = int((datetime.now(timezone.utc) + timedelta(days=TTL_DAYS)).timestamp())
 
@@ -91,6 +96,8 @@ def lambda_handler(event, context):
         "ttl_epoch":   ttl_epoch,
         "created_at":  datetime.now(timezone.utc).isoformat(),
     }
+    if direction:
+        item["direction"] = direction
 
     try:
         events_table.put_item(Item=item)
