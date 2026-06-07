@@ -1,5 +1,9 @@
 package com.unlam.pawgate;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.Handler;
@@ -78,6 +82,44 @@ public class ControlActivity extends AppCompatActivity {
         }
     };
 
+    /** Recibe los broadcasts del PawGatePollingService cuando el lock cambia. */
+    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // El Service ya sincronizo PrefsHelper.isDoorBlocked.
+            // Solo necesitamos re-renderizar leyendo el state actual.
+            refreshTickRunnable.run();
+        }
+    };
+
+    /** Tick local que pollea /state cada 3s mientras Control sea visible.
+     *  Independiente del PawGatePollingService. */
+    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
+    private final Runnable statePollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceState();
+            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceState() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (state == null || state.lock_state == null) return;
+                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
+                        || "MANUAL_BLOCKED".equals(state.lock_state);
+                boolean locallyBlocked = PrefsHelper.isDoorBlocked(ControlActivity.this);
+                if (shouldBeBlocked != locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(ControlActivity.this, shouldBeBlocked);
+                    if (shouldBeBlocked) PrefsHelper.clearCycle(ControlActivity.this);
+                    refreshTickRunnable.run();
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
     // ===== Backend =====
     private DeviceRepository deviceRepo;
     private String deviceId;
@@ -132,16 +174,25 @@ public class ControlActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // Arranca el tick. La primera ejecucion es inmediata (renderiza el estado actual)
-        // y se reagenda solo si el estado no es terminal.
         refreshTickRunnable.run();
+        statePollRunnable.run();
+
+        // Receiver para que el broadcast del Service nos despierte el render
+        // sin tener que esperar al tick local.
+        IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
+        ContextCompat.registerReceiver(this, eventUpdateReceiver, filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
     protected void onPause() {
-        // Pausamos el tick: ya no hace falta refrescar la UI cuando la Activity no es visible.
-        // El estado de la puerta sigue vivo en SharedPreferences; cuando volvamos lo re-leemos.
         handler.removeCallbacks(refreshTickRunnable);
+        handler.removeCallbacks(statePollRunnable);
+        try {
+            unregisterReceiver(eventUpdateReceiver);
+        } catch (IllegalArgumentException ignored) {
+            // defensivo
+        }
         super.onPause();
     }
 
