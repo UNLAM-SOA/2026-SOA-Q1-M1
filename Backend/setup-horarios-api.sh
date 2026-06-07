@@ -161,22 +161,26 @@ ensure_method() {
   echo "   + $label (creado)"
 }
 
-# CORS preflight (OPTIONS sin auth) para que el browser/Chrome no falle si se prueba desde web.
+# CORS preflight (OPTIONS sin auth).
+#
+# Cada paso (method, integration, method-response, integration-response) es
+# idempotente por separado: si ya existe, AWS CLI tira 409 ConflictException
+# y lo silenciamos con "|| true". Asi un run que quedo a medias por un error
+# transient se completa en el proximo run.
+#
+# El response-parameters de la integration-response usa JSON heredoc porque la
+# sintaxis shorthand de AWS CLI parsea las comas como separadores de pares
+# clave=valor, lo que rompe valores con comas (ej: "GET,POST,PUT,DELETE,OPTIONS").
 ensure_cors() {
   local resource_id="$1"
   local label="$2"
-
-  if method_exists $resource_id OPTIONS; then
-    echo "   = $label OPTIONS (ya existe)"
-    return
-  fi
 
   aws apigateway put-method \
     --rest-api-id $REST_API_ID \
     --resource-id $resource_id \
     --http-method OPTIONS \
     --authorization-type NONE \
-    --region $REGION >/dev/null
+    --region $REGION >/dev/null 2>&1 || true
 
   aws apigateway put-integration \
     --rest-api-id $REST_API_ID \
@@ -184,7 +188,7 @@ ensure_cors() {
     --http-method OPTIONS \
     --type MOCK \
     --request-templates '{"application/json":"{\"statusCode\":200}"}' \
-    --region $REGION >/dev/null
+    --region $REGION >/dev/null 2>&1 || true
 
   aws apigateway put-method-response \
     --rest-api-id $REST_API_ID \
@@ -193,18 +197,26 @@ ensure_cors() {
     --status-code 200 \
     --response-parameters \
       method.response.header.Access-Control-Allow-Origin=false,method.response.header.Access-Control-Allow-Headers=false,method.response.header.Access-Control-Allow-Methods=false \
-    --region $REGION >/dev/null
+    --region $REGION >/dev/null 2>&1 || true
 
+  local response_params
+  response_params=$(cat <<'JSON'
+{
+  "method.response.header.Access-Control-Allow-Origin": "'*'",
+  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+  "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+}
+JSON
+  )
   aws apigateway put-integration-response \
     --rest-api-id $REST_API_ID \
     --resource-id $resource_id \
     --http-method OPTIONS \
     --status-code 200 \
-    --response-parameters \
-      "method.response.header.Access-Control-Allow-Origin='*',method.response.header.Access-Control-Allow-Headers='Content-Type,Authorization',method.response.header.Access-Control-Allow-Methods='GET,POST,PUT,DELETE,OPTIONS'" \
-    --region $REGION >/dev/null
+    --response-parameters "$response_params" \
+    --region $REGION >/dev/null 2>&1 || true
 
-  echo "   + $label OPTIONS (CORS preflight)"
+  echo "   ✓ $label CORS preflight"
 }
 
 # /devices/{id}/schedules         GET, POST
