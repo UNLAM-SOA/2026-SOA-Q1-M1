@@ -46,13 +46,15 @@ public class HistorialActivity extends AppCompatActivity {
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
     private Long currentToMs = null;
-    // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d.
+    private boolean includeSensors = false;
+    // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d, -1=custom (filtros avanzados).
     private int activeChipIndex = 0;
 
     // Keys del Bundle (sobreviven rotacion y process death)
     private static final String STATE_FROM_MS = "filter_from_ms";
     private static final String STATE_TO_MS = "filter_to_ms";
     private static final String STATE_CHIP_INDEX = "filter_chip_index";
+    private static final String STATE_INCLUDE_SENSORS = "filter_include_sensors";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,8 +65,7 @@ public class HistorialActivity extends AppCompatActivity {
         this.deviceId = getString(R.string.default_device_id);
 
         findViewById(R.id.historial_back).setOnClickListener(v -> finish());
-        findViewById(R.id.historial_filter).setOnClickListener(
-                v -> showToast(R.string.toast_coming_soon));
+        findViewById(R.id.historial_filter).setOnClickListener(v -> openFiltrosAvanzados());
 
         wireChips();
 
@@ -83,6 +84,7 @@ public class HistorialActivity extends AppCompatActivity {
             if (savedInstanceState.containsKey(STATE_TO_MS)) {
                 currentToMs = savedInstanceState.getLong(STATE_TO_MS);
             }
+            includeSensors = savedInstanceState.getBoolean(STATE_INCLUDE_SENSORS, false);
             activeChipIndex = savedInstanceState.getInt(STATE_CHIP_INDEX, 0);
             highlightChipByIndex(activeChipIndex);
         } else {
@@ -92,12 +94,34 @@ public class HistorialActivity extends AppCompatActivity {
         BottomNavHelper.bind(this, R.id.nav_historial);
     }
 
+    /** Abre el BottomSheet de filtros avanzados (W13). Al aplicar, refresca la lista. */
+    private void openFiltrosAvanzados() {
+        HistorialFiltrosBottomSheet.Filtros current =
+                new HistorialFiltrosBottomSheet.Filtros(currentFromMs, currentToMs, includeSensors);
+        HistorialFiltrosBottomSheet.show(getSupportFragmentManager(), current, filtros -> {
+            currentFromMs = filtros.fromMs;
+            currentToMs = filtros.toMs;
+            includeSensors = filtros.includeSensors;
+            if (filtros.hasCustomRange()) {
+                // Si el user puso rango custom, ningun chip queda destacado.
+                activeChipIndex = -1;
+                highlightChipByIndex(-1);
+            } else {
+                // Filtros limpiados -> volvemos a "Todas".
+                activeChipIndex = 0;
+                highlightChipByIndex(0);
+            }
+            loadHistory();
+        });
+    }
+
     @Override
     protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         if (currentFromMs != null) outState.putLong(STATE_FROM_MS, currentFromMs);
         if (currentToMs != null) outState.putLong(STATE_TO_MS, currentToMs);
         outState.putInt(STATE_CHIP_INDEX, activeChipIndex);
+        outState.putBoolean(STATE_INCLUDE_SENSORS, includeSensors);
     }
 
     @Override
@@ -115,7 +139,7 @@ public class HistorialActivity extends AppCompatActivity {
     // ============================================================
 
     private void loadHistory() {
-        deviceRepo.history(deviceId, currentFromMs, currentToMs,
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
@@ -191,10 +215,6 @@ public class HistorialActivity extends AppCompatActivity {
         cal.set(java.util.Calendar.SECOND, 0);
         cal.set(java.util.Calendar.MILLISECOND, 0);
         return cal.getTimeInMillis();
-    }
-
-    private void showToast(int messageRes) {
-        Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int value) {
