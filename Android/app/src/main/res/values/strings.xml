@@ -82,6 +82,17 @@
     <string name="dashboard_unblock_dialog_title">¿Desbloquear puerta?</string>
     <string name="dashboard_unblock_dialog_message">La puerta volverá al modo normal y se podrá abrir.</string>
 
+    <!-- Perfil de usuario (W16) -->
+    <string name="perfil_title">Mi perfil</string>
+    <string name="perfil_section_account">CUENTA</string>
+    <string name="perfil_field_name">Nombre</string>
+    <string name="perfil_field_email">Email</string>
+    <string name="perfil_section_session">SESIÓN</string>
+    <string name="perfil_logout_button">Cerrar sesión</string>
+    <string name="perfil_logout_dialog_title">¿Cerrar sesión?</string>
+    <string name="perfil_logout_dialog_message">Vas a tener que volver a iniciar sesión para acceder a tu PawGate.</string>
+    <string name="perfil_logout_dialog_confirm">Cerrar sesión</string>
+
     <!-- Toast placeholders -->
     <string name="toast_coming_soon">Próximamente</string>
     <string name="toast_action_block">Puerta bloqueada</string>
@@ -155,6 +166,18 @@
     <string name="bs_open_dir_in_subtitle">Para que tu mascota entre a casa</string>
     <string name="bs_open_dir_out_title">Hacia afuera</string>
     <string name="bs_open_dir_out_subtitle">Para que tu mascota salga al patio</string>
+
+    <!-- Filtros historial avanzados (W13) -->
+    <string name="filtros_title">Filtros</string>
+    <string name="filtros_section_range">Rango de fechas</string>
+    <string name="filtros_pick_range">Seleccionar rango personalizado</string>
+    <string name="filtros_range_summary">Desde %1$s hasta %2$s</string>
+    <string name="filtros_section_options">Otras opciones</string>
+    <string name="filtros_include_sensors">Incluir telemetría de sensores</string>
+    <string name="filtros_include_sensors_subtitle">Por defecto se ocultan para no saturar el listado</string>
+    <string name="filtros_apply">Aplicar filtros</string>
+    <string name="filtros_clear">Limpiar filtros</string>
+    <string name="filtros_summary_active">Filtros activos · %1$d eventos</string>
 
     <!-- Historial -->
     <string name="historial_title">Historial</string>
