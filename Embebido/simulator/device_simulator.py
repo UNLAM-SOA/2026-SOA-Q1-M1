@@ -218,7 +218,9 @@ class DeviceSimulator:
         cmd = topic.split("/")[-1]
 
         if cmd == "open":
-            self._handle_open()
+            # Si el payload trae direction, lo respetamos. Sino el device decide
+            # (firmware real: segun sensor que disparo; simulator: alterna).
+            self._handle_open(direction_override=payload.get("direction"))
         elif cmd == "block":
             self._handle_block()
         elif cmd == "unblock":
@@ -230,15 +232,20 @@ class DeviceSimulator:
         else:
             log.warning("Comando desconocido: %s", cmd)
 
-    def _handle_open(self):
+    def _handle_open(self, direction_override=None):
         with self._state_lock:
             if self.state in (DoorState.BLOCKED, DoorState.OPENING, DoorState.OPEN, DoorState.CLOSING):
                 log.info("Open ignorado (estado actual: %s)", self.state.value)
                 return
-            # Decidir direction de este ciclo: alternar para demo.
-            # Firmware real va a leer cual sensor disparo (RFID o ultrasonido).
+            # Direction:
+            #  - Si el payload del cmd trajo direction explicita -> respetamos.
+            #  - Sino alternamos (simula firmware con 2 sensores: RFID afuera
+            #    abre hacia "in", ultrasonido adentro abre hacia "out").
             self._open_count += 1
-            self._current_direction = "in" if (self._open_count % 2 == 1) else "out"
+            if direction_override in ("in", "out"):
+                self._current_direction = direction_override
+            else:
+                self._current_direction = "in" if (self._open_count % 2 == 1) else "out"
             log.info("🚪 Apertura #%d, direction=%s", self._open_count, self._current_direction)
             self._cancel_pending_timers()
             self._transition_to(DoorState.OPENING)
