@@ -98,13 +98,16 @@ public class AuthRepository {
             public void onResponse(Call<AuthDtos.LoginResponse> call, Response<AuthDtos.LoginResponse> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     AuthDtos.LoginResponse body = response.body();
-                    // Persistir tokens + email para auto-login en siguientes sessions
                     PrefsHelper.setTokens(appContext,
                             body.idToken,
                             body.accessToken,
                             body.refreshToken,
                             body.expiresIn);
                     PrefsHelper.setUserEmail(appContext, email);
+                    // Extraer "name" del idToken (Cognito lo incluye como claim)
+                    // para mostrar nombre en el saludo en vez del email.
+                    String name = JwtUtils.extractName(body.idToken);
+                    if (name != null) PrefsHelper.setUserName(appContext, name);
                     cb.onSuccess(body);
                 } else {
                     cb.onError(parseError(response.errorBody(), "Email o contraseña incorrectos"));

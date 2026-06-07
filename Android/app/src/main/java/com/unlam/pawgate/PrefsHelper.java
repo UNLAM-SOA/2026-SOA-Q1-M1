@@ -20,6 +20,7 @@ public final class PrefsHelper {
     private static final String KEY_DOOR_BLOCKED = "door_blocked";
     private static final String KEY_PUSH_ENABLED = "push_enabled";
     private static final String KEY_USER_EMAIL = "user_email";
+    private static final String KEY_USER_NAME = "user_name";
     private static final String KEY_CYCLE_TYPE = "cycle_type";
     private static final String KEY_CYCLE_START = "cycle_start_ms";
 
@@ -69,6 +70,16 @@ public final class PrefsHelper {
 
     public static void setUserEmail(Context ctx, String email) {
         prefs(ctx).edit().putString(KEY_USER_EMAIL, email).apply();
+    }
+
+    // ===== user_name =====
+
+    public static String getUserName(Context ctx) {
+        return prefs(ctx).getString(KEY_USER_NAME, null);
+    }
+
+    public static void setUserName(Context ctx, String name) {
+        prefs(ctx).edit().putString(KEY_USER_NAME, name).apply();
     }
 
     // ===== ciclo de puerta / llamada =====
@@ -141,7 +152,7 @@ public final class PrefsHelper {
         return System.currentTimeMillis() < expiresAt;
     }
 
-    /** Borra los 3 tokens + el email. Llamar al hacer logout. */
+    /** Borra los 3 tokens + email + nombre. Llamar al hacer logout. */
     public static void clearAuth(Context ctx) {
         prefs(ctx).edit()
                 .remove(KEY_ID_TOKEN)
@@ -149,6 +160,7 @@ public final class PrefsHelper {
                 .remove(KEY_REFRESH_TOKEN)
                 .remove(KEY_TOKEN_EXPIRES_AT)
                 .remove(KEY_USER_EMAIL)
+                .remove(KEY_USER_NAME)
                 .apply();
     }
 }
