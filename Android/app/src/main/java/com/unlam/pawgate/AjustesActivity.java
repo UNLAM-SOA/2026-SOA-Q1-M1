@@ -7,7 +7,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -25,7 +24,7 @@ public class AjustesActivity extends AppCompatActivity {
         renderProfile();
 
         findViewById(R.id.ajustes_profile_card).setOnClickListener(
-                v -> Toast.makeText(this, getString(R.string.toast_coming_soon), Toast.LENGTH_SHORT).show());
+                v -> startActivity(new Intent(this, PerfilActivity.class)));
 
         findViewById(R.id.ajustes_row_schedules).setOnClickListener(
                 v -> startActivity(new Intent(this, HorariosActivity.class)));
@@ -35,21 +34,31 @@ public class AjustesActivity extends AppCompatActivity {
         BottomNavHelper.bind(this, R.id.nav_ajustes);
     }
 
-    /** Setea nombre + email en la profile card a partir del email del Login. */
+    /** Setea nombre + email en la profile card.
+     *  Prioridad de nombre: PrefsHelper.getUserName -> claim 'name' del JWT
+     *  almacenado -> parte antes del @ del email -> fallback. */
     private void renderProfile() {
         TextView nameView = findViewById(R.id.ajustes_user_name);
         TextView emailView = findViewById(R.id.ajustes_user_email);
 
-        String email = PrefsHelper.getUserEmail(this);
-        if (email != null && !email.isEmpty()) {
-            // Display name = parte antes del @ (ej: "fede" de "fede@pawgate.io")
-            String displayName = email.contains("@") ? email.substring(0, email.indexOf('@')) : email;
-            nameView.setText(displayName);
-            emailView.setText(email);
-        } else {
-            nameView.setText(R.string.ajustes_user_name_fallback);
-            emailView.setText("");
+        String name = PrefsHelper.getUserName(this);
+        if (name == null || name.isEmpty()) {
+            String idToken = PrefsHelper.getIdToken(this);
+            if (idToken != null) {
+                name = com.unlam.pawgate.api.JwtUtils.extractName(idToken);
+                if (name != null) PrefsHelper.setUserName(this, name);
+            }
         }
+        String email = PrefsHelper.getUserEmail(this);
+        if ((name == null || name.isEmpty()) && email != null) {
+            name = email.contains("@") ? email.substring(0, email.indexOf('@')) : email;
+        }
+        if (name == null || name.isEmpty()) {
+            nameView.setText(R.string.ajustes_user_name_fallback);
+        } else {
+            nameView.setText(name);
+        }
+        emailView.setText(email != null ? email : "");
     }
 
     // ============================================================
