@@ -147,6 +147,13 @@
     <string name="historial_event_closed_in">Puerta cerrada hacia adentro</string>
     <string name="historial_event_closed_out">Puerta cerrada hacia afuera</string>
 
+    <!-- BottomSheet elegir direccion al abrir -->
+    <string name="bs_open_dir_title">¿Hacia dónde se abre?</string>
+    <string name="bs_open_dir_in_title">Hacia adentro</string>
+    <string name="bs_open_dir_in_subtitle">Para que tu mascota entre a casa</string>
+    <string name="bs_open_dir_out_title">Hacia afuera</string>
+    <string name="bs_open_dir_out_subtitle">Para que tu mascota salga al patio</string>
+
     <!-- Historial -->
     <string name="historial_title">Historial</string>
     <string name="cd_filter">Filtrar</string>

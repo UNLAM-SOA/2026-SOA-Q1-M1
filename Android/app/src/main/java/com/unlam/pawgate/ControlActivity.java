@@ -67,6 +67,10 @@ public class ControlActivity extends AppCompatActivity {
     /** Si el Dashboard lanza Control con este extra=true, fuerza estado BLOCKED al arrancar. */
     public static final String EXTRA_START_BLOCKED = "start_blocked";
 
+    /** Si el Dashboard ya pregunto la direccion ("in"|"out"), la pasa aca para
+     *  que dispatchemos el cmd/open con body inmediatamente sin re-preguntar. */
+    public static final String EXTRA_OPEN_DIRECTION = "open_direction";
+
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     /** Tick que re-renderiza el estado actual cada 1s.
@@ -169,6 +173,15 @@ public class ControlActivity extends AppCompatActivity {
             PrefsHelper.setDoorBlocked(this, true);
             PrefsHelper.clearCycle(this);
         }
+
+        // Si el Dashboard ya pregunto la direccion, el ciclo local ya esta arrancado.
+        // Solo nos queda disparar el cmd/open con body.direction. Lo hacemos UNA vez
+        // (consumimos el extra para que no se re-dispare en config changes).
+        String direction = getIntent().getStringExtra(EXTRA_OPEN_DIRECTION);
+        if (direction != null && savedInstanceState == null) {
+            dispatchOpen(direction);
+            getIntent().removeExtra(EXTRA_OPEN_DIRECTION);
+        }
     }
 
     @Override
@@ -232,17 +245,32 @@ public class ControlActivity extends AppCompatActivity {
     private void onBigBtnClick() {
         DoorStateMachine.DoorState s = currentState();
         if (s == DoorStateMachine.DoorState.IDLE) {
-            // 1) Feedback inmediato: arrancamos ciclo local (UI optimista)
-            PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
-            refreshTickRunnable.run();
-            // 2) Disparamos el POST real al backend en paralelo
-            dispatchCommand(DeviceRepository.CMD_OPEN);
+            // Preguntar al user hacia donde abrir, despues disparar el ciclo.
+            OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
+                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+                refreshTickRunnable.run();
+                dispatchOpen(direction);
+            });
         } else if (s == DoorStateMachine.DoorState.OPENING) {
             // Cancelar el ciclo en curso (solo local - el backend no tiene "cancelar")
             PrefsHelper.clearCycle(this);
             refreshTickRunnable.run();
         }
         // En OPEN, CLOSING, BLOCKED, CALLING, CALL_ENDING -> no hace nada
+    }
+
+    /** Despacha cmd/open con direction en el body. */
+    private void dispatchOpen(String direction) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        if (direction != null) body.put("direction", direction);
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_OPEN, body,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {}
+            @Override public void onError(String message) {
+                Toast.makeText(ControlActivity.this,
+                        "Error al abrir: " + message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void onBlockCardClick() {

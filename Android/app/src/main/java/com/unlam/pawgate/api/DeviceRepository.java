@@ -98,8 +98,13 @@ public class DeviceRepository {
      */
     public void sendCommand(String deviceId, String cmd,
                             ApiCallback<DeviceDtos.CommandResponse> cb) {
-        // Body vacio - el backend solo mira el path por ahora
-        Map<String, Object> body = Collections.emptyMap();
+        sendCommand(deviceId, cmd, Collections.emptyMap(), cb);
+    }
+
+    /** Variante con body parametrizado. Usado por ej. para cmd=open con
+     *  {"direction": "in"|"out"}. */
+    public void sendCommand(String deviceId, String cmd, Map<String, Object> body,
+                            ApiCallback<DeviceDtos.CommandResponse> cb) {
         api.sendCommand(deviceId, cmd, body).enqueue(new Callback<DeviceDtos.CommandResponse>() {
             @Override
             public void onResponse(Call<DeviceDtos.CommandResponse> call,
