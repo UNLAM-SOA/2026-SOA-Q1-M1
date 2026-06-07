@@ -269,6 +269,12 @@ def handle_history(device_id, query_params):
         logger.error("DDB query failed: %s", e)
         return _server_error("query failed")
     items = result.get("Items", [])
+    # Filtrar sensors por default (telemetria de ultrasonido cada 5s spamea el
+    # historial). Si en el futuro queremos ver sensors, agregamos ?include_sensors=true.
+    include_sensors = (query_params.get("include_sensors") or "").lower() == "true"
+    if not include_sensors:
+        items = [it for it in items if it.get("type") != "sensor"]
+
     for it in items:
         if "payload" in it and isinstance(it["payload"], str):
             try:
@@ -298,6 +304,14 @@ def handle_cmd(device_id, cmd, body):
         else:
             target_state = "AUTO_UNBLOCKED" if in_horario else "MANUAL_UNBLOCKED"
         _set_device_state(device_id, target_state)
+
+    # Para cmd=open, validar direction del body si vino. Valores aceptados:
+    # 'in' (hacia adentro / casa) o 'out' (hacia afuera / patio). Si no vino,
+    # el device lo decide (firmware real: segun sensor; simulator: alterna).
+    if cmd == "open" and isinstance(body, dict):
+        dir_val = body.get("direction")
+        if dir_val is not None and dir_val not in ("in", "out"):
+            return _bad_request("direction debe ser 'in' o 'out'")
 
     topic = f"pawgate/{device_id}/cmd/{cmd}"
     payload = {
