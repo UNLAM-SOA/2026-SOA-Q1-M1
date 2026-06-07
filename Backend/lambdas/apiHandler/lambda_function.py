@@ -287,6 +287,18 @@ def handle_cmd(device_id, cmd, body):
     allowed_cmds = {"open", "block", "unblock", "call", "cancel"}
     if cmd not in allowed_cmds:
         return _bad_request(f"cmd '{cmd}' no permitido. Allowed: {allowed_cmds}")
+
+    # Para block/unblock, sincronizar el lock_state en DDB. Sin esto el polling
+    # del app leeria un state desactualizado y revertiria el flag local en 3s,
+    # generando un loop visual de bloquear/desbloquear.
+    if cmd in ("block", "unblock"):
+        in_horario = _currently_in_horario(device_id)
+        if cmd == "block":
+            target_state = "MANUAL_BLOCKED" if in_horario else "AUTO_BLOCKED"
+        else:
+            target_state = "AUTO_UNBLOCKED" if in_horario else "MANUAL_UNBLOCKED"
+        _set_device_state(device_id, target_state)
+
     topic = f"pawgate/{device_id}/cmd/{cmd}"
     payload = {
         "source": "api",
