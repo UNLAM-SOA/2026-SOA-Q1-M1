@@ -194,9 +194,16 @@ def _marker(active_ids):
 
 def _get_state_item(device_id):
     """Devuelve el item completo (lock_state + horario_marker + updated_at).
-       Si no existe, defaults."""
+       Si no existe, defaults.
+
+       ConsistentRead=True evita race conditions con escrituras recientes del
+       apiHandler. Sin esto, un override que recien se persistio podria
+       leerse stale y el cron lo libera por verlo con marker vacio."""
     try:
-        resp = device_state_table.get_item(Key={"device_id": device_id})
+        resp = device_state_table.get_item(
+            Key={"device_id": device_id},
+            ConsistentRead=True,
+        )
         item = resp.get("Item")
         if item:
             return item

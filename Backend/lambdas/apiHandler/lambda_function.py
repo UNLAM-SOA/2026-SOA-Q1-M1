@@ -489,9 +489,16 @@ def _do_override(device_id, target_state, cmd):
 # ============================================================
 
 def _get_device_state(device_id):
-    """Lee el state del device. Si no existe, devuelve default AUTO_BLOCKED."""
+    """Lee el state del device. Si no existe, devuelve default AUTO_BLOCKED.
+
+    ConsistentRead=True: el endpoint /state lo consume el polling del app
+    cada 3s; si pudiera leer stale, justo despues de un override veria
+    AUTO_* viejo y la app revertiria el flag local."""
     try:
-        resp = device_state_table.get_item(Key={"device_id": device_id})
+        resp = device_state_table.get_item(
+            Key={"device_id": device_id},
+            ConsistentRead=True,
+        )
     except ClientError as e:
         logger.error("DDB get_state failed: %s", e)
         return {"lock_state": "AUTO_BLOCKED", "updated_at": None}
@@ -508,6 +515,8 @@ def _set_device_state(device_id, lock_state):
     # se activo el override. Si despues el set de horarios activos cambia,
     # el cron libera el override.
     marker = _current_horario_marker(device_id)
+    logger.info("set_device_state device=%s lock_state=%s marker='%s'",
+                device_id, lock_state, marker)
     device_state_table.put_item(Item={
         "device_id": device_id,
         "lock_state": lock_state,
