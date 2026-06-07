@@ -79,6 +79,7 @@ public final class HistorialMapper {
                 if ("in".equals(direction))  return "Puerta cerrada hacia adentro";
                 if ("out".equals(direction)) return "Puerta cerrada hacia afuera";
                 return "Puerta cerrada";
+            case "cancelled":        return "Apertura cancelada";
             case "blocked":          return "Puerta bloqueada";
             case "unblocked":        return "Puerta desbloqueada";
             case "calling":          return "Llamando a la mascota";

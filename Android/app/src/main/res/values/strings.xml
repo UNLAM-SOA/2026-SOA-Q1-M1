@@ -52,6 +52,8 @@
     <!-- Dashboard - Saludo -->
     <string name="dashboard_greeting_template">Hola, %1$s</string>
 
+    <string name="dashboard_no_recent_activity">Última actividad: sin actividad reciente</string>
+
     <!-- Dashboard - Card estado puerta -->
     <string name="dashboard_door_closed">Puerta · Cerrada</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
@@ -60,7 +62,7 @@
     <string name="dashboard_door_closing">Puerta · Cerrando…</string>
     <string name="dashboard_door_calling_countdown">Puerta · Llamando · %1$ds</string>
     <string name="dashboard_door_ending_call">Puerta · Finalizando llamada…</string>
-    <string name="dashboard_last_activity_template">Última actividad: hace %1$s</string>
+    <string name="dashboard_last_activity_template">Última actividad: %1$s</string>
 
     <!-- Dashboard - Metric cards -->
     <string name="dashboard_metric_openings_label">Aperturas hoy</string>

@@ -79,7 +79,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:id="@+id/dashboard_last_activity"
-                    android:text="@string/dashboard_last_activity_template"
+                    android:text="@string/dashboard_no_recent_activity"
                     android:textSize="13sp"
                     android:textColor="@color/text_secondary"/>
             </LinearLayout>
