@@ -39,6 +39,7 @@ public class DeviceRepository {
     public static final String CMD_BLOCK = "block";
     public static final String CMD_UNBLOCK = "unblock";
     public static final String CMD_CALL = "call";
+    public static final String CMD_CANCEL = "cancel";
 
     private final Context appContext;
     private final PawGateApi api;

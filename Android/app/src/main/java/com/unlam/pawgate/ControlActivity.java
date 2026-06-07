@@ -363,11 +363,11 @@ public class ControlActivity extends AppCompatActivity {
             case OPENING:
             case CALLING:
             case CALL_ENDING:
-                // Cancelacion local. El backend no tiene "cancelar" - el device
-                // termina su ciclo igual. En una version siguiente podriamos
-                // mandar un cmd "stop" si el contrato MQTT lo soporta.
+                // Cancelacion: limpiamos el ciclo local + mandamos cmd/cancel al
+                // device para que tambien cancele su ciclo fisico.
                 PrefsHelper.clearCycle(this);
                 refreshTickRunnable.run();
+                dispatchCommand(DeviceRepository.CMD_CANCEL);
                 break;
             default:
                 // No deberia llegar (el boton solo es visible en los anteriores)
