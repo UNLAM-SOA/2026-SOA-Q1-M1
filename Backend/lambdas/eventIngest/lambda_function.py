@@ -72,7 +72,9 @@ def lambda_handler(event, context):
     #    orden refleje cuando paso el evento fisicamente, no cuando AWS lo recibio.
     #    Padded a 13 digitos para que el ordenamiento lexicografico = cronologico.
     ts_device = int(event.get("ts", event.get("server_ts", 0)))
-    event_type = event.get("type", "unknown")  # "opened" | "closed" | etc
+    # event_type: tomar "type" del payload del device; si no vino, usar el kind
+    # del topic como fallback (mas legible que "unknown" cuando luego se filtra).
+    event_type = event.get("type") or event_kind
     sort_key = f"{ts_device:013d}#{event_kind}#{event_type}"
 
     # 3) TTL: epoch SECONDS (no ms) cuando DDB debe purgar el item.
