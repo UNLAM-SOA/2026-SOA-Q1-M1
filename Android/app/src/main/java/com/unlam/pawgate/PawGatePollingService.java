@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
  * Foreground Service que pollea el backend cada 3s y emite broadcasts con el
@@ -106,6 +107,34 @@ public class PawGatePollingService extends Service {
     // ============================================================
 
     private void pollBackend() {
+        // 1) /state: autoritativo para el lock. El backend ya conoce el estado
+        //    correcto independiente de events o de la ventana del polling.
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (state == null || state.lock_state == null) return;
+                boolean shouldBeBlocked = state.lock_state.contains("BLOCKED");
+                boolean locallyBlocked = PrefsHelper.isDoorBlocked(PawGatePollingService.this);
+                Log.d(TAG, "state poll: backend=" + state.lock_state
+                        + " local=" + locallyBlocked);
+                if (shouldBeBlocked && !locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, true);
+                    PrefsHelper.clearCycle(PawGatePollingService.this);
+                    Log.d(TAG, "sync -> setDoorBlocked(true)");
+                    broadcastLockChange();
+                } else if (!shouldBeBlocked && locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, false);
+                    Log.d(TAG, "sync -> setDoorBlocked(false)");
+                    broadcastLockChange();
+                }
+            }
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "state poll error: " + message);
+            }
+        });
+
+        // 2) /history: solo para el label "Ultima actividad" y la notification.
         long now = System.currentTimeMillis();
         Long from = now - POLL_WINDOW_MS;
         deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
@@ -114,28 +143,25 @@ public class PawGatePollingService extends Service {
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
-                // El "ultimo evento" para mostrar como actividad reciente puede ser
-                // de cualquier tipo (incluido sensor).
                 DeviceDtos.Event mostRecent = pickMostRecent(result.events, null);
                 if (mostRecent != null) {
                     String label = humanLabelFor(mostRecent.event_type);
                     updateNotification("Último: " + label);
                     broadcastEvent(mostRecent);
                 }
-
-                // Para reconciliar el flag bloqueado SOLO miramos eventos type=door.
-                // Si miraramos todos, los sensors (que emiten cada 5s) taparian al
-                // ultimo door y nunca veriamos un blocked/unblocked.
-                DeviceDtos.Event mostRecentDoor = pickMostRecent(result.events, "door");
-                if (mostRecentDoor != null) {
-                    reconcileBlockedFlag(mostRecentDoor);
-                }
             }
             @Override
             public void onError(String message) {
-                Log.w(TAG, "poll error: " + message);
+                Log.w(TAG, "history poll error: " + message);
             }
         });
+    }
+
+    /** Broadcast vacio para que el Dashboard sepa que el lock_state cambio. */
+    private void broadcastLockChange() {
+        Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
+        broadcast.setPackage(getPackageName());
+        sendBroadcast(broadcast);
     }
 
     /**

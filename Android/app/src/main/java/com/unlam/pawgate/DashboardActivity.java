@@ -65,6 +65,33 @@ public class DashboardActivity extends AppCompatActivity {
     private String deviceId;
     private boolean toggleInFlight;
 
+    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
+
+    /** Tick local que pollea /state cada 3s y sincroniza el flag BLOQUEADO. */
+    private final Runnable statePollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceState();
+            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceState() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (state == null || state.lock_state == null) return;
+                boolean shouldBeBlocked = state.lock_state.contains("BLOCKED");
+                boolean locallyBlocked = PrefsHelper.isDoorBlocked(DashboardActivity.this);
+                if (shouldBeBlocked != locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(DashboardActivity.this, shouldBeBlocked);
+                    if (shouldBeBlocked) PrefsHelper.clearCycle(DashboardActivity.this);
+                    renderDoorState();
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
     /** Recibe los broadcasts de PawGatePollingService con los eventos del backend. */
     private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
         @Override
@@ -118,8 +145,10 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshTickRunnable.run();
+        // Poll directo a /state cada 3s mientras el Dashboard sea visible.
+        // Independiente del PawGatePollingService.
+        statePollRunnable.run();
 
-        // RECEIVER_NOT_EXPORTED: solo aceptamos broadcasts del propio Service.
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(
                 this,
@@ -131,6 +160,7 @@ public class DashboardActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
+        handler.removeCallbacks(statePollRunnable);
         try {
             unregisterReceiver(eventUpdateReceiver);
         } catch (IllegalArgumentException ignored) {
