@@ -60,6 +60,7 @@ public class DashboardActivity extends AppCompatActivity {
     private TextView actionBlockLabel;
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
+    private TextView openingsCountLabel;
 
     private DeviceRepository deviceRepo;
     private String deviceId;
@@ -119,15 +120,20 @@ public class DashboardActivity extends AppCompatActivity {
         actionBlockLabel = findViewById(R.id.action_block_label);
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
         lastActivityLabel = findViewById(R.id.dashboard_last_activity);
+        openingsCountLabel = findViewById(R.id.dashboard_openings_count);
 
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
 
-        // Greeting
-        String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
-        if (user != null) {
+        // Greeting: priorizamos el nombre del user (extraido del JWT al login).
+        // Fallback al email del Intent extra si no tenemos nombre persistido.
+        String displayName = PrefsHelper.getUserName(this);
+        if (displayName == null || displayName.isEmpty()) {
+            displayName = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
+        }
+        if (displayName != null) {
             TextView greeting = findViewById(R.id.dashboard_greeting);
-            greeting.setText(getString(R.string.dashboard_greeting_template, user));
+            greeting.setText(getString(R.string.dashboard_greeting_template, displayName));
         }
 
         ensureNotificationPermission();
@@ -147,9 +153,8 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshTickRunnable.run();
-        // Poll directo a /state cada 3s mientras el Dashboard sea visible.
-        // Independiente del PawGatePollingService.
         statePollRunnable.run();
+        loadDailyMetrics();
 
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(
@@ -157,6 +162,54 @@ public class DashboardActivity extends AppCompatActivity {
                 eventUpdateReceiver,
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    // ============================================================
+    // Metricas del dia (aperturas hoy + ultima actividad)
+    // ============================================================
+
+    /** Fetch a /history con ventana desde el comienzo del dia para:
+     *  - contar eventos opened (aperturas hoy)
+     *  - tomar el evento mas reciente y mostrar "Ultima actividad: hace X". */
+    private void loadDailyMetrics() {
+        long nowMs = System.currentTimeMillis();
+        long startOfDay = startOfTodayMs();
+        deviceRepo.history(deviceId, startOfDay, nowMs,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse>() {
+            @Override
+            public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse result) {
+                if (result == null || result.events == null) return;
+                int openCount = 0;
+                long lastMs = -1L;
+                String lastIso = null;
+                for (com.unlam.pawgate.api.dto.DeviceDtos.Event e : result.events) {
+                    if ("opened".equals(e.event_type)) openCount++;
+                    long ms = HistorialMapper.parseIsoToMs(e.created_at);
+                    if (ms > lastMs) {
+                        lastMs = ms;
+                        lastIso = e.created_at;
+                    }
+                }
+                if (openingsCountLabel != null) {
+                    openingsCountLabel.setText(String.valueOf(openCount));
+                }
+                if (lastIso != null && lastActivityLabel != null) {
+                    String rel = HistorialMapper.relativeTimeFor(lastIso, System.currentTimeMillis());
+                    lastActivityLabel.setText(getString(
+                            R.string.dashboard_last_activity_template, rel));
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
+    private long startOfTodayMs() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis();
     }
 
     @Override
@@ -259,25 +312,27 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void onActionOpenClick() {
         if (PrefsHelper.isDoorBlocked(this)) {
-            // Bloqueada: NO iniciamos el ciclo, solo redirigimos a Control
-            // (donde el user vera el estado BLOQUEADO y puede desbloquear).
-            openControl();
+            openControl(null);
             return;
         }
-        // No bloqueada: arrancar ciclo de apertura y redirigir a Control.
-        PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
-        openControl();
+        // Pedir al user que elija direccion (hacia adentro / hacia afuera) y
+        // luego navegar a Control con el direction en el extra para que dispare
+        // el cmd/open con body {direction}.
+        OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
+            PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+            openControl(direction);
+        });
     }
 
     private void onActionCallClick() {
-        // Por requerimiento de UX: la llamada se ejecuta directo y redirige a Control,
-        // independiente del estado actual de la puerta.
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
-        openControl();
+        openControl(null);
     }
 
-    private void openControl() {
-        startActivity(new Intent(this, ControlActivity.class));
+    private void openControl(String direction) {
+        Intent i = new Intent(this, ControlActivity.class);
+        if (direction != null) i.putExtra(ControlActivity.EXTRA_OPEN_DIRECTION, direction);
+        startActivity(i);
     }
 
     // ============================================================
