@@ -114,13 +114,22 @@ public class PawGatePollingService extends Service {
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
-                DeviceDtos.Event mostRecent = pickMostRecent(result.events);
-                if (mostRecent == null) return;
+                // El "ultimo evento" para mostrar como actividad reciente puede ser
+                // de cualquier tipo (incluido sensor).
+                DeviceDtos.Event mostRecent = pickMostRecent(result.events, null);
+                if (mostRecent != null) {
+                    String label = humanLabelFor(mostRecent.event_type);
+                    updateNotification("Último: " + label);
+                    broadcastEvent(mostRecent);
+                }
 
-                String label = humanLabelFor(mostRecent.event_type);
-                updateNotification("Último: " + label);
-                reconcileBlockedFlag(mostRecent);
-                broadcastEvent(mostRecent);
+                // Para reconciliar el flag bloqueado SOLO miramos eventos type=door.
+                // Si miraramos todos, los sensors (que emiten cada 5s) taparian al
+                // ultimo door y nunca veriamos un blocked/unblocked.
+                DeviceDtos.Event mostRecentDoor = pickMostRecent(result.events, "door");
+                if (mostRecentDoor != null) {
+                    reconcileBlockedFlag(mostRecentDoor);
+                }
             }
             @Override
             public void onError(String message) {
@@ -129,10 +138,16 @@ public class PawGatePollingService extends Service {
         });
     }
 
-    private DeviceDtos.Event pickMostRecent(java.util.List<DeviceDtos.Event> events) {
+    /**
+     * Devuelve el evento con created_at mas reciente.
+     * Si typeFilter != null, solo considera eventos con ese type.
+     */
+    private DeviceDtos.Event pickMostRecent(java.util.List<DeviceDtos.Event> events,
+                                             String typeFilter) {
         DeviceDtos.Event best = null;
         long bestMs = -1L;
         for (DeviceDtos.Event e : events) {
+            if (typeFilter != null && !typeFilter.equals(e.type)) continue;
             long ms = HistorialMapper.parseIsoToMs(e.created_at);
             if (ms > bestMs) {
                 bestMs = ms;
