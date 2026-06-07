@@ -26,6 +26,10 @@ public final class DeviceDtos {
         public String ts_event;     // "1780347796470#door#opened"
         public String type;          // "door" | "sensor"
         public String event_type;    // "opened" | "closed" | "blocked" | ...
+        /** Solo presente en eventos type=door (opened/closed):
+         *  "in"  -> abrio hacia adentro (alguien entro a la casa, ej RFID)
+         *  "out" -> abrio hacia afuera (alguien salio al patio, ej proximity) */
+        public String direction;
         public Map<String, Object> payload;
         public long ttl_epoch;
         public String created_at;    // ISO 8601

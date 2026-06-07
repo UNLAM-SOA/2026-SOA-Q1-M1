@@ -47,7 +47,7 @@ public final class HistorialMapper {
 
     private static HistorialAdapter.Evento map(DeviceDtos.Event e, long nowMs) {
         int icon = iconFor(e.event_type);
-        String titulo = titleFor(e.event_type);
+        String titulo = titleFor(e.event_type, e.direction);
         String subtitulo = formatRelativeTime(e.created_at, nowMs);
         return new HistorialAdapter.Evento(icon, titulo, subtitulo);
     }
@@ -73,13 +73,19 @@ public final class HistorialMapper {
     }
 
     // ============================================================
-    // Titulo human-readable por tipo de evento
+    // Titulo human-readable por tipo de evento (y direccion si aplica)
     // ============================================================
-    private static String titleFor(String eventType) {
+    private static String titleFor(String eventType, String direction) {
         if (eventType == null) return "Evento";
         switch (eventType) {
-            case "opened":           return "Puerta abierta";
-            case "closed":           return "Puerta cerrada";
+            case "opened":
+                if ("in".equals(direction))  return "Puerta abierta hacia adentro";
+                if ("out".equals(direction)) return "Puerta abierta hacia afuera";
+                return "Puerta abierta";
+            case "closed":
+                if ("in".equals(direction))  return "Puerta cerrada hacia adentro";
+                if ("out".equals(direction)) return "Puerta cerrada hacia afuera";
+                return "Puerta cerrada";
             case "blocked":          return "Puerta bloqueada";
             case "unblocked":        return "Puerta desbloqueada";
             case "calling":          return "Llamando a la mascota";

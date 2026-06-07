@@ -141,6 +141,12 @@
     <string name="control_info_calling_title">Tu mascota fue notificada</string>
     <string name="control_info_calling_subtitle">Esperando respuesta · %1$ds</string>
 
+    <!-- Direccion de apertura (RFID afuera / ultrasonido adentro) -->
+    <string name="historial_event_opened_in">Puerta abierta hacia adentro</string>
+    <string name="historial_event_opened_out">Puerta abierta hacia afuera</string>
+    <string name="historial_event_closed_in">Puerta cerrada hacia adentro</string>
+    <string name="historial_event_closed_out">Puerta cerrada hacia afuera</string>
+
     <!-- Historial -->
     <string name="historial_title">Historial</string>
     <string name="cd_filter">Filtrar</string>
