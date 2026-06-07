@@ -50,6 +50,9 @@
             android:exported="false"
             android:launchMode="singleTop" />
         <activity
+            android:name=".PerfilActivity"
+            android:exported="false" />
+        <activity
             android:name=".LoginActivity"
             android:exported="false" />
         <service
