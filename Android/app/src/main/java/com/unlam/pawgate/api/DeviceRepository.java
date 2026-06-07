@@ -58,16 +58,22 @@ public class DeviceRepository {
      * usar el overload con fromMs/toMs.
      */
     public void history(String deviceId, ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        history(deviceId, null, null, cb);
+        history(deviceId, null, null, null, cb);
+    }
+
+    /** Overload sin includeSensors (default backend: false). */
+    public void history(String deviceId, Long fromMs, Long toMs,
+                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        history(deviceId, fromMs, toMs, null, cb);
     }
 
     /**
-     * Trae el historial con rango opcional. Pasar null en from/to si no aplica.
-     * El backend interpreta from/to como epoch ms.
+     * Trae el historial con rango y filtro de sensores opcionales.
+     * Si includeSensors=null o false, el backend oculta los sensors (default).
      */
-    public void history(String deviceId, Long fromMs, Long toMs,
+    public void history(String deviceId, Long fromMs, Long toMs, Boolean includeSensors,
                         ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        api.getHistory(deviceId, fromMs, toMs).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
+        api.getHistory(deviceId, fromMs, toMs, includeSensors).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onResponse(Call<DeviceDtos.HistoryResponse> call,
                                    Response<DeviceDtos.HistoryResponse> response) {

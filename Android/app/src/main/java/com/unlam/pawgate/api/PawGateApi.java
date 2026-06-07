@@ -44,7 +44,8 @@ public interface PawGateApi {
     Call<DeviceDtos.HistoryResponse> getHistory(
             @Path("id") String deviceId,
             @Query("from") Long fromMs,
-            @Query("to") Long toMs);
+            @Query("to") Long toMs,
+            @Query("include_sensors") Boolean includeSensors);
 
     @POST("devices/{id}/cmd/{cmd}")
     Call<DeviceDtos.CommandResponse> sendCommand(
