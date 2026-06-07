@@ -258,22 +258,29 @@ def handle_history(device_id, query_params):
     to_ms = int(query_params.get("to", now_ms))
     from_sk = f"{from_ms:013d}"
     to_sk = f"{to_ms:013d}#~"
+    include_sensors = (query_params.get("include_sensors") or "").lower() == "true"
+
+    # Filtrar sensors por default (telemetria spamea el historial). Aplicamos
+    # FilterExpression del lado del server: asi DDB lee mas items para devolver
+    # 100 NO-sensor en lugar de 100 totales (de los cuales ~95 serian sensors
+    # ocultos por filter post-query del cliente).
+    query_kwargs = {
+        "KeyConditionExpression": "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
+        "ExpressionAttributeValues": {":dev": device_id, ":from_sk": from_sk, ":to_sk": to_sk},
+        "ScanIndexForward": False,
+        "Limit": 500,  # leemos hasta 500 raw, despues filter limita
+    }
+    if not include_sensors:
+        query_kwargs["FilterExpression"] = "#t <> :sensor"
+        query_kwargs["ExpressionAttributeNames"] = {"#t": "type"}
+        query_kwargs["ExpressionAttributeValues"][":sensor"] = "sensor"
+
     try:
-        result = events_table.query(
-            KeyConditionExpression="device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
-            ExpressionAttributeValues={":dev": device_id, ":from_sk": from_sk, ":to_sk": to_sk},
-            ScanIndexForward=False,
-            Limit=100,
-        )
+        result = events_table.query(**query_kwargs)
     except ClientError as e:
         logger.error("DDB query failed: %s", e)
         return _server_error("query failed")
-    items = result.get("Items", [])
-    # Filtrar sensors por default (telemetria de ultrasonido cada 5s spamea el
-    # historial). Si en el futuro queremos ver sensors, agregamos ?include_sensors=true.
-    include_sensors = (query_params.get("include_sensors") or "").lower() == "true"
-    if not include_sensors:
-        items = [it for it in items if it.get("type") != "sensor"]
+    items = result.get("Items", [])[:100]  # cap a 100 finales para la UI
 
     for it in items:
         if "payload" in it and isinstance(it["payload"], str):
