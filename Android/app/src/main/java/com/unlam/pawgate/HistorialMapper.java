@@ -1,7 +1,5 @@
 package com.unlam.pawgate;
 
-import android.text.format.DateUtils;
-
 import com.unlam.pawgate.api.dto.DeviceDtos;
 
 import java.time.OffsetDateTime;
@@ -111,17 +109,32 @@ public final class HistorialMapper {
     }
 
     // ============================================================
-    // Subtitulo: "hace 2m" / "ayer 21:14" / etc.
+    // Subtitulo: "hace 2 min" / "hace 1 hora" / etc.
     // ============================================================
+    /**
+     * Custom formatter en castellano. No usamos DateUtils.getRelativeTimeSpanString
+     * porque adapta los strings al locale del device, y si el device esta en
+     * ingles muestra '1 min. ago' aunque la UI este en castellano.
+     */
     private static String formatRelativeTime(String createdAtIso, long nowMs) {
         if (createdAtIso == null || createdAtIso.isEmpty()) return "";
         long eventMs = parseIsoToMs(createdAtIso);
         if (eventMs < 0) return createdAtIso;
-        CharSequence rel = DateUtils.getRelativeTimeSpanString(
-                eventMs,
-                nowMs,
-                DateUtils.MINUTE_IN_MILLIS,
-                DateUtils.FORMAT_ABBREV_RELATIVE);
-        return rel.toString();
+        long diffMs = nowMs - eventMs;
+        if (diffMs < 0) return "ahora";
+        long secs = diffMs / 1000;
+        if (secs < 60) return "hace unos segundos";
+        long mins = secs / 60;
+        if (mins == 1) return "hace 1 min";
+        if (mins < 60) return "hace " + mins + " min";
+        long hours = mins / 60;
+        if (hours == 1) return "hace 1 hora";
+        if (hours < 24) return "hace " + hours + " horas";
+        long days = hours / 24;
+        if (days == 1) return "ayer";
+        if (days < 7) return "hace " + days + " días";
+        long weeks = days / 7;
+        if (weeks == 1) return "hace 1 semana";
+        return "hace " + weeks + " semanas";
     }
 }
