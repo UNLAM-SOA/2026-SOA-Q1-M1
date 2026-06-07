@@ -117,6 +117,15 @@ class DeviceSimulator:
         self._state_lock = threading.RLock()
         self._pending_timers: list[threading.Timer] = []
 
+        # Direccion de apertura. La puerta real tiene 2 triggers:
+        #   - RFID afuera (patio)  -> abre hacia "in"   (el perro entra)
+        #   - Ultrasonido adentro  -> abre hacia "out"  (el perro sale)
+        # Como el simulator no tiene sensores reales, alternamos entre ciclos
+        # para demostrar el feature. El firmware real va a setear direction
+        # segun cual sensor disparo.
+        self._open_count = 0
+        self._current_direction = "in"  # se recalcula al iniciar cada ciclo
+
         # MQTT client. Usamos CallbackAPIVersion.VERSION2 (paho-mqtt 2.x) para
         # evitar el DeprecationWarning del API antiguo. Las firmas de los
         # callbacks cambian: ahora reciben `reason_code` + `properties`.
@@ -226,6 +235,11 @@ class DeviceSimulator:
             if self.state in (DoorState.BLOCKED, DoorState.OPENING, DoorState.OPEN, DoorState.CLOSING):
                 log.info("Open ignorado (estado actual: %s)", self.state.value)
                 return
+            # Decidir direction de este ciclo: alternar para demo.
+            # Firmware real va a leer cual sensor disparo (RFID o ultrasonido).
+            self._open_count += 1
+            self._current_direction = "in" if (self._open_count % 2 == 1) else "out"
+            log.info("🚪 Apertura #%d, direction=%s", self._open_count, self._current_direction)
             self._cancel_pending_timers()
             self._transition_to(DoorState.OPENING)
             # Cadena: OPENING -> OPEN -> CLOSING -> IDLE
@@ -279,9 +293,15 @@ class DeviceSimulator:
             self._publish_status()
             # Eventos derivados de transiciones
             if old_state == DoorState.OPENING and new_state == DoorState.OPEN:
-                self._publish_event("door", {"type": "opened"})
+                self._publish_event("door", {
+                    "type": "opened",
+                    "direction": self._current_direction,
+                })
             elif old_state == DoorState.CLOSING and new_state == DoorState.IDLE:
-                self._publish_event("door", {"type": "closed"})
+                self._publish_event("door", {
+                    "type": "closed",
+                    "direction": self._current_direction,
+                })
 
     def _schedule(self, delay_s: float, fn, *args):
         """Programa una transicion futura. Se guarda para poder cancelarla."""
