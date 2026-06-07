@@ -61,6 +61,8 @@ public class DashboardActivity extends AppCompatActivity {
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
     private TextView openingsCountLabel;
+    private View actionOpen;
+    private View actionCall;
 
     private DeviceRepository deviceRepo;
     private String deviceId;
@@ -121,6 +123,8 @@ public class DashboardActivity extends AppCompatActivity {
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
         lastActivityLabel = findViewById(R.id.dashboard_last_activity);
         openingsCountLabel = findViewById(R.id.dashboard_openings_count);
+        actionOpen = findViewById(R.id.action_open);
+        actionCall = findViewById(R.id.action_call);
 
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
@@ -149,9 +153,9 @@ public class DashboardActivity extends AppCompatActivity {
 
         findViewById(R.id.dashboard_notification).setOnClickListener(
                 v -> startActivity(new Intent(this, NotificacionesActivity.class)));
-        findViewById(R.id.action_open).setOnClickListener(v -> onActionOpenClick());
+        actionOpen.setOnClickListener(v -> onActionOpenClick());
         actionBlock.setOnClickListener(v -> onBlockOrUnblockClick());
-        findViewById(R.id.action_call).setOnClickListener(v -> onActionCallClick());
+        actionCall.setOnClickListener(v -> onActionCallClick());
         findViewById(R.id.action_schedules).setOnClickListener(
                 v -> startActivity(new Intent(this, HorariosActivity.class)));
 
@@ -202,10 +206,15 @@ public class DashboardActivity extends AppCompatActivity {
                 if (openingsCountLabel != null) {
                     openingsCountLabel.setText(String.valueOf(openCount));
                 }
-                if (lastIso != null && lastActivityLabel != null) {
-                    String rel = HistorialMapper.relativeTimeFor(lastIso, System.currentTimeMillis());
-                    lastActivityLabel.setText(getString(
-                            R.string.dashboard_last_activity_template, rel));
+                if (lastActivityLabel != null) {
+                    if (lastIso != null) {
+                        String rel = HistorialMapper.relativeTimeFor(lastIso, System.currentTimeMillis());
+                        lastActivityLabel.setText(getString(
+                                R.string.dashboard_last_activity_template, rel));
+                    } else {
+                        // No hay eventos del dia -> mostrar placeholder en vez del template raw.
+                        lastActivityLabel.setText(R.string.dashboard_no_recent_activity);
+                    }
                 }
             }
             @Override public void onError(String message) { /* silencio */ }
@@ -313,6 +322,27 @@ public class DashboardActivity extends AppCompatActivity {
             actionBlockLabel.setText(R.string.action_block);
             actionBlockLabel.setTextColor(ContextCompat.getColor(this, R.color.accent_block));
         }
+
+        // Bloquear acciones Abrir/Llamar cuando hay un ciclo activo (cualquier
+        // estado distinto de IDLE/BLOCKED). Asi el user no puede encadenar
+        // 'Llamar -> Abrir' rapido y dejar la puerta en estado inconsistente.
+        boolean busy = state != DoorStateMachine.DoorState.IDLE
+                && state != DoorStateMachine.DoorState.BLOCKED;
+        setQuickActionsBusy(busy);
+    }
+
+    /** Aplica un visual + funcional disabled a las cards Abrir y Llamar
+     *  mientras la puerta este en un ciclo (opening/open/closing/calling/etc). */
+    private void setQuickActionsBusy(boolean busy) {
+        float alpha = busy ? 0.5f : 1.0f;
+        if (actionOpen != null) {
+            actionOpen.setAlpha(alpha);
+            actionOpen.setClickable(!busy);
+        }
+        if (actionCall != null) {
+            actionCall.setAlpha(alpha);
+            actionCall.setClickable(!busy);
+        }
     }
 
     // ============================================================
@@ -320,13 +350,11 @@ public class DashboardActivity extends AppCompatActivity {
     // ============================================================
 
     private void onActionOpenClick() {
+        if (isBusyCycle()) return;
         if (PrefsHelper.isDoorBlocked(this)) {
             openControl(null);
             return;
         }
-        // Pedir al user que elija direccion (hacia adentro / hacia afuera) y
-        // luego navegar a Control con el direction en el extra para que dispare
-        // el cmd/open con body {direction}.
         OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
             PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
             openControl(direction);
@@ -334,8 +362,16 @@ public class DashboardActivity extends AppCompatActivity {
     }
 
     private void onActionCallClick() {
+        if (isBusyCycle()) return;
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
         openControl(null);
+    }
+
+    /** Hay un ciclo de puerta o llamada en curso? */
+    private boolean isBusyCycle() {
+        DoorStateMachine.DoorState s = DoorStateMachine.currentState(this);
+        return s != DoorStateMachine.DoorState.IDLE
+                && s != DoorStateMachine.DoorState.BLOCKED;
     }
 
     private void openControl(String direction) {

@@ -633,20 +633,24 @@ public class ControlActivity extends AppCompatActivity {
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_stop_call);
 
-        setActionCardsEnabled(true);
+        // Cards disabled mientras hay llamada en curso (no se puede llamar de
+        // nuevo ni bloquear). La card de Llamar se ve highlighted como activa.
+        setActionCardsEnabled(false);
         setCardsArrowsVisible(true);
         renderCardBlockInactive();
 
         cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
         cardCallSubtitle.setText(R.string.control_card_active);
         cardCallSubtitle.setTextColor(color(R.color.accent_cyan));
+        // El highlight visual de "Activo" en la card Call lo dejamos vivo
+        // (no aplicamos alpha 0.5 a esa card especifica) para que el user vea
+        // claramente que la llamada esta en curso.
+        cardCall.setAlpha(1.0f);
 
-        // Info strip propio de la llamada
         infoIcon.setImageResource(R.drawable.ic_bell);
         infoIcon.setColorFilter(color(R.color.accent_cyan));
         infoTitle.setText(R.string.control_info_calling_title);
 
-        // Countdown (3..1)
         int remaining = DoorStateMachine.secondsRemainingInCountdown(this);
         statusText.setText(getString(R.string.control_status_calling, remaining));
         hint.setText(getString(R.string.control_hint_calling, remaining));
@@ -671,11 +675,12 @@ public class ControlActivity extends AppCompatActivity {
         hint.setVisibility(View.GONE);
         btnSecondary.setVisibility(View.GONE);
 
-        setActionCardsEnabled(true);
+        setActionCardsEnabled(false);
         setCardsArrowsVisible(true);
         renderCardBlockInactive();
 
         cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
+        cardCall.setAlpha(1.0f); // la card activa se mantiene visible nitida
         cardCallSubtitle.setText(R.string.control_card_active);
         cardCallSubtitle.setTextColor(color(R.color.accent_cyan));
 
