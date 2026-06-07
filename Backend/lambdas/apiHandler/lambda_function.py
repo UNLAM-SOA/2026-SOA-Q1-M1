@@ -504,11 +504,54 @@ def _get_device_state(device_id):
 def _set_device_state(device_id, lock_state):
     if lock_state not in VALID_LOCK_STATES:
         raise ValueError(f"invalid lock_state: {lock_state}")
+    # Persistimos el horario_marker actual asi el cron sabe en que contexto
+    # se activo el override. Si despues el set de horarios activos cambia,
+    # el cron libera el override.
+    marker = _current_horario_marker(device_id)
     device_state_table.put_item(Item={
         "device_id": device_id,
         "lock_state": lock_state,
+        "horario_marker": marker,
         "updated_at": _iso_now(),
     })
+
+
+def _current_horario_marker(device_id):
+    """Devuelve el marker (sorted ids joined con '|') de horarios activos AHORA.
+       Mismo formato que usa el scheduleExecutor."""
+    try:
+        resp = schedules_table.query(
+            KeyConditionExpression="device_id = :dev",
+            ExpressionAttributeValues={":dev": device_id},
+        )
+    except ClientError:
+        return ""
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    now = datetime.now(tz)
+    day_map = ["L", "M", "X", "J", "V", "S", "D"]
+    current_day = day_map[now.weekday()]
+    current_min = now.hour * 60 + now.minute
+    active = []
+    for s in resp.get("Items", []):
+        if not s.get("activo"):
+            continue
+        if current_day not in (s.get("dias") or []):
+            continue
+        try:
+            h1, m1 = map(int, s["hora_inicio"].split(":"))
+            h2, m2 = map(int, s["hora_fin"].split(":"))
+        except (ValueError, KeyError, AttributeError):
+            continue
+        inicio_min = h1 * 60 + m1
+        fin_min = h2 * 60 + m2
+        is_active = (
+            (fin_min > inicio_min and inicio_min <= current_min < fin_min)
+            or (fin_min <= inicio_min and (current_min >= inicio_min or current_min < fin_min))
+        )
+        if is_active:
+            active.append(s.get("schedule_id", ""))
+    return "|".join(sorted(active))
 
 
 def _currently_in_horario(device_id):

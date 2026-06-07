@@ -9,23 +9,33 @@ Modelo:
     Un schedule = ventana en que la puerta queda DESBLOQUEADA.
     Fuera de cualquier schedule, la puerta debe estar bloqueada.
 
-State machine (campo lock_state en pawgate_device_state):
+Modelo de override:
+    El override MANUAL_BLOCKED / MANUAL_UNBLOCKED se libera cuando hay una
+    TRANSICION de horarios activos (no solo cuando cambia el binario
+    in_horario). Para detectar esto, persistimos `horario_marker` (string
+    con los IDs de horarios actualmente activos sorted+joined). Si el marker
+    cambia entre ticks, hay transicion -> override consumido.
+
+    Ej: si tenes 2 horarios contiguos 16:30-17:00 y 17:00-18:30:
+      16:59 -> marker = "{A}"
+      17:01 -> marker = "{B}"
+      Aunque in_horario sigue True, hay transicion -> override liberado.
+
+State machine (despues de eventual liberacion de override):
 
   in_horario=True:
-    AUTO_BLOCKED      -> AUTO_UNBLOCKED   (publish unblock)
-    AUTO_UNBLOCKED    -> AUTO_UNBLOCKED   (no-op)
-    MANUAL_UNBLOCKED  -> AUTO_UNBLOCKED   (no-op, override consumido)
-    MANUAL_BLOCKED    -> MANUAL_BLOCKED   (no-op, override sigue)
+    AUTO_BLOCKED   -> AUTO_UNBLOCKED  (publish unblock)
+    AUTO_UNBLOCKED -> AUTO_UNBLOCKED  (no-op)
 
   in_horario=False:
-    AUTO_BLOCKED      -> AUTO_BLOCKED     (no-op)
-    AUTO_UNBLOCKED    -> AUTO_BLOCKED     (publish block)
-    MANUAL_UNBLOCKED  -> MANUAL_UNBLOCKED (no-op, override sigue)
-    MANUAL_BLOCKED    -> AUTO_BLOCKED     (no-op, override consumido)
+    AUTO_BLOCKED   -> AUTO_BLOCKED    (no-op)
+    AUTO_UNBLOCKED -> AUTO_BLOCKED    (publish block)
 
-Idempotencia:
-    Si el state ya es el correcto, no publicamos. Asi el cron puede ejecutarse
-    multiples veces sin re-disparar cmds.
+Si NO hubo transicion de horarios, los overrides se mantienen:
+  MANUAL_BLOCKED   -> MANUAL_BLOCKED
+  MANUAL_UNBLOCKED -> MANUAL_UNBLOCKED
+
+Idempotencia: si el state ya es el correcto, no publicamos.
 
 Trigger:
     EventBridge cron(0,30 * * * ? *)
@@ -96,34 +106,48 @@ def lambda_handler(event, context):
 
 def _evaluate_device(device_id, schedules, current_day, current_min):
     """Evalua un device contra sus schedules. Devuelve True si hubo transicion."""
-    in_horario = _is_in_any_schedule(schedules, current_day, current_min)
-    current_state = _get_lock_state(device_id)
+    active_ids = _active_schedule_ids(schedules, current_day, current_min)
+    in_horario = bool(active_ids)
+    new_marker = _marker(active_ids)
+
+    state_item = _get_state_item(device_id)
+    current_state = state_item.get("lock_state", "AUTO_BLOCKED")
+    last_marker = state_item.get("horario_marker", "")
+
+    # Liberar override si hubo transicion de horarios activos.
+    if current_state in ("MANUAL_BLOCKED", "MANUAL_UNBLOCKED") and last_marker != new_marker:
+        logger.info("Device %s: override liberado (marker %s -> %s)",
+                    device_id, last_marker, new_marker)
+        current_state = "AUTO_BLOCKED" if current_state == "MANUAL_BLOCKED" else "AUTO_UNBLOCKED"
 
     next_state, action = _transition(current_state, in_horario)
 
-    if next_state == current_state and action is None:
+    # Si nada cambio (state ni marker), no escribimos.
+    if (next_state == state_item.get("lock_state") and action is None
+            and new_marker == last_marker):
         return False
 
-    _set_lock_state(device_id, next_state)
+    _set_state(device_id, next_state, new_marker)
     if action:
         _publish_cmd(device_id, action)
-    logger.info("Device %s: %s -> %s (in_horario=%s, action=%s)",
-                device_id, current_state, next_state, in_horario, action)
+    logger.info("Device %s: %s -> %s (in_horario=%s, marker=%s, action=%s)",
+                device_id, state_item.get("lock_state"), next_state,
+                in_horario, new_marker, action)
     return True
 
 
 def _transition(current_state, in_horario):
-    """Devuelve (next_state, cmd_a_publicar_o_None) segun la state machine."""
+    """Despues de la posible liberacion del override, aplica la state machine
+       basica AUTO_BLOCKED <-> AUTO_UNBLOCKED. Los MANUAL_* que llegan aca
+       significa que NO hubo transicion de horarios y el override sigue."""
     if in_horario:
         if current_state == "AUTO_BLOCKED":
             return "AUTO_UNBLOCKED", "unblock"
         if current_state == "AUTO_UNBLOCKED":
             return "AUTO_UNBLOCKED", None
         if current_state == "MANUAL_UNBLOCKED":
-            # Override consumido al entrar a horario natural.
-            return "AUTO_UNBLOCKED", None
+            return "MANUAL_UNBLOCKED", None
         if current_state == "MANUAL_BLOCKED":
-            # Override de bloqueo sigue activo aunque entremos a horario.
             return "MANUAL_BLOCKED", None
     else:
         if current_state == "AUTO_BLOCKED":
@@ -133,13 +157,13 @@ def _transition(current_state, in_horario):
         if current_state == "MANUAL_UNBLOCKED":
             return "MANUAL_UNBLOCKED", None
         if current_state == "MANUAL_BLOCKED":
-            # Override consumido al salir del horario natural.
-            return "AUTO_BLOCKED", None
-    # Defensivo: state desconocido -> reset a AUTO_BLOCKED
+            return "MANUAL_BLOCKED", None
     return "AUTO_BLOCKED", "block"
 
 
-def _is_in_any_schedule(schedules, current_day, current_min):
+def _active_schedule_ids(schedules, current_day, current_min):
+    """Devuelve la lista (sorted) de schedule_id que estan activos AHORA."""
+    active = []
     for s in schedules:
         if current_day not in (s.get("dias") or []):
             continue
@@ -150,40 +174,47 @@ def _is_in_any_schedule(schedules, current_day, current_min):
             continue
         inicio_min = h1 * 60 + m1
         fin_min = h2 * 60 + m2
-        if fin_min > inicio_min:
-            if inicio_min <= current_min < fin_min:
-                return True
-        else:
-            # Cruza medianoche
-            if current_min >= inicio_min or current_min < fin_min:
-                return True
-    return False
+        is_active = (
+            (fin_min > inicio_min and inicio_min <= current_min < fin_min)
+            or (fin_min <= inicio_min and (current_min >= inicio_min or current_min < fin_min))
+        )
+        if is_active:
+            active.append(s.get("schedule_id", ""))
+    return sorted(active)
+
+
+def _marker(active_ids):
+    """String para comparar entre ticks. Vacio si no hay activos."""
+    return "|".join(active_ids)
 
 
 # ============================================================
 # DEVICE STATE HELPERS
 # ============================================================
 
-def _get_lock_state(device_id):
+def _get_state_item(device_id):
+    """Devuelve el item completo (lock_state + horario_marker + updated_at).
+       Si no existe, defaults."""
     try:
         resp = device_state_table.get_item(Key={"device_id": device_id})
         item = resp.get("Item")
         if item:
-            return item.get("lock_state", "AUTO_BLOCKED")
+            return item
     except ClientError as e:
-        logger.error("get_lock_state failed: %s", e)
-    return "AUTO_BLOCKED"
+        logger.error("get_state_item failed: %s", e)
+    return {"lock_state": "AUTO_BLOCKED", "horario_marker": ""}
 
 
-def _set_lock_state(device_id, lock_state):
+def _set_state(device_id, lock_state, horario_marker):
     try:
         device_state_table.put_item(Item={
             "device_id": device_id,
             "lock_state": lock_state,
+            "horario_marker": horario_marker,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
     except ClientError as e:
-        logger.error("set_lock_state failed: %s", e)
+        logger.error("set_state failed: %s", e)
 
 
 def _publish_cmd(device_id, cmd):
