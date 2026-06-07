@@ -113,7 +113,10 @@ public class PawGatePollingService extends Service {
             @Override
             public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
                 if (state == null || state.lock_state == null) return;
-                boolean shouldBeBlocked = state.lock_state.contains("BLOCKED");
+                // OJO: "AUTO_UNBLOCKED".contains("BLOCKED") es true. Por eso
+                // chequeamos explicitamente los 2 valores que representan bloqueada.
+                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
+                        || "MANUAL_BLOCKED".equals(state.lock_state);
                 boolean locallyBlocked = PrefsHelper.isDoorBlocked(PawGatePollingService.this);
                 Log.d(TAG, "state poll: backend=" + state.lock_state
                         + " local=" + locallyBlocked);
