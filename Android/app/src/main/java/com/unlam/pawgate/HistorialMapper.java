@@ -4,13 +4,10 @@ import android.text.format.DateUtils;
 
 import com.unlam.pawgate.api.dto.DeviceDtos;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
-import java.util.TimeZone;
 
 /**
  * Mapper: DeviceDtos.Event (DTO del backend) -> HistorialAdapter.Evento (modelo del adapter).
@@ -28,13 +25,11 @@ public final class HistorialMapper {
 
     private HistorialMapper() {}
 
-    // Formato ISO 8601 con milisegundos y Z (UTC). El backend usa este formato
-    // exacto en created_at. Si en el futuro cambia el formato, hay que ajustarlo aca.
-    private static final SimpleDateFormat ISO_FORMAT;
-    static {
-        ISO_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
-        ISO_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
-    }
+    // Parser ISO 8601 robusto. El backend Python emite con microsegundos
+    // (.123456) y offset numerico (+00:00), formato que SimpleDateFormat no
+    // matchea bien. OffsetDateTime de java.time si lo parsea sin problemas
+    // (cualquier precision de fraccion segundos + offset).
+    // Requiere API 26+ (minSdk de la app).
 
     public static List<HistorialAdapter.Evento> mapAll(List<DeviceDtos.Event> events) {
         List<HistorialAdapter.Evento> out = new ArrayList<>(events.size());
@@ -100,18 +95,12 @@ public final class HistorialMapper {
 
     /**
      * Parsea una fecha ISO 8601 del backend a epoch ms. Devuelve -1 si no parsea.
-     * Util para los call-sites que necesitan el timestamp crudo (ej: Dashboard
-     * para decidir si el evento es "reciente" o no).
      */
     public static long parseIsoToMs(String createdAtIso) {
         if (createdAtIso == null || createdAtIso.isEmpty()) return -1L;
         try {
-            Date d;
-            synchronized (ISO_FORMAT) {
-                d = ISO_FORMAT.parse(createdAtIso);
-            }
-            return d != null ? d.getTime() : -1L;
-        } catch (ParseException ex) {
+            return OffsetDateTime.parse(createdAtIso).toInstant().toEpochMilli();
+        } catch (DateTimeParseException ex) {
             return -1L;
         }
     }
@@ -126,23 +115,13 @@ public final class HistorialMapper {
     // ============================================================
     private static String formatRelativeTime(String createdAtIso, long nowMs) {
         if (createdAtIso == null || createdAtIso.isEmpty()) return "";
-        try {
-            Date eventDate;
-            synchronized (ISO_FORMAT) { // SimpleDateFormat NO es thread-safe
-                eventDate = ISO_FORMAT.parse(createdAtIso);
-            }
-            if (eventDate == null) return createdAtIso;
-
-            long eventMs = eventDate.getTime();
-            CharSequence rel = DateUtils.getRelativeTimeSpanString(
-                    eventMs,
-                    nowMs,
-                    DateUtils.MINUTE_IN_MILLIS,
-                    DateUtils.FORMAT_ABBREV_RELATIVE);
-            return rel.toString();
-        } catch (ParseException ex) {
-            // Si el formato cambio, fallback al string raw
-            return createdAtIso;
-        }
+        long eventMs = parseIsoToMs(createdAtIso);
+        if (eventMs < 0) return createdAtIso;
+        CharSequence rel = DateUtils.getRelativeTimeSpanString(
+                eventMs,
+                nowMs,
+                DateUtils.MINUTE_IN_MILLIS,
+                DateUtils.FORMAT_ABBREV_RELATIVE);
+        return rel.toString();
     }
 }
