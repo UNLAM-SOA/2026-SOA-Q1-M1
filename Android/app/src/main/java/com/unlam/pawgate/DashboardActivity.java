@@ -126,9 +126,18 @@ public class DashboardActivity extends AppCompatActivity {
         deviceId = getString(R.string.default_device_id);
 
         // Greeting: priorizamos el nombre del user (extraido del JWT al login).
-        // Fallback al email del Intent extra si no tenemos nombre persistido.
+        // Si todavia no fue persistido (ej. login viejo pre-fix, o auto-login
+        // con token vigente), intentamos extraerlo del idToken almacenado AHORA.
         String displayName = PrefsHelper.getUserName(this);
         if (displayName == null || displayName.isEmpty()) {
+            String idToken = PrefsHelper.getIdToken(this);
+            if (idToken != null) {
+                displayName = com.unlam.pawgate.api.JwtUtils.extractName(idToken);
+                if (displayName != null) PrefsHelper.setUserName(this, displayName);
+            }
+        }
+        if (displayName == null || displayName.isEmpty()) {
+            // Ultimo recurso: el email del Intent extra.
             displayName = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
         }
         if (displayName != null) {
