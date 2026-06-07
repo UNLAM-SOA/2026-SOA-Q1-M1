@@ -160,11 +160,15 @@ public class PawGatePollingService extends Service {
     private void reconcileBlockedFlag(DeviceDtos.Event e) {
         if (e.event_type == null) return;
         boolean locallyBlocked = PrefsHelper.isDoorBlocked(this);
+        Log.d(TAG, "reconcile: event_type=" + e.event_type
+                + " locallyBlocked=" + locallyBlocked);
         if ("blocked".equals(e.event_type) && !locallyBlocked) {
             PrefsHelper.setDoorBlocked(this, true);
             PrefsHelper.clearCycle(this);
+            Log.d(TAG, "reconcile -> setDoorBlocked(true)");
         } else if ("unblocked".equals(e.event_type) && locallyBlocked) {
             PrefsHelper.setDoorBlocked(this, false);
+            Log.d(TAG, "reconcile -> setDoorBlocked(false)");
         }
     }
 
