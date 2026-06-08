@@ -266,33 +266,63 @@ def handle_history(device_id, query_params):
     include_sensors = (query_params.get("include_sensors") or "").lower() == "true"
     cursor = query_params.get("cursor")
 
-    query_kwargs = {
+    base_kwargs = {
         "KeyConditionExpression": "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
         "ExpressionAttributeValues": {":dev": device_id, ":from_sk": from_sk, ":to_sk": to_sk},
         "ScanIndexForward": False,
-        "Limit": 50,  # tamano de pagina (post filter puede quedar menor)
+        "Limit": 200,  # read budget por DDB query
     }
     if not include_sensors:
-        query_kwargs["FilterExpression"] = "#t <> :sensor"
-        query_kwargs["ExpressionAttributeNames"] = {"#t": "type"}
-        query_kwargs["ExpressionAttributeValues"][":sensor"] = "sensor"
+        base_kwargs["FilterExpression"] = "#t <> :sensor"
+        base_kwargs["ExpressionAttributeNames"] = {"#t": "type"}
+        base_kwargs["ExpressionAttributeValues"][":sensor"] = "sensor"
 
-    # Pagination: cursor es el LastEvaluatedKey serializado base64+JSON
+    # Cursor del cliente -> ExclusiveStartKey de la primera query DDB
+    import base64
+    pagination_key = None
     if cursor:
-        import base64
         try:
-            last_key = json.loads(base64.b64decode(cursor).decode())
-            query_kwargs["ExclusiveStartKey"] = last_key
+            pagination_key = json.loads(base64.b64decode(cursor).decode())
         except Exception:
             return _bad_request("cursor invalido")
 
-    try:
-        result = events_table.query(**query_kwargs)
-    except ClientError as e:
-        logger.error("DDB query failed: %s", e)
-        return _server_error("query failed")
+    # Auto-paginate INTERNO: seguimos pidiendo paginas DDB hasta tener target_size
+    # items DESPUES del filter, o agotar el rango. Sin esto, si los primeros 200
+    # raw son todos sensors, la respuesta venia con 0 items aunque hubiera mas
+    # door events 'mas adelante'.
+    target_size = 50
+    items = []
+    safety = 0
+    while True:
+        kwargs = dict(base_kwargs)
+        if pagination_key:
+            kwargs["ExclusiveStartKey"] = pagination_key
+        try:
+            result = events_table.query(**kwargs)
+        except ClientError as e:
+            logger.error("DDB query failed: %s", e)
+            return _server_error("query failed")
+        items.extend(result.get("Items", []))
+        pagination_key = result.get("LastEvaluatedKey")
+        safety += 1
+        if len(items) >= target_size or not pagination_key or safety >= 10:
+            break
 
-    items = result.get("Items", [])
+    # Si nos pasamos del target, truncar y construir cursor con el sort key
+    # del ultimo item devuelto (ExclusiveStartKey funciona con la key, no
+    # necesita el LastEvaluatedKey original de DDB).
+    next_cursor_dict = None
+    if len(items) > target_size:
+        truncated = items[:target_size]
+        last_item = truncated[-1]
+        next_cursor_dict = {
+            "device_id": last_item["device_id"],
+            "ts_event": last_item["ts_event"],
+        }
+        items = truncated
+    elif pagination_key:
+        next_cursor_dict = pagination_key
+
     for it in items:
         if "payload" in it and isinstance(it["payload"], str):
             try:
@@ -307,13 +337,9 @@ def handle_history(device_id, query_params):
         "count": len(items),
         "events": items,
     }
-
-    # Si DDB indica que hay mas, devolvemos cursor para la proxima pagina.
-    last_evaluated = result.get("LastEvaluatedKey")
-    if last_evaluated:
-        import base64
+    if next_cursor_dict:
         response["next_cursor"] = base64.b64encode(
-            json.dumps(last_evaluated, cls=DecimalEncoder).encode()).decode()
+            json.dumps(next_cursor_dict, cls=DecimalEncoder).encode()).decode()
 
     return _ok(response)
 
