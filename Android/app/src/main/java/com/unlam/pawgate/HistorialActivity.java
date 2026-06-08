@@ -174,6 +174,7 @@ public class HistorialActivity extends AppCompatActivity {
         loadVersion++;          // invalida callbacks viejos
         nextCursor = null;
         isLoading = true;
+        autoLoadChainCount = 0; // reset cadena al empezar filtro nuevo
         final int myVersion = loadVersion;
         android.util.Log.d("HistorialActivity",
                 "loadHistory v=" + myVersion + " from=" + currentFromMs
@@ -195,12 +196,61 @@ public class HistorialActivity extends AppCompatActivity {
                 android.util.Log.d("HistorialActivity",
                         "loadHistory v=" + myVersion + " ok, count=" + events.size()
                                 + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
+                // Si la primera pagina no llena la pantalla pero hay cursor,
+                // no podemos esperar al OnScrollListener (no hay scroll posible).
+                // Auto-disparamos loadMore hasta llenar pantalla o agotar cursor.
+                maybeAutoLoadMore();
             }
             @Override
             public void onError(String message) {
                 if (myVersion != loadVersion) return;
                 isLoading = false;
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /**
+     * Si tenemos cursor pero la lista no llena la pantalla (no hay scroll
+     * posible), encadenamos otra pagina. Sin esto, cuando el backend devuelve
+     * count=4 + next_cursor (porque filtra muchos sensors), el user ve 4 items
+     * y el OnScrollListener nunca dispara porque no hay nada para scrollear.
+     *
+     * Hay un cap de 5 cadenas para evitar loops infinitos si el backend
+     * patologico siempre devuelve poco.
+     */
+    private static final int AUTO_LOAD_CHAIN_MAX = 5;
+    private int autoLoadChainCount = 0;
+
+    private void maybeAutoLoadMore() {
+        if (nextCursor == null || isLoading) {
+            autoLoadChainCount = 0;
+            return;
+        }
+        if (autoLoadChainCount >= AUTO_LOAD_CHAIN_MAX) {
+            android.util.Log.d("HistorialActivity",
+                    "autoLoadMore cap reached, parando cadena");
+            autoLoadChainCount = 0;
+            return;
+        }
+        // post() para que el RecyclerView termine de renderizar antes de medir.
+        listView.post(() -> {
+            if (nextCursor == null || isLoading) return;
+            LinearLayoutManager lm = (LinearLayoutManager) listView.getLayoutManager();
+            if (lm == null) return;
+            int lastVisible = lm.findLastVisibleItemPosition();
+            int total = lm.getItemCount();
+            // Si todo lo que tenemos cabe en pantalla, no hay scroll -> auto.
+            // Comparamos con total-1 (el indice del ultimo item es total-1).
+            if (lastVisible >= total - 1 && total > 0) {
+                autoLoadChainCount++;
+                android.util.Log.d("HistorialActivity",
+                        "autoLoadMore chain=" + autoLoadChainCount
+                                + " lastVisible=" + lastVisible + " total=" + total);
+                loadMoreHistory();
+            } else {
+                // Ya hay scroll posible -> el OnScrollListener se encarga.
+                autoLoadChainCount = 0;
             }
         });
     }
@@ -231,6 +281,8 @@ public class HistorialActivity extends AppCompatActivity {
                 android.util.Log.d("HistorialActivity",
                         "loadMore v=" + myVersion + " appended=" + events.size()
                                 + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
+                // Si seguimos sin llenar pantalla, encadenar otra pagina.
+                maybeAutoLoadMore();
             }
             @Override
             public void onError(String message) {

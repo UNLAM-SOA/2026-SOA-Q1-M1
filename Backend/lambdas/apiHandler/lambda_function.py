@@ -272,7 +272,7 @@ def handle_history(device_id, query_params):
         "KeyConditionExpression": "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
         "ExpressionAttributeValues": {":dev": device_id, ":from_sk": from_sk, ":to_sk": to_sk},
         "ScanIndexForward": False,
-        "Limit": 200,  # read budget por DDB query
+        "Limit": 500,  # read budget por DDB query (max efectivo ~1MB)
     }
     if not include_sensors:
         base_kwargs["FilterExpression"] = "#t <> :sensor"
@@ -295,6 +295,9 @@ def handle_history(device_id, query_params):
     target_size = 50
     items = []
     safety = 0
+    # Safety alto: con sensores publicando cada 5s, podemos tener miles de items
+    # raw entre door events. Necesitamos margen para encontrar 50 door events.
+    # 20 paginas * 500 raw = hasta 10k items leidos por request (~lambda <5s).
     while True:
         kwargs = dict(base_kwargs)
         if pagination_key:
@@ -307,7 +310,7 @@ def handle_history(device_id, query_params):
         items.extend(result.get("Items", []))
         pagination_key = result.get("LastEvaluatedKey")
         safety += 1
-        if len(items) >= target_size or not pagination_key or safety >= 10:
+        if len(items) >= target_size or not pagination_key or safety >= 20:
             break
 
     # Si nos pasamos del target, truncar y construir cursor con el sort key
