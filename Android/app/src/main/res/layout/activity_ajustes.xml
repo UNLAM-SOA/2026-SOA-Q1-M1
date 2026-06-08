@@ -264,6 +264,34 @@
                             android:background="@drawable/bg_toggle_knob" />
                     </FrameLayout>
                 </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <!-- Shake-to-call (Fase 19): toggle que habilita disparar
+                     cmd/call cuando el user sacude el telefono desde
+                     Dashboard. Default OFF para no sorprender. -->
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_phone_call" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle"
+                            android:text="@string/ajustes_shake_to_call_title" />
+                        <TextView style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_shake_to_call_subtitle" />
+                    </LinearLayout>
+                    <FrameLayout
+                        android:id="@+id/ajustes_shake_toggle"
+                        android:layout_width="40dp"
+                        android:layout_height="22dp"
+                        android:layout_marginStart="12dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <View
+                            android:id="@+id/ajustes_shake_knob"
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:background="@drawable/bg_toggle_knob" />
+                    </FrameLayout>
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

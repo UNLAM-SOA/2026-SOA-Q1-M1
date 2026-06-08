@@ -190,6 +190,11 @@
     <string name="ajustes_device_esp32_subtitle_default">Tocá para ver detalle</string>
     <string name="ajustes_device_wifi_subtitle_default">Tocá para ver detalle</string>
 
+    <!-- Fase 19 - Acelerometro shake-to-call -->
+    <string name="ajustes_shake_to_call_title">Llamar al sacudir</string>
+    <string name="ajustes_shake_to_call_subtitle">Sacudí el teléfono y el dispositivo va a llamar a la mascota</string>
+    <string name="shake_to_call_triggered">¡Llamando al dispositivo!</string>
+
     <!-- W14 - Detalle red WiFi -->
     <string name="wifi_detail_title">Red WiFi</string>
     <string name="wifi_detail_loading">Cargando…</string>

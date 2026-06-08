@@ -15,6 +15,8 @@ public class AjustesActivity extends AppCompatActivity {
 
     private FrameLayout pushToggle;
     private View pushKnob;
+    private FrameLayout shakeToggle;
+    private View shakeKnob;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,6 +38,7 @@ public class AjustesActivity extends AppCompatActivity {
                 v -> startActivity(new Intent(this, WifiDetailActivity.class)));
 
         wirePushToggle();
+        wireShakeToggle();
 
         BottomNavHelper.bind(this, R.id.nav_ajustes);
     }
@@ -75,31 +78,38 @@ public class AjustesActivity extends AppCompatActivity {
         pushToggle = findViewById(R.id.ajustes_push_toggle);
         pushKnob = findViewById(R.id.ajustes_push_knob);
 
-        applyToggleState(PrefsHelper.isPushEnabled(this));
+        renderToggle(pushToggle, pushKnob, PrefsHelper.isPushEnabled(this));
 
         pushToggle.setOnClickListener(v -> {
             boolean newState = !PrefsHelper.isPushEnabled(this);
             PrefsHelper.setPushEnabled(this, newState);
-            applyToggleState(newState);
+            renderToggle(pushToggle, pushKnob, newState);
         });
     }
 
-    private void applyToggleState(boolean enabled) {
-        // Track: verde (chip_active) si enabled, gris (chip_inactive) si no.
-        pushToggle.setBackgroundResource(
-                enabled ? R.drawable.bg_chip_active : R.drawable.bg_chip_inactive);
+    private void wireShakeToggle() {
+        shakeToggle = findViewById(R.id.ajustes_shake_toggle);
+        shakeKnob = findViewById(R.id.ajustes_shake_knob);
 
-        // Knob: a la derecha si enabled, a la izquierda si no.
-        // Color: blanco si enabled (sobre verde), gris claro si no (sobre gris).
+        renderToggle(shakeToggle, shakeKnob, PrefsHelper.isShakeToCallEnabled(this));
+
+        shakeToggle.setOnClickListener(v -> {
+            boolean newState = !PrefsHelper.isShakeToCallEnabled(this);
+            PrefsHelper.setShakeToCallEnabled(this, newState);
+            renderToggle(shakeToggle, shakeKnob, newState);
+        });
+    }
+
+    /** Render visual del toggle (track verde/gris + knob izquierda/derecha + tint). */
+    private void renderToggle(FrameLayout track, View knob, boolean enabled) {
+        track.setBackgroundResource(
+                enabled ? R.drawable.bg_chip_active : R.drawable.bg_chip_inactive);
         FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(dp(16), dp(16));
         knobParams.gravity = (enabled ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
-        if (enabled) {
-            knobParams.setMarginEnd(dp(3));
-        } else {
-            knobParams.setMarginStart(dp(3));
-        }
-        pushKnob.setLayoutParams(knobParams);
-        pushKnob.setBackgroundTintList(ColorStateList.valueOf(
+        if (enabled) knobParams.setMarginEnd(dp(3));
+        else         knobParams.setMarginStart(dp(3));
+        knob.setLayoutParams(knobParams);
+        knob.setBackgroundTintList(ColorStateList.valueOf(
                 ContextCompat.getColor(this, enabled ? R.color.bg_card : R.color.text_muted)));
     }
 

@@ -19,6 +19,7 @@ public final class PrefsHelper {
     private static final String PREFS = "pawgate_prefs";
     private static final String KEY_DOOR_BLOCKED = "door_blocked";
     private static final String KEY_PUSH_ENABLED = "push_enabled";
+    private static final String KEY_SHAKE_TO_CALL = "shake_to_call";
     private static final String KEY_USER_EMAIL = "user_email";
     private static final String KEY_USER_NAME = "user_name";
     private static final String KEY_CYCLE_TYPE = "cycle_type";
@@ -60,6 +61,18 @@ public final class PrefsHelper {
 
     public static void setPushEnabled(Context ctx, boolean enabled) {
         prefs(ctx).edit().putBoolean(KEY_PUSH_ENABLED, enabled).apply();
+    }
+
+    // ===== shake_to_call =====
+    // Default OFF para no sorprender al user con un cmd/call la primera vez
+    // que mueva el telefono. Se activa explicitamente desde Ajustes.
+
+    public static boolean isShakeToCallEnabled(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_SHAKE_TO_CALL, false);
+    }
+
+    public static void setShakeToCallEnabled(Context ctx, boolean enabled) {
+        prefs(ctx).edit().putBoolean(KEY_SHAKE_TO_CALL, enabled).apply();
     }
 
     // ===== user_email =====

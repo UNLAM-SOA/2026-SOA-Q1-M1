@@ -66,6 +66,7 @@ public class DashboardActivity extends AppCompatActivity {
     private View actionCall;
 
     private DeviceRepository deviceRepo;
+    private ShakeDetector shakeDetector;
     private String deviceId;
     private boolean toggleInFlight;
 
@@ -176,6 +177,34 @@ public class DashboardActivity extends AppCompatActivity {
                 eventUpdateReceiver,
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        // Shake-to-call (Fase 19): solo si el user lo activo en Ajustes.
+        // Re-leemos el setting en cada onResume para que si volvio de Ajustes
+        // con el toggle cambiado, tome efecto inmediato.
+        if (PrefsHelper.isShakeToCallEnabled(this)) {
+            if (shakeDetector == null) {
+                shakeDetector = new ShakeDetector(this, this::onShakeDetected);
+            }
+            shakeDetector.start();
+        }
+    }
+
+    /** Callback del ShakeDetector. Dispara cmd/call si no estamos en
+     *  modo bloqueado (sino el device no va a responder y confunde). */
+    private void onShakeDetected() {
+        android.util.Log.i("DashboardActivity", "shake detected -> sending cmd/call");
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
+                java.util.Collections.emptyMap(),
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+                    @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                        android.widget.Toast.makeText(DashboardActivity.this,
+                                R.string.shake_to_call_triggered,
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("DashboardActivity", "shake call error: " + message);
+                    }
+                });
     }
 
     // ============================================================
@@ -226,6 +255,7 @@ public class DashboardActivity extends AppCompatActivity {
         } catch (IllegalArgumentException ignored) {
             // defensivo: race conditions en lifecycle
         }
+        if (shakeDetector != null) shakeDetector.stop();
         super.onPause();
     }
 
