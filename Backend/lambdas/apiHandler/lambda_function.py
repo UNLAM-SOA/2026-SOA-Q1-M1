@@ -24,6 +24,7 @@ Endpoints:
     PUT    /devices/{id}/schedules/{schedule_id}  body: {nombre, hora_inicio, hora_fin, dias, activo}
     DELETE /devices/{id}/schedules/{schedule_id}
 
+    GET    /devices/{id}/metrics/today            -> {openings_today, last_door_event_at, last_door_event_type}
     GET    /devices/{id}/state                    -> {lock_state, updated_at, currently_in_horario}
     POST   /devices/{id}/state/override-unblock   -> setea lock_state=MANUAL_UNBLOCKED + publish unblock
     POST   /devices/{id}/state/override-block     -> setea lock_state=MANUAL_BLOCKED + publish block
@@ -154,6 +155,10 @@ def lambda_handler(event, context):
             return handle_update_schedule(device_id, schedule_id, body)
         if method == "DELETE" and "/schedules/" in path:
             return handle_delete_schedule(device_id, schedule_id)
+
+        # ===== Metrics =====
+        if method == "GET" and path.endswith("/metrics/today"):
+            return handle_metrics_today(device_id)
 
         # ===== Device state =====
         if method == "GET" and path.endswith("/state"):
@@ -503,6 +508,89 @@ def handle_get_state(device_id):
         "updated_at": state.get("updated_at"),
         "currently_in_horario": in_horario,
     })
+
+
+def handle_metrics_today(device_id):
+    """GET /devices/{id}/metrics/today
+
+    Cuenta SERVER-SIDE las aperturas (event_type=opened) del dia y devuelve
+    info del ultimo evento door. Paginamos internamente con LastEvaluatedKey
+    para no perder eventos si el dia tiene muchos sensors mezclados.
+
+    El cliente solo recibe el numero final ya calculado, no tiene que iterar
+    paginas ni filtrar localmente.
+    """
+    if not device_id:
+        return _bad_request("device_id requerido")
+
+    # Rango de hoy en zona horaria local (Argentina)
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    now_local = datetime.now(tz)
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    from_ms = int(start_local.timestamp() * 1000)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+    from_sk = f"{from_ms:013d}"
+    to_sk = f"{now_ms:013d}#~"
+
+    openings_count = 0
+    last_door_event = None  # primer item iterado (mas reciente por ScanIndexForward=False)
+    pagination_key = None
+    safety_pages = 0
+
+    while True:
+        kwargs = {
+            "KeyConditionExpression":
+                "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
+            "FilterExpression": "#t = :door",
+            "ExpressionAttributeNames": {"#t": "type"},
+            "ExpressionAttributeValues": {
+                ":dev": device_id,
+                ":from_sk": from_sk,
+                ":to_sk": to_sk,
+                ":door": "door",
+            },
+            "ScanIndexForward": False,
+            "Limit": 200,  # tamano de chunk raw; FilterExpression reduce post-read
+        }
+        if pagination_key:
+            kwargs["ExclusiveStartKey"] = pagination_key
+
+        try:
+            result = events_table.query(**kwargs)
+        except ClientError as e:
+            logger.error("metrics query failed: %s", e)
+            return _server_error("metrics query failed")
+
+        items = result.get("Items", [])
+        for item in items:
+            if last_door_event is None:
+                last_door_event = item
+            if item.get("event_type") == "opened":
+                openings_count += 1
+
+        pagination_key = result.get("LastEvaluatedKey")
+        if not pagination_key:
+            break
+        safety_pages += 1
+        if safety_pages > 50:  # 50 pages * 200 items = 10k items, mas que suficiente
+            logger.warning("metrics_today hit page limit, count may be partial")
+            break
+
+    response = {
+        "device_id": device_id,
+        "from_ms": from_ms,
+        "to_ms": now_ms,
+        "openings_today": openings_count,
+    }
+    if last_door_event:
+        response["last_door_event_at"] = last_door_event.get("created_at")
+        response["last_door_event_type"] = last_door_event.get("event_type")
+        if "direction" in last_door_event:
+            response["last_door_event_direction"] = last_door_event["direction"]
+
+    return _ok(response)
 
 
 def handle_override_unblock(device_id):
