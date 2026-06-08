@@ -43,6 +43,7 @@ public class HistorialActivity extends AppCompatActivity {
     private DeviceRepository deviceRepo;
     private String deviceId;
     private RecyclerView listView;
+    private View emptyView;
 
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
@@ -69,7 +70,7 @@ public class HistorialActivity extends AppCompatActivity {
 
     /** Bump este string cada vez que tocamos el archivo. Confirma en logcat
      *  que el APK efectivamente instalado es el del ultimo build. */
-    private static final String BUILD_TAG = "v2026-06-08-r4-rv-scrollfix";
+    private static final String BUILD_TAG = "v2026-06-08-r5-empty-state";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,6 +89,7 @@ public class HistorialActivity extends AppCompatActivity {
 
         // RecyclerView arranca vacio. Lo llenamos en onResume() con la respuesta del backend.
         listView = findViewById(R.id.event_list);
+        emptyView = findViewById(R.id.historial_empty);
         final LinearLayoutManager lm = new LinearLayoutManager(this);
         listView.setLayoutManager(lm);
         this.adapter = new HistorialAdapter(Collections.emptyList());
@@ -199,6 +201,9 @@ public class HistorialActivity extends AppCompatActivity {
         nextCursor = null;
         isLoading = true;
         autoLoadChainCount = 0; // reset cadena al empezar filtro nuevo
+        // Ocultar empty mientras carga - sino parpadea al cambiar de filtro
+        if (emptyView != null) emptyView.setVisibility(View.GONE);
+        if (listView != null) listView.setVisibility(View.VISIBLE);
         final int myVersion = loadVersion;
         android.util.Log.d("HistorialActivity",
                 "loadHistory v=" + myVersion + " from=" + currentFromMs
@@ -220,6 +225,7 @@ public class HistorialActivity extends AppCompatActivity {
                 android.util.Log.d("HistorialActivity",
                         "loadHistory v=" + myVersion + " ok, count=" + events.size()
                                 + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
+                updateEmptyState();
                 // Si la primera pagina no llena la pantalla pero hay cursor,
                 // no podemos esperar al OnScrollListener (no hay scroll posible).
                 // Auto-disparamos loadMore hasta llenar pantalla o agotar cursor.
@@ -232,6 +238,21 @@ public class HistorialActivity extends AppCompatActivity {
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    /**
+     * Empty state: muestra el placeholder cuando el adapter quedo sin items
+     * Y el backend dijo 'no hay mas' (next_cursor=null). Si todavia hay
+     * cursor, aunque count=0, la auto-paginacion va a traer mas, asi que
+     * NO mostramos vacio aun.
+     */
+    private void updateEmptyState() {
+        if (emptyView == null || listView == null) return;
+        boolean noItems = adapter.getItemCount() == 0;
+        boolean noMore = nextCursor == null;
+        boolean showEmpty = noItems && noMore && !isLoading;
+        emptyView.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+        listView.setVisibility(showEmpty ? View.GONE : View.VISIBLE);
     }
 
     /**

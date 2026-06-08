@@ -186,6 +186,8 @@
     <string name="historial_filter_hoy">Hoy</string>
     <string name="historial_filter_ayer">Ayer</string>
     <string name="historial_filter_7d">7d</string>
+    <string name="historial_empty_title">Sin actividad para mostrar</string>
+    <string name="historial_empty_subtitle">No hay eventos en este rango. Probá con otro filtro o vení más tarde.</string>
     <string name="historial_event_puerta_abierta">Puerta abierta</string>
     <string name="historial_event_luz_apagada">Luz apagada</string>
     <string name="historial_event_puerta_bloqueada">Puerta bloqueada</string>
