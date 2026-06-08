@@ -217,26 +217,35 @@ public class DashboardActivity extends AppCompatActivity {
     private void onShakeDetected() {
         android.util.Log.i("DashboardActivity", "shake detected -> sending cmd/call");
 
-        // 1) Feedback haptic. Disponible en cualquier device con vibrador (todos).
+        // 1) Feedback haptic instantaneo (antes incluso del network round-trip).
         vibrateShort();
 
-        // 2) Toast de feedback inmediato (antes del round-trip al backend).
-        android.widget.Toast.makeText(this,
-                R.string.shake_to_call_triggered,
-                android.widget.Toast.LENGTH_SHORT).show();
+        // 2) Marcar el ciclo LOCAL como CALL en SharedPrefs. Esto es lo que
+        //    ControlActivity lee para renderizar 'BUZZER ACTIVO · 3s' con
+        //    countdown. Si no lo seteamos antes del Intent, Control abre y
+        //    no sabe que estamos llamando -> queda en idle visual aunque
+        //    el cmd haya llegado al simulator.
+        PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
 
+        // 3) Navegar a Control INMEDIATAMENTE para que el user vea el ciclo
+        //    sin esperar al network round-trip. La UI de Control va a
+        //    arrancar el countdown apenas se abre.
+        startActivity(new android.content.Intent(this, ControlActivity.class));
+
+        // 4) Disparar el cmd al backend en background. Si falla, limpiamos el
+        //    ciclo local y mostramos error. Si exito, el simulator ya esta
+        //    sonando el buzzer en paralelo.
         deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
                 java.util.Collections.emptyMap(),
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
                     @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
-                        // 3) Abrir ControlActivity para ver el ciclo en vivo.
-                        //    Si la app esta llevando un ciclo de llamada, Control
-                        //    lo va a mostrar correctamente porque pollea /state.
-                        startActivity(new android.content.Intent(
-                                DashboardActivity.this, ControlActivity.class));
+                        android.util.Log.i("DashboardActivity", "shake cmd/call OK");
                     }
                     @Override public void onError(String message) {
                         android.util.Log.w("DashboardActivity", "shake call error: " + message);
+                        // Revertir el ciclo local para que Control no quede
+                        // mostrando un fake call que nunca llego al device.
+                        PrefsHelper.clearCycle(DashboardActivity.this);
                         android.widget.Toast.makeText(DashboardActivity.this,
                                 message, android.widget.Toast.LENGTH_LONG).show();
                     }
