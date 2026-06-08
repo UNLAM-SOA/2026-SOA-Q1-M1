@@ -192,18 +192,23 @@ public class DashboardActivity extends AppCompatActivity {
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse result) {
-                if (result == null || result.events == null) return;
+                int total = (result != null && result.events != null) ? result.events.size() : 0;
                 int openCount = 0;
                 long lastMs = -1L;
                 String lastIso = null;
-                for (com.unlam.pawgate.api.dto.DeviceDtos.Event e : result.events) {
-                    if ("opened".equals(e.event_type)) openCount++;
-                    long ms = HistorialMapper.parseIsoToMs(e.created_at);
-                    if (ms > lastMs) {
-                        lastMs = ms;
-                        lastIso = e.created_at;
+                if (result != null && result.events != null) {
+                    for (com.unlam.pawgate.api.dto.DeviceDtos.Event e : result.events) {
+                        if ("opened".equals(e.event_type)) openCount++;
+                        long ms = HistorialMapper.parseIsoToMs(e.created_at);
+                        if (ms > lastMs) {
+                            lastMs = ms;
+                            lastIso = e.created_at;
+                        }
                     }
                 }
+                android.util.Log.d("DashboardMetrics",
+                        "loadDailyMetrics: total=" + total + " opened=" + openCount
+                                + " lastIso=" + lastIso);
                 if (openingsCountLabel != null) {
                     openingsCountLabel.setText(String.valueOf(openCount));
                 }
@@ -213,12 +218,13 @@ public class DashboardActivity extends AppCompatActivity {
                         lastActivityLabel.setText(getString(
                                 R.string.dashboard_last_activity_template, rel));
                     } else {
-                        // No hay eventos del dia -> mostrar placeholder en vez del template raw.
                         lastActivityLabel.setText(R.string.dashboard_no_recent_activity);
                     }
                 }
             }
-            @Override public void onError(String message) { /* silencio */ }
+            @Override public void onError(String message) {
+                android.util.Log.w("DashboardMetrics", "loadDailyMetrics error: " + message);
+            }
         });
     }
 
@@ -269,8 +275,11 @@ public class DashboardActivity extends AppCompatActivity {
             String rel = HistorialMapper.relativeTimeFor(createdAtIso, System.currentTimeMillis());
             lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
         }
-        // El Service ya escribio el flag BLOQUEADO en SharedPreferences si correspondia.
         renderDoorState();
+        // Refrescar el contador de "Aperturas hoy" cuando hay un evento nuevo,
+        // asi se actualiza en vivo (la mayoria de los broadcasts del Service son
+        // de events no-door, pero cualquier door event nuevo podria ser un opened).
+        loadDailyMetrics();
     }
 
     // ============================================================
