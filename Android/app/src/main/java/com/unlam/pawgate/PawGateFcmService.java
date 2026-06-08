@@ -59,10 +59,16 @@ public class PawGateFcmService extends FirebaseMessagingService {
      * y lo registramos despues del primer login exitoso.
      */
     private void registerTokenIfLoggedIn(String token) {
+        // SIEMPRE guardamos el token como pending primero. Asi si el call al
+        // backend falla (401 por token vencido, 5xx, sin red, etc), queda
+        // persistido y LoginActivity.registerPendingFcmTokenIfAny() lo
+        // reintenta en el proximo login. clearPendingFcmToken solo se llama
+        // en el path de exito.
+        PrefsHelper.setPendingFcmToken(getApplicationContext(), token);
+
         String idToken = PrefsHelper.getIdToken(getApplicationContext());
         if (idToken == null || idToken.isEmpty()) {
             Log.i(TAG, "No logged-in user yet, deferring FCM token registration");
-            PrefsHelper.setPendingFcmToken(getApplicationContext(), token);
             return;
         }
         DeviceRepository repo = new DeviceRepository(getApplicationContext());
@@ -73,7 +79,7 @@ public class PawGateFcmService extends FirebaseMessagingService {
             }
             @Override public void onError(String message) {
                 Log.w(TAG, "FCM token registration failed: " + message);
-                // Lo dejamos en pending para reintentar mas adelante.
+                // pending queda seteado, se reintenta en el proximo login.
             }
         });
     }
