@@ -258,6 +258,9 @@ def handle_login(body):
 def handle_history(device_id, query_params):
     if not device_id:
         return _bad_request("device_id requerido")
+    # Build tag para confirmar en CloudWatch que el lambda fue redeployado.
+    logger.info("handle_history build=v2026-06-08-r3-downsample-5min device=%s params=%s",
+                device_id, dict(query_params))
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     # Default = ultimos 30 dias. El chip 'Todas' del cliente manda from=null,
     # asi puede paginar hacia atras todo lo que el TTL (90d) conserve.

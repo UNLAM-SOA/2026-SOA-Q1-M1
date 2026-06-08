@@ -67,10 +67,16 @@ public class HistorialActivity extends AppCompatActivity {
     private static final String STATE_CHIP_INDEX = "filter_chip_index";
     private static final String STATE_INCLUDE_SENSORS = "filter_include_sensors";
 
+    /** Bump este string cada vez que tocamos el archivo. Confirma en logcat
+     *  que el APK efectivamente instalado es el del ultimo build. */
+    private static final String BUILD_TAG = "v2026-06-08-r3-tz-art";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_historial);
+        android.util.Log.d("HistorialActivity",
+                "onCreate build=" + BUILD_TAG);
 
         this.deviceRepo = new DeviceRepository(this);
         this.deviceId = getString(R.string.default_device_id);
@@ -90,13 +96,23 @@ public class HistorialActivity extends AppCompatActivity {
 
         // Infinite scroll: cuando el user se acerca al final, pedimos la
         // proxima pagina (si el backend dio next_cursor en la respuesta previa).
+        // Log cuando se attacha el listener para confirmar que el codigo nuevo
+        // se esta corriendo (con el BUILD_TAG arriba).
+        android.util.Log.d("HistorialActivity", "attaching OnScrollListener");
         listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private boolean firstScrollLogged = false;
+
             @Override
             public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                if (!firstScrollLogged) {
+                    android.util.Log.d("HistorialActivity",
+                            "onScrolled fired (first) dx=" + dx + " dy=" + dy);
+                    firstScrollLogged = true;
+                }
                 if (dy <= 0) return; // solo cuando scrollea hacia abajo
                 int lastVisible = lm.findLastVisibleItemPosition();
                 int total = lm.getItemCount();
-                // Log cada vez que el user scrollea al final - util para diagnosticar.
+                // Log cada vez que el user scrollea cerca del final.
                 if (lastVisible >= total - LOAD_MORE_THRESHOLD - 2) {
                     android.util.Log.d("HistorialActivity",
                             "onScrolled near end lastVisible=" + lastVisible
@@ -353,9 +369,20 @@ public class HistorialActivity extends AppCompatActivity {
         }
     }
 
-    /** Epoch ms del 00:00:00 de hoy en la timezone del device. */
+    /**
+     * Epoch ms del 00:00:00 de hoy en timezone ART (UNLaM).
+     *
+     * Hardcodeamos ART porque el emulador suele venir en UTC; si dependieramos
+     * de Calendar.getInstance() (default = timezone del device), el chip 'Hoy'
+     * mostraria un rango shifted 3h respecto a lo que el user piensa en ART.
+     * Ej con device en UTC y user en ART: 'Ayer' filtraba un rango que
+     * incluia parte del 'hoy' mental del user.
+     */
+    private static final java.util.TimeZone ART_TZ =
+            java.util.TimeZone.getTimeZone("America/Argentina/Buenos_Aires");
+
     private long startOfTodayMs() {
-        java.util.Calendar cal = java.util.Calendar.getInstance();
+        java.util.Calendar cal = java.util.Calendar.getInstance(ART_TZ);
         cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
         cal.set(java.util.Calendar.MINUTE, 0);
         cal.set(java.util.Calendar.SECOND, 0);
