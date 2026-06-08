@@ -44,6 +44,7 @@ public class HistorialActivity extends AppCompatActivity {
     private String deviceId;
     private RecyclerView listView;
     private View emptyView;
+    private OfflineBanner offlineBanner;
 
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
@@ -78,6 +79,8 @@ public class HistorialActivity extends AppCompatActivity {
         setContentView(R.layout.activity_historial);
         android.util.Log.d("HistorialActivity",
                 "onCreate build=" + BUILD_TAG);
+
+        offlineBanner = OfflineBanner.attach(this);
 
         this.deviceRepo = new DeviceRepository(this);
         this.deviceId = getString(R.string.default_device_id);
@@ -189,6 +192,13 @@ public class HistorialActivity extends AppCompatActivity {
         // (Si queremos refresh "vivo" mientras esta en pantalla, agregamos polling
         // como en ControlActivity. Por ahora un refresh por entrada alcanza.)
         loadHistory();
+        if (offlineBanner != null) offlineBanner.start();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (offlineBanner != null) offlineBanner.stop();
     }
 
     // ============================================================

@@ -33,6 +33,7 @@ public class WifiDetailActivity extends AppCompatActivity {
 
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private OfflineBanner offlineBanner;
 
     private TextView ssidName;
     private TextView statusText;
@@ -53,6 +54,7 @@ public class WifiDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_wifi_detail);
         android.util.Log.d("WifiDetailActivity", "onCreate build=" + BUILD_TAG);
+        offlineBanner = OfflineBanner.attach(this);
 
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
@@ -99,12 +101,14 @@ public class WifiDetailActivity extends AppCompatActivity {
         super.onResume();
         pollHandler.removeCallbacks(pollRunnable);
         pollHandler.post(pollRunnable);
+        if (offlineBanner != null) offlineBanner.start();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         pollHandler.removeCallbacks(pollRunnable);
+        if (offlineBanner != null) offlineBanner.stop();
     }
 
     private void loadInfo() {

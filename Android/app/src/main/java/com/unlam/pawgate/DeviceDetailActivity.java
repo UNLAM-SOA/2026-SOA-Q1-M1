@@ -43,6 +43,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private OfflineBanner offlineBanner;
 
     // Views del header
     private TextView modelName;
@@ -71,6 +72,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_device_detail);
         android.util.Log.d("DeviceDetailActivity", "onCreate build=" + BUILD_TAG);
+        offlineBanner = OfflineBanner.attach(this);
 
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
@@ -126,6 +128,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         // Arrancar polling (carga inmediata + tick cada POLL_INTERVAL_MS)
         pollHandler.removeCallbacks(pollRunnable);
         pollHandler.post(pollRunnable);
+        if (offlineBanner != null) offlineBanner.start();
     }
 
     @Override
@@ -133,6 +136,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         super.onPause();
         // Frenar polling cuando salimos de la pantalla (consume bateria + api calls)
         pollHandler.removeCallbacks(pollRunnable);
+        if (offlineBanner != null) offlineBanner.stop();
     }
 
     private void loadDeviceInfo() {

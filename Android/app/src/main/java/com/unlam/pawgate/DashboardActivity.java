@@ -67,6 +67,7 @@ public class DashboardActivity extends AppCompatActivity {
 
     private DeviceRepository deviceRepo;
     private ShakeDetector shakeDetector;
+    private OfflineBanner offlineBanner;
     private String deviceId;
     private boolean toggleInFlight;
 
@@ -118,6 +119,8 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_dashboard);
+
+        offlineBanner = OfflineBanner.attach(this);
 
         actionBlock = findViewById(R.id.action_block);
         actionBlockIcon = findViewById(R.id.action_block_icon);
@@ -177,6 +180,8 @@ public class DashboardActivity extends AppCompatActivity {
                 eventUpdateReceiver,
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        if (offlineBanner != null) offlineBanner.start();
 
         // Shake-to-call (Fase 19): solo si el user lo activo en Ajustes.
         // Re-leemos el setting en cada onResume para que si volvio de Ajustes
@@ -256,6 +261,7 @@ public class DashboardActivity extends AppCompatActivity {
             // defensivo: race conditions en lifecycle
         }
         if (shakeDetector != null) shakeDetector.stop();
+        if (offlineBanner != null) offlineBanner.stop();
         super.onPause();
     }
 

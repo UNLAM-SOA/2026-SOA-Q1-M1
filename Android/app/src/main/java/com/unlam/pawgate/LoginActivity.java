@@ -58,6 +58,14 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
+        // Pre-check offline: si no hay red, evitamos el call y damos feedback
+        // inmediato. Igual Retrofit lo manejaria, pero el toast es mas claro
+        // que un "Failed to connect to host..."
+        if (!NetworkUtils.isOnline(this)) {
+            Toast.makeText(this, R.string.generic_network_error, Toast.LENGTH_LONG).show();
+            return;
+        }
+
         // Bloquear el boton mientras hay request en curso para evitar doble click
         loginButton.setEnabled(false);
         loginButton.setText(R.string.loading);

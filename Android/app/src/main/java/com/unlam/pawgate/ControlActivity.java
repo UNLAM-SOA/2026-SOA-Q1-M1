@@ -127,6 +127,7 @@ public class ControlActivity extends AppCompatActivity {
     // ===== Backend =====
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private OfflineBanner offlineBanner;
 
     // ===== Views cacheadas =====
     private TextView title;
@@ -152,6 +153,8 @@ public class ControlActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_control);
+
+        offlineBanner = OfflineBanner.attach(this);
 
         bindViews();
 
@@ -195,6 +198,8 @@ public class ControlActivity extends AppCompatActivity {
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(this, eventUpdateReceiver, filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        if (offlineBanner != null) offlineBanner.start();
     }
 
     @Override
@@ -206,6 +211,7 @@ public class ControlActivity extends AppCompatActivity {
         } catch (IllegalArgumentException ignored) {
             // defensivo
         }
+        if (offlineBanner != null) offlineBanner.stop();
         super.onPause();
     }
 

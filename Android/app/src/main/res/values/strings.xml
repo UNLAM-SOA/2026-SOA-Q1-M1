@@ -195,6 +195,11 @@
     <string name="ajustes_shake_to_call_subtitle">Sacudí el teléfono y el dispositivo va a llamar a la mascota</string>
     <string name="shake_to_call_triggered">¡Llamando al dispositivo!</string>
 
+    <!-- Fase 18 - Network / offline UX -->
+    <string name="offline_banner_text">Sin conexión a internet · algunas acciones podrían fallar</string>
+    <string name="generic_network_error">No pudimos conectar. Revisá tu red e intentá de nuevo.</string>
+    <string name="retry_label">Reintentar</string>
+
     <!-- W14 - Detalle red WiFi -->
     <string name="wifi_detail_title">Red WiFi</string>
     <string name="wifi_detail_loading">Cargando…</string>
