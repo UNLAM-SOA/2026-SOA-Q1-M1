@@ -259,7 +259,9 @@ def handle_history(device_id, query_params):
     if not device_id:
         return _bad_request("device_id requerido")
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    from_ms = int(query_params.get("from", now_ms - 86400 * 1000))
+    # Default = ultimos 30 dias. El chip 'Todas' del cliente manda from=null,
+    # asi puede paginar hacia atras todo lo que el TTL (90d) conserve.
+    from_ms = int(query_params.get("from", now_ms - 30 * 86400 * 1000))
     to_ms = int(query_params.get("to", now_ms))
     from_sk = f"{from_ms:013d}"
     to_sk = f"{to_ms:013d}#~"
