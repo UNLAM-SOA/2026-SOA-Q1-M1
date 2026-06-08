@@ -69,7 +69,7 @@ public class HistorialActivity extends AppCompatActivity {
 
     /** Bump este string cada vez que tocamos el archivo. Confirma en logcat
      *  que el APK efectivamente instalado es el del ultimo build. */
-    private static final String BUILD_TAG = "v2026-06-08-r3-tz-art";
+    private static final String BUILD_TAG = "v2026-06-08-r4-rv-scrollfix";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

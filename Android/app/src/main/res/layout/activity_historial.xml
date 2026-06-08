@@ -68,89 +68,95 @@
         </FrameLayout>
     </LinearLayout>
 
-    <ScrollView
-        android:id="@+id/historial_scroll"
+    <!--
+        Chips de filtro: quedan fijos arriba (no scrollean con la lista).
+        NO los envolvemos en un ScrollView porque eso interceptaba el touch
+        del RecyclerView y hacia que el infinite scroll NO funcionara
+        (el RV con wrap_content + nestedScrollingEnabled=false no scrollea
+        nunca, por lo cual onScrolled del RV no se dispara).
+    -->
+    <LinearLayout
+        android:id="@+id/historial_chips_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp"
+        app:layout_constraintTop_toBottomOf="@id/historial_topbar"
+        app:layout_constraintStart_toStartOf="parent">
+        <TextView
+            android:id="@+id/chip_todas"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="@string/historial_filter_todas"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:background="@drawable/bg_filter_chip_active"
+            android:clickable="true"
+            android:focusable="true" />
+        <TextView
+            android:id="@+id/chip_hoy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="@string/historial_filter_hoy"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:background="@drawable/bg_button_secondary"
+            android:clickable="true"
+            android:focusable="true" />
+        <TextView
+            android:id="@+id/chip_ayer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="@string/historial_filter_ayer"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:background="@drawable/bg_button_secondary"
+            android:clickable="true"
+            android:focusable="true" />
+        <TextView
+            android:id="@+id/chip_7d"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="@string/historial_filter_7d"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:background="@drawable/bg_button_secondary"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!--
+        El RecyclerView ahora con height=0dp + constraint top/bottom: ocupa
+        el espacio restante entre chips y bottom_nav. height=0dp + bordes
+        constrained => altura finita => el RV scrollea solo cuando los
+        items lo desbordan => onScrolled dispara => infinite scroll anda.
+    -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/event_list"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@id/historial_topbar"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bg_card"
+        android:clipToPadding="false"
+        app:layout_constraintTop_toBottomOf="@id/historial_chips_row"
         app:layout_constraintBottom_toTopOf="@id/bottom_nav"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <TextView
-                    android:id="@+id/chip_todas"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
-                    android:text="@string/historial_filter_todas"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:background="@drawable/bg_filter_chip_active"
-                    android:clickable="true"
-                    android:focusable="true" />
-                <TextView
-                    android:id="@+id/chip_hoy"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
-                    android:text="@string/historial_filter_hoy"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:background="@drawable/bg_button_secondary"
-                    android:clickable="true"
-                    android:focusable="true" />
-                <TextView
-                    android:id="@+id/chip_ayer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
-                    android:text="@string/historial_filter_ayer"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:background="@drawable/bg_button_secondary"
-                    android:clickable="true"
-                    android:focusable="true" />
-                <TextView
-                    android:id="@+id/chip_7d"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="6dp"
-                    android:text="@string/historial_filter_7d"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
-                    android:background="@drawable/bg_button_secondary"
-                    android:clickable="true"
-                    android:focusable="true" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/event_list"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:background="@drawable/bg_card"
-                android:clipToPadding="false"
-                android:nestedScrollingEnabled="false" />
-        </LinearLayout>
-    </ScrollView>
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <include
         android:id="@+id/bottom_nav"
