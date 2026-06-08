@@ -13,7 +13,6 @@ import androidx.fragment.app.FragmentManager;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.datepicker.MaterialDatePicker;
-import com.google.android.material.materialswitch.MaterialSwitch;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -24,7 +23,6 @@ import java.util.Locale;
  *
  * Permite al user:
  *   - elegir rango personalizado de fechas (MaterialDatePicker.Builder.dateRangePicker)
- *   - togglear "incluir telemetria de sensores"
  *
  * Devuelve los filtros al caller via OnFiltrosAppliedListener.
  *
@@ -37,16 +35,14 @@ public class HistorialFiltrosBottomSheet extends BottomSheetDialogFragment {
     public static final class Filtros {
         public final Long fromMs;
         public final Long toMs;
-        public final boolean includeSensors;
 
-        public Filtros(Long fromMs, Long toMs, boolean includeSensors) {
+        public Filtros(Long fromMs, Long toMs) {
             this.fromMs = fromMs;
             this.toMs = toMs;
-            this.includeSensors = includeSensors;
         }
 
         public static Filtros empty() {
-            return new Filtros(null, null, false);
+            return new Filtros(null, null);
         }
 
         public boolean hasCustomRange() { return fromMs != null && toMs != null; }
@@ -62,7 +58,6 @@ public class HistorialFiltrosBottomSheet extends BottomSheetDialogFragment {
     // Estado de edicion (cambia con cada interaccion del user)
     private Long editingFromMs;
     private Long editingToMs;
-    private boolean editingIncludeSensors;
 
     public static void show(@NonNull FragmentManager fm,
                             @NonNull Filtros currentFilters,
@@ -87,20 +82,15 @@ public class HistorialFiltrosBottomSheet extends BottomSheetDialogFragment {
         if (initial == null) initial = Filtros.empty();
         editingFromMs = initial.fromMs;
         editingToMs = initial.toMs;
-        editingIncludeSensors = initial.includeSensors;
 
         TextView rangeValue = view.findViewById(R.id.filtros_range_value);
         renderRangeValue(rangeValue);
 
         view.findViewById(R.id.filtros_pick_range).setOnClickListener(v -> openDateRangePicker(rangeValue));
 
-        MaterialSwitch sensorsSwitch = view.findViewById(R.id.filtros_include_sensors_switch);
-        sensorsSwitch.setChecked(editingIncludeSensors);
-        sensorsSwitch.setOnCheckedChangeListener((b, checked) -> editingIncludeSensors = checked);
-
         view.findViewById(R.id.filtros_apply).setOnClickListener(v -> {
             if (listener != null) {
-                listener.onFiltrosApplied(new Filtros(editingFromMs, editingToMs, editingIncludeSensors));
+                listener.onFiltrosApplied(new Filtros(editingFromMs, editingToMs));
             }
             dismiss();
         });

@@ -11,6 +11,8 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
+import com.unlam.pawgate.api.JwtUtils;
+
 public class AjustesActivity extends AppCompatActivity {
 
     private FrameLayout pushToggle;
@@ -68,6 +70,12 @@ public class AjustesActivity extends AppCompatActivity {
             nameView.setText(name);
         }
         emailView.setText(email != null ? email : "");
+
+        // Avatar: primera letra del nombre.
+        String initial = name != null && !name.isEmpty()
+                ? name.substring(0, 1).toUpperCase()
+                : "?";
+        ((TextView) findViewById(R.id.perfil_avatar_initial)).setText(initial);
     }
 
     // ============================================================

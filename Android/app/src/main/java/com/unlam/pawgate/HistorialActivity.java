@@ -49,7 +49,6 @@ public class HistorialActivity extends AppCompatActivity {
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
     private Long currentToMs = null;
-    private boolean includeSensors = false;
 
     // Paginacion (infinite scroll)
     private String nextCursor = null;
@@ -67,11 +66,10 @@ public class HistorialActivity extends AppCompatActivity {
     private static final String STATE_FROM_MS = "filter_from_ms";
     private static final String STATE_TO_MS = "filter_to_ms";
     private static final String STATE_CHIP_INDEX = "filter_chip_index";
-    private static final String STATE_INCLUDE_SENSORS = "filter_include_sensors";
 
     /** Bump este string cada vez que tocamos el archivo. Confirma en logcat
      *  que el APK efectivamente instalado es el del ultimo build. */
-    private static final String BUILD_TAG = "v2026-06-08-r5-empty-state";
+    private static final String BUILD_TAG = "v2026-06-08-r6-no-sensors";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -144,7 +142,6 @@ public class HistorialActivity extends AppCompatActivity {
             if (savedInstanceState.containsKey(STATE_TO_MS)) {
                 currentToMs = savedInstanceState.getLong(STATE_TO_MS);
             }
-            includeSensors = savedInstanceState.getBoolean(STATE_INCLUDE_SENSORS, false);
             activeChipIndex = savedInstanceState.getInt(STATE_CHIP_INDEX, 0);
             highlightChipByIndex(activeChipIndex);
         } else {
@@ -157,11 +154,10 @@ public class HistorialActivity extends AppCompatActivity {
     /** Abre el BottomSheet de filtros avanzados (W13). Al aplicar, refresca la lista. */
     private void openFiltrosAvanzados() {
         HistorialFiltrosBottomSheet.Filtros current =
-                new HistorialFiltrosBottomSheet.Filtros(currentFromMs, currentToMs, includeSensors);
+                new HistorialFiltrosBottomSheet.Filtros(currentFromMs, currentToMs);
         HistorialFiltrosBottomSheet.show(getSupportFragmentManager(), current, filtros -> {
             currentFromMs = filtros.fromMs;
             currentToMs = filtros.toMs;
-            includeSensors = filtros.includeSensors;
             if (filtros.hasCustomRange()) {
                 // Si el user puso rango custom, ningun chip queda destacado.
                 activeChipIndex = -1;
@@ -181,7 +177,6 @@ public class HistorialActivity extends AppCompatActivity {
         if (currentFromMs != null) outState.putLong(STATE_FROM_MS, currentFromMs);
         if (currentToMs != null) outState.putLong(STATE_TO_MS, currentToMs);
         outState.putInt(STATE_CHIP_INDEX, activeChipIndex);
-        outState.putBoolean(STATE_INCLUDE_SENSORS, includeSensors);
     }
 
     @Override
@@ -217,8 +212,8 @@ public class HistorialActivity extends AppCompatActivity {
         final int myVersion = loadVersion;
         android.util.Log.d("HistorialActivity",
                 "loadHistory v=" + myVersion + " from=" + currentFromMs
-                        + " to=" + currentToMs + " sensors=" + includeSensors);
-        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, null,
+                        + " to=" + currentToMs);
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, false, null,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
@@ -318,7 +313,7 @@ public class HistorialActivity extends AppCompatActivity {
         final int myVersion = loadVersion;
         android.util.Log.d("HistorialActivity",
                 "loadMore v=" + myVersion + " cursor=" + cursor.substring(0, Math.min(20, cursor.length())) + "...");
-        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, cursor,
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, false, cursor,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
