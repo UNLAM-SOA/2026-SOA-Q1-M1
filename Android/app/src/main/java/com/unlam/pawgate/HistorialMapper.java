@@ -39,10 +39,47 @@ public final class HistorialMapper {
     }
 
     private static HistorialAdapter.Evento map(DeviceDtos.Event e, long nowMs) {
-        int icon = iconFor(e.event_type);
-        String titulo = titleFor(e.event_type, e.direction);
+        int icon = iconFor(e);
+        String titulo = titleFor(e);
         String subtitulo = formatRelativeTime(e.created_at, nowMs);
         return new HistorialAdapter.Evento(icon, titulo, subtitulo);
+    }
+
+    private static int iconFor(DeviceDtos.Event e) {
+        if ("sensor".equals(e.type)) return R.drawable.ic_funnel;
+        return iconFor(e.event_type);
+    }
+
+    /** Titulo combinando event_type + direction (door) o payload (sensor). */
+    private static String titleFor(DeviceDtos.Event e) {
+        if ("sensor".equals(e.type)) {
+            return sensorTitle(e);
+        }
+        return titleFor(e.event_type, e.direction);
+    }
+
+    /** Para events type=sensor, extraemos la distancia del payload y armamos
+     *  un titulo legible como "Ultrasonido: 35 cm". Si el payload no tiene
+     *  distance_cm caemos a "Lectura de sensor". */
+    private static String sensorTitle(DeviceDtos.Event e) {
+        if (e.payload != null) {
+            Object dist = e.payload.get("distance_cm");
+            if (dist != null) {
+                int cm;
+                if (dist instanceof Number) cm = ((Number) dist).intValue();
+                else {
+                    try { cm = (int) Double.parseDouble(dist.toString()); }
+                    catch (NumberFormatException ex) { return "Lectura de sensor"; }
+                }
+                String detail = "Ultrasonido: " + cm + " cm";
+                Object occupied = e.payload.get("occupied");
+                if (occupied instanceof Boolean && (Boolean) occupied) {
+                    detail += " · ocupado";
+                }
+                return detail;
+            }
+        }
+        return "Lectura de sensor";
     }
 
     // ============================================================
