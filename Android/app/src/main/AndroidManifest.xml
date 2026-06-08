@@ -53,6 +53,9 @@
             android:name=".PerfilActivity"
             android:exported="false" />
         <activity
+            android:name=".DeviceDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".LoginActivity"
             android:exported="false" />
         <service

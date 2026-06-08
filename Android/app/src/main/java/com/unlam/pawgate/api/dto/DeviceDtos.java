@@ -56,4 +56,22 @@ public final class DeviceDtos {
         public String last_door_event_type;      // opened/closed/blocked/...
         public String last_door_event_direction; // in/out (solo opened/closed)
     }
+
+    // ===== GET /devices/{id}/info (telemetria del ESP32) =====
+
+    public static final class DeviceInfoResponse {
+        public String device_id;
+        public boolean online;
+        public String info_updated_at;     // ISO 8601 del ultimo telemetry recibido
+        public long uptime_s;
+        public int rssi_dbm;
+        public int free_heap_kb;
+        public int total_heap_kb;
+        public int flash_used_kb;
+        public int flash_total_kb;
+        public String cpu_temp_c;          // string para no perder precision decimal
+        public String local_ip;
+        public String firmware_version;
+        public String hardware_model;
+    }
 }

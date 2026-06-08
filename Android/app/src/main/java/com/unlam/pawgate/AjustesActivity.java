@@ -29,6 +29,9 @@ public class AjustesActivity extends AppCompatActivity {
         findViewById(R.id.ajustes_row_schedules).setOnClickListener(
                 v -> startActivity(new Intent(this, HorariosActivity.class)));
 
+        findViewById(R.id.ajustes_row_device_esp32).setOnClickListener(
+                v -> startActivity(new Intent(this, DeviceDetailActivity.class)));
+
         wirePushToggle();
 
         BottomNavHelper.bind(this, R.id.nav_ajustes);

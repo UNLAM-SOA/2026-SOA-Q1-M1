@@ -45,6 +45,7 @@ logger.setLevel(logging.INFO)
 # automaticamente, asi que reusar el cliente baja latencia ~30ms.
 ddb = boto3.resource("dynamodb")
 events_table = ddb.Table(os.environ.get("EVENTS_TABLE", "pawgate_events"))
+device_state_table = ddb.Table(os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state"))
 
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "90"))
 
@@ -66,7 +67,15 @@ def lambda_handler(event, context):
         return {"statusCode": 400, "error": "unexpected topic format"}
 
     device_id = parts[1]   # "pawgate-001"
-    event_kind = parts[3]  # "door" | "sensor" | etc
+    event_kind = parts[3]  # "door" | "sensor" | "telemetry" | etc
+
+    # === Branch para telemetry ===
+    # No queremos inundar el historial con un evento de telemetry cada 30s.
+    # En cambio guardamos solo el ULTIMO snapshot en pawgate_device_state como
+    # un map 'info'. El endpoint GET /devices/{id}/info la devuelve a la app.
+    if event_kind == "telemetry":
+        _update_device_info(device_id, event)
+        return {"statusCode": 200, "device_id": device_id, "kind": "telemetry"}
 
     # 2) Construir sort key. Timestamp del DEVICE (no del server) para que el
     #    orden refleje cuando paso el evento fisicamente, no cuando AWS lo recibio.
@@ -108,3 +117,58 @@ def lambda_handler(event, context):
         raise
 
     return {"statusCode": 200, "device_id": device_id, "ts_event": sort_key}
+
+
+def _update_device_info(device_id: str, payload: dict):
+    """
+    Persiste el ultimo snapshot de telemetry en pawgate_device_state como
+    atributo 'info'. UpdateExpression para no pisar lock_state ni horario_marker
+    que setea apiHandler/scheduleExecutor.
+
+    Estructura final del item:
+      {
+        device_id:       "pawgate-001",       # PK
+        lock_state:      "AUTO_UNBLOCKED",    # lo manejan otros lambdas
+        updated_at:      "2026-06-08T...",
+        horario_marker:  "h1,h2",
+        info: {                               # <-- esto
+            uptime_s:         12345,
+            rssi_dbm:         -45,
+            free_heap_kb:     160,
+            total_heap_kb:    320,
+            flash_used_kb:    1200,
+            flash_total_kb:   4096,
+            cpu_temp_c:       42.5,
+            local_ip:         "192.168.1.42",
+            firmware_version: "sim-1.0.3",
+            hardware_model:   "ESP32-SIM (Python)",
+            updated_at:       "2026-06-08T..."   # cuando llego este snapshot
+        }
+      }
+    """
+    info = {
+        "uptime_s":         int(payload.get("uptime_s", 0)),
+        "rssi_dbm":         int(payload.get("rssi_dbm", 0)),
+        "free_heap_kb":     int(payload.get("free_heap_kb", 0)),
+        "total_heap_kb":    int(payload.get("total_heap_kb", 0)),
+        "flash_used_kb":    int(payload.get("flash_used_kb", 0)),
+        "flash_total_kb":   int(payload.get("flash_total_kb", 0)),
+        "cpu_temp_c":       str(payload.get("cpu_temp_c", "")),
+        "local_ip":         str(payload.get("local_ip", "")),
+        "firmware_version": str(payload.get("firmware_version", "")),
+        "hardware_model":   str(payload.get("hardware_model", "")),
+        "updated_at":       datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        device_state_table.update_item(
+            Key={"device_id": device_id},
+            UpdateExpression="SET info = :i, info_updated_at = :u",
+            ExpressionAttributeValues={
+                ":i": info,
+                ":u": info["updated_at"],
+            },
+        )
+        logger.info("Updated device_info device=%s uptime_s=%d", device_id, info["uptime_s"])
+    except Exception as e:
+        logger.error("Failed to update_item device_info: %s", e)
+        raise

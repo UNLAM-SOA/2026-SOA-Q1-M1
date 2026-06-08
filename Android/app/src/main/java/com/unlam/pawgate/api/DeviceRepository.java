@@ -154,6 +154,22 @@ public class DeviceRepository {
         });
     }
 
+    /** GET /devices/{id}/info — telemetria del ESP32 (uptime, RAM, IP, etc). */
+    public void deviceInfo(String deviceId, ApiCallback<DeviceDtos.DeviceInfoResponse> cb) {
+        api.getDeviceInfo(deviceId).enqueue(new Callback<DeviceDtos.DeviceInfoResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.DeviceInfoResponse> call,
+                                             Response<DeviceDtos.DeviceInfoResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(),
+                        "No se pudo cargar la informacion del dispositivo"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.DeviceInfoResponse> call, Throwable t) {
+                Log.e(TAG, "deviceInfo network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
     // ============================================================
     // SCHEDULES CRUD
     // ============================================================

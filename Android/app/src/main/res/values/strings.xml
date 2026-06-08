@@ -186,6 +186,29 @@
     <string name="historial_filter_hoy">Hoy</string>
     <string name="historial_filter_ayer">Ayer</string>
     <string name="historial_filter_7d">7d</string>
+    <!-- Default subtitle de la row ESP32 en Ajustes mientras se carga el estado real -->
+    <string name="ajustes_device_esp32_subtitle_default">Tocá para ver detalle</string>
+
+    <!-- W15 - Detalle ESP32 -->
+    <string name="device_detail_title">ESP32</string>
+    <string name="device_detail_loading">Cargando…</string>
+    <string name="device_detail_status_loading">CARGANDO…</string>
+    <string name="device_detail_status_online">CONECTADO · %1$s</string>
+    <string name="device_detail_status_offline">DESCONECTADO</string>
+    <string name="device_detail_row_uptime">Uptime</string>
+    <string name="device_detail_row_cpu">Temperatura CPU</string>
+    <string name="device_detail_row_ram">RAM libre</string>
+    <string name="device_detail_row_flash">Flash usado</string>
+    <string name="device_detail_row_ip">IP</string>
+    <string name="device_detail_row_rssi">Señal WiFi</string>
+    <string name="device_detail_value_unavailable">—</string>
+    <string name="device_detail_btn_ota">Buscar actualización OTA</string>
+    <string name="device_detail_btn_reboot">⏻  Reiniciar dispositivo</string>
+    <string name="device_detail_reboot_confirm_title">¿Reiniciar el dispositivo?</string>
+    <string name="device_detail_reboot_confirm_msg">El ESP32 se va a reiniciar y va a estar offline unos segundos.</string>
+    <string name="device_detail_reboot_confirm_ok">Reiniciar</string>
+    <string name="device_detail_reboot_sent">Reinicio solicitado</string>
+    <string name="device_detail_ota_no_update">Tenés la última versión instalada.</string>
     <string name="historial_empty_title">Sin actividad para mostrar</string>
     <string name="historial_empty_subtitle">No hay eventos en este rango. Probá con otro filtro o vení más tarde.</string>
     <string name="historial_event_puerta_abierta">Puerta abierta</string>

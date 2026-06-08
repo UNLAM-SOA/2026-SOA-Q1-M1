@@ -77,8 +77,16 @@ CLOSING_DURATION_S = 2.0
 CALLING_DURATION_S = 3.0
 CALL_ENDING_DURATION_S = 1.0
 
-TELEMETRY_INTERVAL_S = 60.0
+TELEMETRY_INTERVAL_S = 30.0   # cada 30s para que la pantalla Detalle ESP32 se sienta 'fresca'
 SENSOR_EMIT_INTERVAL_S = 5.0
+
+# Firmware del simulator (string que muestra la app en la pantalla Detalle ESP32).
+# Cuando flasheemos el ESP32 real (Fase 14), el firmware embebido va a publicar
+# su propio firmware_version.
+FIRMWARE_VERSION = "sim-1.0.3"
+HARDWARE_MODEL = "ESP32-SIM (Python)"
+FLASH_TOTAL_KB = 4096
+HEAP_TOTAL_KB = 320
 
 
 # ============================================================
@@ -229,6 +237,8 @@ class DeviceSimulator:
             self._handle_call()
         elif cmd == "cancel":
             self._handle_cancel()
+        elif cmd == "reboot":
+            self._handle_reboot()
         else:
             log.warning("Comando desconocido: %s", cmd)
 
@@ -287,6 +297,47 @@ class DeviceSimulator:
             self._cancel_pending_timers()
             self._transition_to(DoorState.IDLE)
             self._publish_event("door", {"type": "cancelled"})
+
+    def _handle_reboot(self):
+        """
+        Simula un reboot del firmware: resetea boot_time + state machine.
+        En el ESP32 real seria ESP.restart() (lo cual desconecta MQTT y vuelve
+        a hacer handshake al reconectar). Aca no salimos del proceso porque
+        perderiamos la conexion mTLS; solo reseteamos el contador de uptime y
+        republicamos status. La app va a ver el uptime caer a ~0.
+        """
+        log.info("⚡ REBOOT recibido — reseteando boot_time y state machine")
+        with self._state_lock:
+            self._cancel_pending_timers()
+            self.boot_time = time.time()
+            self._open_count = 0
+            self._transition_to(DoorState.IDLE)
+        # Publicar telemetria inmediatamente para que la app vea uptime=0.
+        # (El loop normal espera 30s para el proximo tick).
+        threading.Thread(target=self._publish_one_telemetry, daemon=True).start()
+
+    def _publish_one_telemetry(self):
+        """Publica un snapshot de telemetry inmediato (usado tras reboot)."""
+        uptime_s = int(time.time() - self.boot_time)
+        local_ip = f"192.168.{random.randint(1, 4)}.{random.randint(10, 99)}"
+        self._publish(
+            f"{self.topic_prefix}/events/telemetry",
+            {
+                "type":              "telemetry",
+                "ts":                int(time.time() * 1000),
+                "uptime_s":          uptime_s,
+                "rssi_dbm":          random.randint(-65, -35),
+                "free_heap_kb":      random.randint(140, 180),
+                "total_heap_kb":     HEAP_TOTAL_KB,
+                "flash_used_kb":     random.randint(1100, 1300),
+                "flash_total_kb":    FLASH_TOTAL_KB,
+                "cpu_temp_c":        round(random.uniform(38.0, 48.0), 1),
+                "local_ip":          local_ip,
+                "firmware_version":  FIRMWARE_VERSION,
+                "hardware_model":    HARDWARE_MODEL,
+            },
+            qos=0,
+        )
 
     # ============================================================
     # STATE MACHINE
@@ -350,17 +401,32 @@ class DeviceSimulator:
     # ============================================================
 
     def _telemetry_loop(self):
+        # Una IP local 'fake' que el simulator pretende tener. Random pero
+        # estable durante la vida del proceso. El ESP32 real publica
+        # WiFi.localIP().toString().
+        local_ip = f"192.168.{random.randint(1, 4)}.{random.randint(10, 99)}"
         while True:
             time.sleep(TELEMETRY_INTERVAL_S)
             uptime_s = int(time.time() - self.boot_time)
+            # Topic = events/telemetry para que matchee el IoT Rule existente
+            # (pawgate/+/events/+). eventIngest tiene branch especial: si
+            # event_kind=='telemetry' lo guarda en pawgate_device_state como
+            # ultimo snapshot (no en pawgate_events para no inundar el historial).
             self._publish(
-                f"{self.topic_prefix}/telemetry",
+                f"{self.topic_prefix}/events/telemetry",
                 {
-                    "uptime_s": uptime_s,
-                    "rssi_dbm": random.randint(-65, -35),
-                    "free_heap_kb": random.randint(140, 180),
-                    "cpu_temp_c": round(random.uniform(38.0, 48.0), 1),
-                    "ts": int(time.time() * 1000),
+                    "type":              "telemetry",
+                    "ts":                int(time.time() * 1000),
+                    "uptime_s":          uptime_s,
+                    "rssi_dbm":          random.randint(-65, -35),
+                    "free_heap_kb":      random.randint(140, 180),
+                    "total_heap_kb":     HEAP_TOTAL_KB,
+                    "flash_used_kb":     random.randint(1100, 1300),
+                    "flash_total_kb":    FLASH_TOTAL_KB,
+                    "cpu_temp_c":        round(random.uniform(38.0, 48.0), 1),
+                    "local_ip":          local_ip,
+                    "firmware_version":  FIRMWARE_VERSION,
+                    "hardware_model":    HARDWARE_MODEL,
                 },
                 qos=0,
             )

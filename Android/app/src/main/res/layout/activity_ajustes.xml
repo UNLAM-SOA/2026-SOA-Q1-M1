@@ -109,11 +109,19 @@
 
             <LinearLayout style="@style/AjustesSectionCard">
 
-                <LinearLayout style="@style/AjustesRow">
+                <LinearLayout
+                    android:id="@+id/ajustes_row_device_esp32"
+                    style="@style/AjustesRow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_cpu" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_esp32" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="Conectado · v1.0.3" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_esp32_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_device_esp32_subtitle_default" />
                     </LinearLayout>
                     <ImageView style="@style/AjustesRowChevron" />
                 </LinearLayout>

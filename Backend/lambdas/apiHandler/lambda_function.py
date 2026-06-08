@@ -160,6 +160,10 @@ def lambda_handler(event, context):
         if method == "GET" and path.endswith("/metrics/today"):
             return handle_metrics_today(device_id)
 
+        # ===== Device info (telemetria del ESP32) =====
+        if method == "GET" and path.endswith("/info"):
+            return handle_get_info(device_id)
+
         # ===== Device state =====
         if method == "GET" and path.endswith("/state"):
             return handle_get_state(device_id)
@@ -373,7 +377,7 @@ def handle_history(device_id, query_params):
 def handle_cmd(device_id, cmd, body):
     if not device_id or not cmd:
         return _bad_request("device_id y cmd son requeridos")
-    allowed_cmds = {"open", "block", "unblock", "call", "cancel"}
+    allowed_cmds = {"open", "block", "unblock", "call", "cancel", "reboot"}
     if cmd not in allowed_cmds:
         return _bad_request(f"cmd '{cmd}' no permitido. Allowed: {allowed_cmds}")
 
@@ -559,6 +563,52 @@ def handle_get_state(device_id):
         "lock_state": state["lock_state"],
         "updated_at": state.get("updated_at"),
         "currently_in_horario": in_horario,
+    })
+
+
+def handle_get_info(device_id):
+    """GET /devices/{id}/info
+
+    Devuelve el ultimo snapshot de telemetria que publico el device en el
+    topic events/telemetry. Lo guarda eventIngest en pawgate_device_state
+    como atributo 'info' cada 30s.
+
+    Si el device nunca publico telemetria (recien creado, o solo simulator
+    sin teletry loop activo), devolvemos un objeto con online=false y los
+    campos en null/0.
+    """
+    if not device_id:
+        return _bad_request("device_id requerido")
+    state = _get_device_state(device_id)
+    info = state.get("info") or {}
+    info_updated_at = state.get("info_updated_at")
+
+    # online: heuristica simple -- si el ultimo telemetry fue hace <2 minutos,
+    # consideramos al device online. Sino offline. Como el simulator publica
+    # cada 30s, 2 min de margen tolera ~3 paquetes perdidos.
+    online = False
+    if info_updated_at:
+        try:
+            last = datetime.fromisoformat(info_updated_at.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            online = (now - last).total_seconds() < 120
+        except Exception:
+            online = False
+
+    return _ok({
+        "device_id":        device_id,
+        "online":           online,
+        "info_updated_at":  info_updated_at,
+        "uptime_s":         int(info.get("uptime_s", 0) or 0),
+        "rssi_dbm":         int(info.get("rssi_dbm", 0) or 0),
+        "free_heap_kb":     int(info.get("free_heap_kb", 0) or 0),
+        "total_heap_kb":    int(info.get("total_heap_kb", 0) or 0),
+        "flash_used_kb":    int(info.get("flash_used_kb", 0) or 0),
+        "flash_total_kb":   int(info.get("flash_total_kb", 0) or 0),
+        "cpu_temp_c":       str(info.get("cpu_temp_c", "") or ""),
+        "local_ip":         str(info.get("local_ip", "") or ""),
+        "firmware_version": str(info.get("firmware_version", "") or ""),
+        "hardware_model":   str(info.get("hardware_model", "") or ""),
     })
 
 

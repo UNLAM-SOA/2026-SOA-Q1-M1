@@ -114,6 +114,7 @@ OVERRIDE_UNBLOCK_RES=$(ensure_resource "$STATE_RES" "override-unblock" "/devices
 OVERRIDE_BLOCK_RES=$(ensure_resource "$STATE_RES" "override-block" "/devices/{id}/state/override-block" | tail -1)
 METRICS_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "metrics" "/devices/{id}/metrics" | tail -1)
 METRICS_TODAY_RES=$(ensure_resource "$METRICS_RES" "today" "/devices/{id}/metrics/today" | tail -1)
+INFO_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "info" "/devices/{id}/info" | tail -1)
 
 # ============================================================
 # 3) Crear methods con Cognito Authorizer + Lambda proxy (idempotente)
@@ -246,6 +247,10 @@ ensure_cors   $OVERRIDE_BLOCK_RES      "       /devices/{id}/state/override-bloc
 # /devices/{id}/metrics/today            GET
 ensure_method $METRICS_TODAY_RES GET "GET    /devices/{id}/metrics/today"
 ensure_cors   $METRICS_TODAY_RES     "       /devices/{id}/metrics/today"
+
+# /devices/{id}/info                     GET
+ensure_method $INFO_RES GET "GET    /devices/{id}/info"
+ensure_cors   $INFO_RES     "       /devices/{id}/info"
 
 # ============================================================
 # 4) Lambda permission para que API GW pueda invocar el handler

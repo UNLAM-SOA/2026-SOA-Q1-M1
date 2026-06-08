@@ -57,6 +57,9 @@ public interface PawGateApi {
     @GET("devices/{id}/metrics/today")
     Call<DeviceDtos.MetricsTodayResponse> getMetricsToday(@Path("id") String deviceId);
 
+    @GET("devices/{id}/info")
+    Call<DeviceDtos.DeviceInfoResponse> getDeviceInfo(@Path("id") String deviceId);
+
     // ===== Schedules CRUD =====
 
     @GET("devices/{id}/schedules")

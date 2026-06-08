@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Circulito verde (primary) que se usa al lado del texto 'CONECTADO' en
+     la pantalla Detalle ESP32. Cuando el device esta offline, el codigo
+     del activity le cambia el tint (o lo reemplaza por gris). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/primary" />
+</shape>

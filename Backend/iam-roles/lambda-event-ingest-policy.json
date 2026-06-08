@@ -10,6 +10,14 @@
       "Resource": "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_events"
     },
     {
+      "Sid": "AllowUpdateDeviceState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_device_state"
+    },
+    {
       "Sid": "AllowCloudWatchLogs",
       "Effect": "Allow",
       "Action": [
