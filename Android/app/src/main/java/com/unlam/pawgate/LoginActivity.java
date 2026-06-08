@@ -77,6 +77,10 @@ public class LoginActivity extends AppCompatActivity {
                 // Si Firebase ya nos habia dado un FCM token antes del login
                 // (caso boot inicial), lo registramos ahora que tenemos sesion.
                 registerPendingFcmTokenIfAny();
+                // Tambien pedimos a Firebase el token actual (puede ser distinto
+                // al pending, y cubre el caso donde onNewToken nunca llego pero
+                // Firebase ya tiene un token asignado).
+                FcmTokenSync.syncIfLoggedIn(LoginActivity.this);
                 goToDashboard(emailValue);
             }
 

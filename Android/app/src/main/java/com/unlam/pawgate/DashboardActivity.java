@@ -122,6 +122,12 @@ public class DashboardActivity extends AppCompatActivity {
 
         offlineBanner = OfflineBanner.attach(this);
 
+        // Sincronizar el FCM token con el backend. Cubre el caso 'la app ya
+        // estaba instalada cuando agregamos push' donde onNewToken no se
+        // dispara mas porque el token ya existe. Idempotente: si el endpoint
+        // SNS ya esta registrado para este user, hace upsert silencioso.
+        FcmTokenSync.syncIfLoggedIn(this);
+
         actionBlock = findViewById(R.id.action_block);
         actionBlockIcon = findViewById(R.id.action_block_icon);
         actionBlockLabel = findViewById(R.id.action_block_label);
