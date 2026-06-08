@@ -186,31 +186,20 @@ public class DashboardActivity extends AppCompatActivity {
      *  - contar eventos opened (aperturas hoy)
      *  - tomar el evento mas reciente y mostrar "Ultima actividad: hace X". */
     private void loadDailyMetrics() {
-        long nowMs = System.currentTimeMillis();
-        long startOfDay = startOfTodayMs();
-        deviceRepo.history(deviceId, startOfDay, nowMs,
-                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse>() {
+        // Endpoint dedicado /metrics/today: el backend itera todas las paginas
+        // de DDB y devuelve el conteo de aperturas + el ultimo door event.
+        // Evita el bug previo en que contabamos solo los primeros 50 events de
+        // /history (que solian ser todos sensors, dando opens=0).
+        deviceRepo.metricsToday(deviceId,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse>() {
             @Override
-            public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.HistoryResponse result) {
-                int total = (result != null && result.events != null) ? result.events.size() : 0;
-                int openCount = 0;
-                long lastMs = -1L;
-                String lastIso = null;
-                if (result != null && result.events != null) {
-                    for (com.unlam.pawgate.api.dto.DeviceDtos.Event e : result.events) {
-                        if ("opened".equals(e.event_type)) openCount++;
-                        long ms = HistorialMapper.parseIsoToMs(e.created_at);
-                        if (ms > lastMs) {
-                            lastMs = ms;
-                            lastIso = e.created_at;
-                        }
-                    }
-                }
+            public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse result) {
+                int opens = result != null ? result.openings_today : 0;
+                String lastIso = result != null ? result.last_door_event_at : null;
                 android.util.Log.d("DashboardMetrics",
-                        "loadDailyMetrics: total=" + total + " opened=" + openCount
-                                + " lastIso=" + lastIso);
+                        "metricsToday: opens=" + opens + " lastIso=" + lastIso);
                 if (openingsCountLabel != null) {
-                    openingsCountLabel.setText(String.valueOf(openCount));
+                    openingsCountLabel.setText(String.valueOf(opens));
                 }
                 if (lastActivityLabel != null) {
                     if (lastIso != null) {
@@ -223,18 +212,9 @@ public class DashboardActivity extends AppCompatActivity {
                 }
             }
             @Override public void onError(String message) {
-                android.util.Log.w("DashboardMetrics", "loadDailyMetrics error: " + message);
+                android.util.Log.w("DashboardMetrics", "metricsToday error: " + message);
             }
         });
-    }
-
-    private long startOfTodayMs() {
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
-        cal.set(java.util.Calendar.MINUTE, 0);
-        cal.set(java.util.Calendar.SECOND, 0);
-        cal.set(java.util.Calendar.MILLISECOND, 0);
-        return cal.getTimeInMillis();
     }
 
     @Override
