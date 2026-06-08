@@ -136,6 +136,25 @@ public class DeviceRepository {
     }
 
     // ============================================================
+    // METRICS
+    // ============================================================
+
+    public void metricsToday(String deviceId,
+                              ApiCallback<DeviceDtos.MetricsTodayResponse> cb) {
+        api.getMetricsToday(deviceId).enqueue(new Callback<DeviceDtos.MetricsTodayResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.MetricsTodayResponse> call,
+                                             Response<DeviceDtos.MetricsTodayResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudieron cargar las metricas"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.MetricsTodayResponse> call, Throwable t) {
+                Log.e(TAG, "metricsToday network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    // ============================================================
     // SCHEDULES CRUD
     // ============================================================
 

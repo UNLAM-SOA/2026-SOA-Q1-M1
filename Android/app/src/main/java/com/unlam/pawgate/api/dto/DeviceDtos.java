@@ -44,4 +44,16 @@ public final class DeviceDtos {
         public String topic;
         public Map<String, Object> payload;
     }
+
+    // ===== GET /devices/{id}/metrics/today =====
+
+    public static final class MetricsTodayResponse {
+        public String device_id;
+        public long from_ms;
+        public long to_ms;
+        public int openings_today;
+        public String last_door_event_at;        // ISO 8601 (nullable)
+        public String last_door_event_type;      // opened/closed/blocked/...
+        public String last_door_event_direction; // in/out (solo opened/closed)
+    }
 }
