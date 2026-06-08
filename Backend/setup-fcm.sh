@@ -40,6 +40,10 @@
 
 set -e
 
+# Hacer cd al directorio del script asi los paths relativos (iam-roles/...)
+# funcionan tanto si se ejecuta desde la raiz del repo como desde Backend/.
+cd "$(dirname "$0")"
+
 REGION="${REGION:-us-east-1}"
 ACCOUNT_ID="${ACCOUNT_ID:-075138626693}"
 
