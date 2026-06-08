@@ -200,22 +200,61 @@ public class DashboardActivity extends AppCompatActivity {
         }
     }
 
-    /** Callback del ShakeDetector. Dispara cmd/call si no estamos en
-     *  modo bloqueado (sino el device no va a responder y confunde). */
+    /**
+     * Callback del ShakeDetector. Dispara cmd/call y abre ControlActivity para
+     * que el user vea el ciclo de llamada en vivo (countdown 'BUZZER ACTIVO').
+     *
+     * Flow completo:
+     *   1) Vibracion 150ms — feedback haptic instantaneo de que la app
+     *      registro el shake (antes de esperar el network round-trip).
+     *   2) Toast corto ("Llamando a tu mascota") con LENGTH_SHORT.
+     *   3) POST /devices/{id}/cmd/call al backend, que publica al topic MQTT
+     *      cmd/call. El simulator/firmware lo recibe y arranca el buzzer 3s.
+     *   4) Al success del cmd, abrir ControlActivity. ControlActivity tiene
+     *      su propio polling de state y va a renderizar el ciclo
+     *      calling -> call_ending -> idle con countdown visible.
+     */
     private void onShakeDetected() {
         android.util.Log.i("DashboardActivity", "shake detected -> sending cmd/call");
+
+        // 1) Feedback haptic. Disponible en cualquier device con vibrador (todos).
+        vibrateShort();
+
+        // 2) Toast de feedback inmediato (antes del round-trip al backend).
+        android.widget.Toast.makeText(this,
+                R.string.shake_to_call_triggered,
+                android.widget.Toast.LENGTH_SHORT).show();
+
         deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
                 java.util.Collections.emptyMap(),
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
                     @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
-                        android.widget.Toast.makeText(DashboardActivity.this,
-                                R.string.shake_to_call_triggered,
-                                android.widget.Toast.LENGTH_SHORT).show();
+                        // 3) Abrir ControlActivity para ver el ciclo en vivo.
+                        //    Si la app esta llevando un ciclo de llamada, Control
+                        //    lo va a mostrar correctamente porque pollea /state.
+                        startActivity(new android.content.Intent(
+                                DashboardActivity.this, ControlActivity.class));
                     }
                     @Override public void onError(String message) {
                         android.util.Log.w("DashboardActivity", "shake call error: " + message);
+                        android.widget.Toast.makeText(DashboardActivity.this,
+                                message, android.widget.Toast.LENGTH_LONG).show();
                     }
                 });
+    }
+
+    /** Vibracion corta (150ms). Compatible con API 26+. */
+    private void vibrateShort() {
+        android.os.Vibrator v = (android.os.Vibrator)
+                getSystemService(android.content.Context.VIBRATOR_SERVICE);
+        if (v == null || !v.hasVibrator()) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            v.vibrate(android.os.VibrationEffect.createOneShot(
+                    150, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+        } else {
+            // Path legacy, igual lo dejamos por las dudas
+            v.vibrate(150);
+        }
     }
 
     // ============================================================

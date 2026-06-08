@@ -224,7 +224,7 @@
     <string name="wifi_provisioning_password_hint">Contraseña</string>
     <string name="wifi_provisioning_btn_connect">Conectar</string>
     <string name="wifi_provisioning_sent">Credenciales enviadas. El dispositivo va a reiniciar para conectarse.</string>
-    <string name="wifi_provisioning_mock_notice">Funcionalidad mock: en esta versión las credenciales no se envían al ESP32 todavía (requiere BLE o AP-mode). En Fase 14 (firmware real) se conecta este flow.</string>
+    <string name="wifi_provisioning_mock_notice">Funcionalidad mock: en esta versión las credenciales no se envían al ESP32 todavía (requiere BLE o AP-mode).</string>
     <string name="wifi_forget_confirm_title">¿Olvidar esta red?</string>
     <string name="wifi_forget_confirm_msg">El ESP32 va a quedar sin conexión hasta que cargues una red nueva.</string>
 

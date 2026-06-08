@@ -41,12 +41,12 @@ public class ShakeDetector implements SensorEventListener {
 
     /** Aceleracion neta minima (en m/s^2 sobre gravedad) para contar como shake.
      *  9.8 = movimiento de 1g. Un shake fuerte produce ~15-20 m/s^2 netos. */
-    private static final float SHAKE_THRESHOLD = 12.0f;
+    private static final float SHAKE_THRESHOLD = 4.0f;
 
     /** Cantidad de samples consecutivos sobre umbral antes de disparar.
      *  El acelerometro sample rate UI = ~16 Hz (~60ms/sample), asi que 3
      *  samples = ~180ms de movimiento fuerte. Filtra golpes accidentales. */
-    private static final int SHAKE_MIN_SAMPLES = 3;
+    private static final int SHAKE_MIN_SAMPLES = 1;
 
     /** Tiempo de debounce despues de un trigger valido (ms). */
     private static final long SHAKE_COOLDOWN_MS = 2_000L;
