@@ -112,6 +112,8 @@ SCHEDULE_ID_RES=$(ensure_resource "$SCHEDULES_RES" "{schedule_id}" "/devices/{id
 STATE_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "state" "/devices/{id}/state" | tail -1)
 OVERRIDE_UNBLOCK_RES=$(ensure_resource "$STATE_RES" "override-unblock" "/devices/{id}/state/override-unblock" | tail -1)
 OVERRIDE_BLOCK_RES=$(ensure_resource "$STATE_RES" "override-block" "/devices/{id}/state/override-block" | tail -1)
+METRICS_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "metrics" "/devices/{id}/metrics" | tail -1)
+METRICS_TODAY_RES=$(ensure_resource "$METRICS_RES" "today" "/devices/{id}/metrics/today" | tail -1)
 
 # ============================================================
 # 3) Crear methods con Cognito Authorizer + Lambda proxy (idempotente)
@@ -241,6 +243,10 @@ ensure_cors   $OVERRIDE_UNBLOCK_RES      "       /devices/{id}/state/override-un
 ensure_method $OVERRIDE_BLOCK_RES POST "POST   /devices/{id}/state/override-block"
 ensure_cors   $OVERRIDE_BLOCK_RES      "       /devices/{id}/state/override-block"
 
+# /devices/{id}/metrics/today            GET
+ensure_method $METRICS_TODAY_RES GET "GET    /devices/{id}/metrics/today"
+ensure_cors   $METRICS_TODAY_RES     "       /devices/{id}/metrics/today"
+
 # ============================================================
 # 4) Lambda permission para que API GW pueda invocar el handler
 # ============================================================
@@ -284,6 +290,7 @@ echo "  DELETE /devices/{id}/schedules/{schedule_id}"
 echo "  GET    /devices/{id}/state"
 echo "  POST   /devices/{id}/state/override-unblock"
 echo "  POST   /devices/{id}/state/override-block"
+echo "  GET    /devices/{id}/metrics/today"
 echo ""
 echo "Base URL: https://$REST_API_ID.execute-api.$REGION.amazonaws.com/$STAGE/"
 echo ""
