@@ -80,4 +80,16 @@ public final class DeviceDtos {
         public String wifi_gateway;
         public String wifi_security;
     }
+
+    // ===== POST /users/me/fcm-token (Fase 20) =====
+
+    public static final class RegisterFcmTokenRequest {
+        public String token;
+        public RegisterFcmTokenRequest(String token) { this.token = token; }
+    }
+
+    public static final class RegisterFcmTokenResponse {
+        public boolean registered;
+        public String endpoint_arn;
+    }
 }

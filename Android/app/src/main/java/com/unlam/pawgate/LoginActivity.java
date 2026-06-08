@@ -74,6 +74,9 @@ public class LoginActivity extends AppCompatActivity {
             @Override
             public void onSuccess(AuthDtos.LoginResponse result) {
                 // Tokens ya quedaron persistidos por AuthRepository.
+                // Si Firebase ya nos habia dado un FCM token antes del login
+                // (caso boot inicial), lo registramos ahora que tenemos sesion.
+                registerPendingFcmTokenIfAny();
                 goToDashboard(emailValue);
             }
 
@@ -84,6 +87,25 @@ public class LoginActivity extends AppCompatActivity {
                 Toast.makeText(LoginActivity.this, message, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    /** Si Firebase nos dio un token antes del login, lo enviamos al backend. */
+    private void registerPendingFcmTokenIfAny() {
+        String pending = PrefsHelper.getPendingFcmToken(this);
+        if (pending == null || pending.isEmpty()) return;
+        new com.unlam.pawgate.api.DeviceRepository(this).registerFcmToken(pending,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.RegisterFcmTokenResponse>() {
+                    @Override
+                    public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.RegisterFcmTokenResponse r) {
+                        PrefsHelper.clearPendingFcmToken(LoginActivity.this);
+                        android.util.Log.i("LoginActivity",
+                                "Pending FCM token registered post-login: " + r.endpoint_arn);
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("LoginActivity",
+                                "Pending FCM token registration failed: " + message);
+                    }
+                });
     }
 
     private void goToDashboard(String emailValue) {

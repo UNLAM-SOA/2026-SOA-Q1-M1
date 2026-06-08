@@ -46,8 +46,19 @@ logger.setLevel(logging.INFO)
 ddb = boto3.resource("dynamodb")
 events_table = ddb.Table(os.environ.get("EVENTS_TABLE", "pawgate_events"))
 device_state_table = ddb.Table(os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state"))
+fcm_endpoints_table = ddb.Table(os.environ.get("FCM_ENDPOINTS_TABLE", "pawgate_fcm_endpoints"))
+
+# Cliente SNS para mandar push via Platform Application. Si la variable
+# FCM_PLATFORM_APP_ARN no esta seteada, las notificaciones se skipean
+# silenciosamente (eventIngest sigue funcionando como antes).
+sns = boto3.client("sns")
+FCM_PLATFORM_APP_ARN = os.environ.get("FCM_PLATFORM_APP_ARN", "").strip()
 
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "90"))
+
+# Que tipos de eventos generan notificacion push. El resto (sensor,
+# telemetry, los propios cancel/unblock del user) NO suenan el celular.
+NOTIFIABLE_EVENT_TYPES = {"opened", "closed", "blocked"}
 
 
 def lambda_handler(event, context):
@@ -116,7 +127,105 @@ def lambda_handler(event, context):
         logger.error("Failed to put_item: %s", e)
         raise
 
+    # Push notification (best-effort). Si falla, NO retiramos el item ya
+    # guardado: el historial sigue siendo correcto aunque la notif no llegue.
+    try:
+        _notify_owners(device_id, event_type, direction, event)
+    except Exception as e:
+        logger.warning("Push notification failed (ignored): %s", e)
+
     return {"statusCode": 200, "device_id": device_id, "ts_event": sort_key}
+
+
+def _notify_owners(device_id, event_type, direction, payload):
+    """
+    Manda push notification via SNS Platform Application a todos los users
+    registrados en pawgate_fcm_endpoints. Es 'broadcast' porque para este
+    proyecto familia/equipo todos los users registrados son owners del unico
+    device pawgate-001. Si en el futuro hay multi-device, agregar una tabla
+    pawgate_device_owners y filtrar.
+
+    Si la Platform Application ARN no esta configurada, skipea sin error.
+    """
+    if not FCM_PLATFORM_APP_ARN:
+        return
+    if event_type not in NOTIFIABLE_EVENT_TYPES:
+        return
+
+    # Construir el cuerpo de la notif. Direction puede agregar contexto:
+    # "Puerta abierta hacia adentro" vs solo "Puerta abierta".
+    title, body = _format_notification(event_type, direction)
+
+    # Scan small de la tabla (esperado: 1-5 endpoints maximo en este proyecto).
+    # Si esto crece, mover a Query por device_owners.
+    try:
+        resp = fcm_endpoints_table.scan()
+    except Exception as e:
+        logger.error("Failed to scan fcm_endpoints: %s", e)
+        return
+
+    endpoints = resp.get("Items", [])
+    if not endpoints:
+        logger.info("No FCM endpoints registered, skipping push")
+        return
+
+    # SNS espera el message ya envuelto en formato GCM/FCM. El campo "data"
+    # es el que llega como msg.getData() en onMessageReceived del Android,
+    # y "notification" es lo que FCM muestra automaticamente si la app esta
+    # en background. Para tener UI consistente, usamos data-only y construimos
+    # la notif en el cliente.
+    gcm_payload = json.dumps({
+        "data": {
+            "device_id":  device_id,
+            "event_type": event_type or "",
+            "direction":  direction or "",
+            "title":      title,
+            "body":       body,
+            "ts":         str(payload.get("ts", "")),
+        }
+    })
+    message = json.dumps({"GCM": gcm_payload})
+
+    sent = 0
+    for ep in endpoints:
+        arn = ep.get("endpoint_arn")
+        if not arn:
+            continue
+        try:
+            sns.publish(TargetArn=arn, MessageStructure="json", Message=message)
+            sent += 1
+        except sns.exceptions.EndpointDisabledException:
+            # Token vencio (app desinstalada o user revoco notificaciones).
+            # Borramos el endpoint en SNS y la fila en DDB.
+            logger.info("Endpoint disabled, cleaning up: %s", arn)
+            try:
+                sns.delete_endpoint(EndpointArn=arn)
+            except Exception:
+                pass
+            try:
+                fcm_endpoints_table.delete_item(
+                    Key={"user_email": ep["user_email"]})
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning("sns.publish failed for endpoint %s: %s", arn, e)
+    logger.info("Push sent to %d/%d endpoints (event=%s)",
+                sent, len(endpoints), event_type)
+
+
+def _format_notification(event_type, direction):
+    """Devuelve (title, body) en castellano para mostrar en el celular."""
+    if event_type == "opened":
+        if direction == "in":
+            return "PawGate", "🐾 Puerta abierta hacia adentro"
+        if direction == "out":
+            return "PawGate", "🐾 Puerta abierta hacia afuera"
+        return "PawGate", "🐾 Puerta abierta"
+    if event_type == "closed":
+        return "PawGate", "Puerta cerrada"
+    if event_type == "blocked":
+        return "PawGate", "🔒 Puerta bloqueada"
+    return "PawGate", "Evento de la puerta"
 
 
 def _update_device_info(device_id: str, payload: dict):

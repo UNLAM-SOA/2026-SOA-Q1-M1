@@ -16,8 +16,20 @@
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_events",
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_schedules",
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_device_state",
-        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_users"
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_users",
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_fcm_endpoints"
       ]
+    },
+    {
+      "Sid": "AllowSnsManageEndpoints",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreatePlatformEndpoint",
+        "sns:SetEndpointAttributes",
+        "sns:GetEndpointAttributes",
+        "sns:DeleteEndpoint"
+      ],
+      "Resource": "*"
     },
     {
       "Sid": "AllowIoTPublish",

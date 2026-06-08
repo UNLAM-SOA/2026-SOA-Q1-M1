@@ -66,6 +66,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- FCM messaging service (Fase 20). Recibe onNewToken + onMessageReceived. -->
+        <service
+            android:name=".PawGateFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".SplashActivity"
             android:exported="true"

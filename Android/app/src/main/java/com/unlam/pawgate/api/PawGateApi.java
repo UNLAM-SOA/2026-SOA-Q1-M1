@@ -60,6 +60,15 @@ public interface PawGateApi {
     @GET("devices/{id}/info")
     Call<DeviceDtos.DeviceInfoResponse> getDeviceInfo(@Path("id") String deviceId);
 
+    // ===== FCM token (Fase 20) =====
+
+    @POST("users/me/fcm-token")
+    Call<DeviceDtos.RegisterFcmTokenResponse> registerFcmToken(
+            @Body DeviceDtos.RegisterFcmTokenRequest body);
+
+    @DELETE("users/me/fcm-token")
+    Call<Void> unregisterFcmToken();
+
     // ===== Schedules CRUD =====
 
     @GET("devices/{id}/schedules")

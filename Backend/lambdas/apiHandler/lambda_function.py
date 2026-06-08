@@ -65,16 +65,20 @@ logger.setLevel(logging.INFO)
 cognito = boto3.client("cognito-idp")
 ddb = boto3.resource("dynamodb")
 iot_data = boto3.client("iot-data")
+sns = boto3.client("sns")
 
 USER_POOL_ID = os.environ["USER_POOL_ID"]
 APP_CLIENT_ID = os.environ["APP_CLIENT_ID"]
 EVENTS_TABLE = os.environ.get("EVENTS_TABLE", "pawgate_events")
 SCHEDULES_TABLE = os.environ.get("SCHEDULES_TABLE", "pawgate_schedules")
 DEVICE_STATE_TABLE = os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state")
+FCM_ENDPOINTS_TABLE = os.environ.get("FCM_ENDPOINTS_TABLE", "pawgate_fcm_endpoints")
+FCM_PLATFORM_APP_ARN = os.environ.get("FCM_PLATFORM_APP_ARN", "").strip()
 
 events_table = ddb.Table(EVENTS_TABLE)
 schedules_table = ddb.Table(SCHEDULES_TABLE)
 device_state_table = ddb.Table(DEVICE_STATE_TABLE)
+fcm_endpoints_table = ddb.Table(FCM_ENDPOINTS_TABLE)
 
 VALID_DAYS = {"L", "M", "X", "J", "V", "S", "D"}
 VALID_LOCK_STATES = {"AUTO_BLOCKED", "AUTO_UNBLOCKED", "MANUAL_UNBLOCKED", "MANUAL_BLOCKED"}
@@ -163,6 +167,18 @@ def lambda_handler(event, context):
         # ===== Device info (telemetria del ESP32) =====
         if method == "GET" and path.endswith("/info"):
             return handle_get_info(device_id)
+
+        # ===== FCM push token (Fase 20) =====
+        # POST /users/me/fcm-token   body: {token}
+        # DELETE /users/me/fcm-token
+        if path.endswith("/users/me/fcm-token"):
+            user_email = _extract_user_email(event)
+            if not user_email:
+                return _response(401, {"error": "no user identity in token"})
+            if method == "POST":
+                return handle_register_fcm_token(user_email, body)
+            if method == "DELETE":
+                return handle_unregister_fcm_token(user_email)
 
         # ===== Device state =====
         if method == "GET" and path.endswith("/state"):
@@ -564,6 +580,100 @@ def handle_get_state(device_id):
         "updated_at": state.get("updated_at"),
         "currently_in_horario": in_horario,
     })
+
+
+def _extract_user_email(event):
+    """
+    Toma el email del Cognito ID token via API Gateway authorizer claims.
+    El authorizer ya valido el token, asi que confiamos en las claims.
+    """
+    try:
+        claims = event["requestContext"]["authorizer"]["claims"]
+        return claims.get("email") or claims.get("cognito:username") or ""
+    except (KeyError, TypeError):
+        return ""
+
+
+def handle_register_fcm_token(user_email, body):
+    """
+    POST /users/me/fcm-token
+    Body: {"token": "<fcm device token>"}
+
+    Llama a SNS createPlatformEndpoint para registrar el token en la
+    Platform Application y guarda el ARN en pawgate_fcm_endpoints
+    (PK user_email). Si el user ya tenia un endpoint, lo reemplaza.
+    """
+    if not FCM_PLATFORM_APP_ARN:
+        return _server_error("FCM_PLATFORM_APP_ARN no configurado en lambda")
+    token = (body.get("token") or "").strip()
+    if not token:
+        return _bad_request("token requerido")
+
+    # 1) Si ya hay un endpoint registrado para este user, lo borramos antes
+    #    de crear uno nuevo (asi SNS no acumula endpoints muertos por el
+    #    mismo user con tokens viejos).
+    try:
+        old = fcm_endpoints_table.get_item(Key={"user_email": user_email}).get("Item")
+        if old and old.get("endpoint_arn"):
+            try:
+                sns.delete_endpoint(EndpointArn=old["endpoint_arn"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 2) Crear el endpoint en SNS. Si el token ya estaba registrado en SNS
+    #    bajo otro user, SNS reusa el ARN existente.
+    try:
+        resp = sns.create_platform_endpoint(
+            PlatformApplicationArn=FCM_PLATFORM_APP_ARN,
+            Token=token,
+        )
+        endpoint_arn = resp["EndpointArn"]
+    except Exception as e:
+        logger.exception("sns.create_platform_endpoint failed")
+        return _server_error(f"sns.create_platform_endpoint failed: {e}")
+
+    # 3) Reactivar el endpoint en caso de que SNS lo hubiera dejado disabled
+    #    por un push fallido previo (UNREGISTERED).
+    try:
+        sns.set_endpoint_attributes(
+            EndpointArn=endpoint_arn,
+            Attributes={"Enabled": "true", "Token": token},
+        )
+    except Exception as e:
+        logger.warning("set_endpoint_attributes failed: %s", e)
+
+    # 4) Persistir el mapeo user_email -> endpoint_arn en DDB.
+    fcm_endpoints_table.put_item(Item={
+        "user_email":   user_email,
+        "endpoint_arn": endpoint_arn,
+        "updated_at":   datetime.now(timezone.utc).isoformat(),
+    })
+    logger.info("Registered FCM endpoint user=%s arn=%s", user_email, endpoint_arn)
+    return _ok({"registered": True, "endpoint_arn": endpoint_arn})
+
+
+def handle_unregister_fcm_token(user_email):
+    """DELETE /users/me/fcm-token — usado en logout."""
+    try:
+        item = fcm_endpoints_table.get_item(Key={"user_email": user_email}).get("Item")
+    except Exception as e:
+        logger.error("fcm_endpoints get_item failed: %s", e)
+        return _server_error("DDB error")
+    if not item:
+        return _ok({"unregistered": False, "reason": "no token registered"})
+    arn = item.get("endpoint_arn")
+    if arn:
+        try:
+            sns.delete_endpoint(EndpointArn=arn)
+        except Exception as e:
+            logger.warning("sns.delete_endpoint failed: %s", e)
+    try:
+        fcm_endpoints_table.delete_item(Key={"user_email": user_email})
+    except Exception as e:
+        logger.error("fcm_endpoints delete_item failed: %s", e)
+    return _ok({"unregistered": True})
 
 
 def handle_get_info(device_id):

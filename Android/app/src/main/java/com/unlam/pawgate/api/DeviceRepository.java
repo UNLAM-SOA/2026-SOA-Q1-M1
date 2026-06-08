@@ -154,6 +154,38 @@ public class DeviceRepository {
         });
     }
 
+    /** POST /users/me/fcm-token — registra el FCM token en SNS Platform App. */
+    public void registerFcmToken(String token,
+                                  ApiCallback<DeviceDtos.RegisterFcmTokenResponse> cb) {
+        api.registerFcmToken(new DeviceDtos.RegisterFcmTokenRequest(token))
+                .enqueue(new Callback<DeviceDtos.RegisterFcmTokenResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.RegisterFcmTokenResponse> call,
+                                             Response<DeviceDtos.RegisterFcmTokenResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(),
+                        "No se pudo registrar el token de notificaciones"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.RegisterFcmTokenResponse> call, Throwable t) {
+                Log.e(TAG, "registerFcmToken network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    /** DELETE /users/me/fcm-token — borra el endpoint en SNS (logout). */
+    public void unregisterFcmToken(ApiCallback<Void> cb) {
+        api.unregisterFcmToken().enqueue(new Callback<Void>() {
+            @Override public void onResponse(Call<Void> call, Response<Void> response) {
+                if (response.isSuccessful()) cb.onSuccess(null);
+                else cb.onError(parseError(response.errorBody(), "No se pudo desregistrar"));
+            }
+            @Override public void onFailure(Call<Void> call, Throwable t) {
+                Log.e(TAG, "unregisterFcmToken network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
     /** GET /devices/{id}/info — telemetria del ESP32 (uptime, RAM, IP, etc). */
     public void deviceInfo(String deviceId, ApiCallback<DeviceDtos.DeviceInfoResponse> cb) {
         api.getDeviceInfo(deviceId).enqueue(new Callback<DeviceDtos.DeviceInfoResponse>() {

@@ -78,6 +78,9 @@ if [ -z "$DEVICES_ID_RESOURCE" ] || [ "$DEVICES_ID_RESOURCE" = "None" ]; then
 fi
 echo "   /devices/{id} resource ID: $DEVICES_ID_RESOURCE"
 
+ROOT_RES=$(get_resource_id "/")
+echo "   / (root) resource ID: $ROOT_RES"
+
 # ============================================================
 # 2) Crear sub-resources nuevos (idempotente)
 # ============================================================
@@ -115,6 +118,11 @@ OVERRIDE_BLOCK_RES=$(ensure_resource "$STATE_RES" "override-block" "/devices/{id
 METRICS_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "metrics" "/devices/{id}/metrics" | tail -1)
 METRICS_TODAY_RES=$(ensure_resource "$METRICS_RES" "today" "/devices/{id}/metrics/today" | tail -1)
 INFO_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "info" "/devices/{id}/info" | tail -1)
+
+# FCM token endpoint (Fase 20)
+USERS_RES=$(ensure_resource "$ROOT_RES" "users" "/users" | tail -1)
+USERS_ME_RES=$(ensure_resource "$USERS_RES" "me" "/users/me" | tail -1)
+FCM_TOKEN_RES=$(ensure_resource "$USERS_ME_RES" "fcm-token" "/users/me/fcm-token" | tail -1)
 
 # ============================================================
 # 3) Crear methods con Cognito Authorizer + Lambda proxy (idempotente)
@@ -251,6 +259,11 @@ ensure_cors   $METRICS_TODAY_RES     "       /devices/{id}/metrics/today"
 # /devices/{id}/info                     GET
 ensure_method $INFO_RES GET "GET    /devices/{id}/info"
 ensure_cors   $INFO_RES     "       /devices/{id}/info"
+
+# /users/me/fcm-token                    POST + DELETE
+ensure_method $FCM_TOKEN_RES POST   "POST   /users/me/fcm-token"
+ensure_method $FCM_TOKEN_RES DELETE "DELETE /users/me/fcm-token"
+ensure_cors   $FCM_TOKEN_RES        "       /users/me/fcm-token"
 
 # ============================================================
 # 4) Lambda permission para que API GW pueda invocar el handler

@@ -20,6 +20,7 @@ public final class PrefsHelper {
     private static final String KEY_DOOR_BLOCKED = "door_blocked";
     private static final String KEY_PUSH_ENABLED = "push_enabled";
     private static final String KEY_SHAKE_TO_CALL = "shake_to_call";
+    private static final String KEY_PENDING_FCM_TOKEN = "pending_fcm_token";
     private static final String KEY_USER_EMAIL = "user_email";
     private static final String KEY_USER_NAME = "user_name";
     private static final String KEY_CYCLE_TYPE = "cycle_type";
@@ -73,6 +74,23 @@ public final class PrefsHelper {
 
     public static void setShakeToCallEnabled(Context ctx, boolean enabled) {
         prefs(ctx).edit().putBoolean(KEY_SHAKE_TO_CALL, enabled).apply();
+    }
+
+    // ===== pending_fcm_token =====
+    // Si Firebase nos da un token antes de que el user este logueado (ej:
+    // boot inicial), lo guardamos aca y lo registramos al backend despues
+    // del primer login exitoso.
+
+    public static String getPendingFcmToken(Context ctx) {
+        return prefs(ctx).getString(KEY_PENDING_FCM_TOKEN, null);
+    }
+
+    public static void setPendingFcmToken(Context ctx, String token) {
+        prefs(ctx).edit().putString(KEY_PENDING_FCM_TOKEN, token).apply();
+    }
+
+    public static void clearPendingFcmToken(Context ctx) {
+        prefs(ctx).edit().remove(KEY_PENDING_FCM_TOKEN).apply();
     }
 
     // ===== user_email =====
