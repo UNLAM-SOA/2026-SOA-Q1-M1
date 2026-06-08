@@ -18,6 +18,8 @@ public final class DeviceDtos {
         public long to;
         public int count;
         public List<Event> events;
+        /** Si != null, hay mas paginas. Pasar este valor en ?cursor= para la siguiente. */
+        public String next_cursor;
     }
 
     /** Un row de pawgate_events tal como viene de DDB serializado. */

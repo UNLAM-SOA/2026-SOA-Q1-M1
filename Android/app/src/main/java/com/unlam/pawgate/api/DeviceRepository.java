@@ -58,22 +58,26 @@ public class DeviceRepository {
      * usar el overload con fromMs/toMs.
      */
     public void history(String deviceId, ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        history(deviceId, null, null, null, cb);
+        history(deviceId, null, null, null, null, cb);
     }
 
-    /** Overload sin includeSensors (default backend: false). */
     public void history(String deviceId, Long fromMs, Long toMs,
                         ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        history(deviceId, fromMs, toMs, null, cb);
+        history(deviceId, fromMs, toMs, null, null, cb);
+    }
+
+    public void history(String deviceId, Long fromMs, Long toMs, Boolean includeSensors,
+                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        history(deviceId, fromMs, toMs, includeSensors, null, cb);
     }
 
     /**
-     * Trae el historial con rango y filtro de sensores opcionales.
-     * Si includeSensors=null o false, el backend oculta los sensors (default).
+     * Trae el historial con rango, filtro de sensores y cursor de paginacion
+     * opcionales. Si la respuesta trae next_cursor, hay mas paginas.
      */
     public void history(String deviceId, Long fromMs, Long toMs, Boolean includeSensors,
-                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        api.getHistory(deviceId, fromMs, toMs, includeSensors).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
+                        String cursor, ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        api.getHistory(deviceId, fromMs, toMs, includeSensors, cursor).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onResponse(Call<DeviceDtos.HistoryResponse> call,
                                    Response<DeviceDtos.HistoryResponse> response) {

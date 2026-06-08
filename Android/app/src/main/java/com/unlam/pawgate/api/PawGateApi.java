@@ -45,7 +45,8 @@ public interface PawGateApi {
             @Path("id") String deviceId,
             @Query("from") Long fromMs,
             @Query("to") Long toMs,
-            @Query("include_sensors") Boolean includeSensors);
+            @Query("include_sensors") Boolean includeSensors,
+            @Query("cursor") String cursor);
 
     @POST("devices/{id}/cmd/{cmd}")
     Call<DeviceDtos.CommandResponse> sendCommand(
