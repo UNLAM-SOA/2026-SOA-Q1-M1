@@ -42,11 +42,18 @@ public class HistorialActivity extends AppCompatActivity {
     private HistorialAdapter adapter;
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private RecyclerView listView;
 
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
     private Long currentToMs = null;
     private boolean includeSensors = false;
+
+    // Paginacion (infinite scroll)
+    private String nextCursor = null;
+    private boolean isLoading = false;
+    /** Cuando el ultimo item visible esta a <= esta distancia del final, pedimos pag. */
+    private static final int LOAD_MORE_THRESHOLD = 5;
     // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d, -1=custom (filtros avanzados).
     private int activeChipIndex = 0;
 
@@ -70,11 +77,27 @@ public class HistorialActivity extends AppCompatActivity {
         wireChips();
 
         // RecyclerView arranca vacio. Lo llenamos en onResume() con la respuesta del backend.
-        RecyclerView list = findViewById(R.id.event_list);
-        list.setLayoutManager(new LinearLayoutManager(this));
+        listView = findViewById(R.id.event_list);
+        final LinearLayoutManager lm = new LinearLayoutManager(this);
+        listView.setLayoutManager(lm);
         this.adapter = new HistorialAdapter(Collections.emptyList());
-        list.setAdapter(adapter);
-        list.addItemDecoration(new InsetDividerDecoration(this));
+        listView.setAdapter(adapter);
+        listView.addItemDecoration(new InsetDividerDecoration(this));
+
+        // Infinite scroll: cuando el user se acerca al final, pedimos la
+        // proxima pagina (si el backend dio next_cursor en la respuesta previa).
+        listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0) return; // solo cuando scrollea hacia abajo
+                if (isLoading || nextCursor == null) return;
+                int lastVisible = lm.findLastVisibleItemPosition();
+                int total = lm.getItemCount();
+                if (lastVisible >= total - LOAD_MORE_THRESHOLD) {
+                    loadMoreHistory();
+                }
+            }
+        });
 
         // Restauracion del filtro post rotacion.
         if (savedInstanceState != null) {
@@ -138,19 +161,50 @@ public class HistorialActivity extends AppCompatActivity {
     // BACKEND CALL
     // ============================================================
 
+    /** Primera pagina: resetea cursor, reemplaza data. */
     private void loadHistory() {
-        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors,
+        if (isLoading) return;
+        isLoading = true;
+        nextCursor = null;
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, null,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
-                List<DeviceDtos.Event> events = result.events != null
-                        ? result.events
-                        : new ArrayList<>();
+                isLoading = false;
+                List<DeviceDtos.Event> events = result != null && result.events != null
+                        ? result.events : new ArrayList<>();
                 adapter.setData(HistorialMapper.mapAll(events));
+                nextCursor = result != null ? result.next_cursor : null;
             }
             @Override
             public void onError(String message) {
+                isLoading = false;
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /** Pagina siguiente: usa nextCursor, appendea data al adapter. */
+    private void loadMoreHistory() {
+        if (isLoading || nextCursor == null) return;
+        isLoading = true;
+        final String cursor = nextCursor;
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, cursor,
+                new ApiCallback<DeviceDtos.HistoryResponse>() {
+            @Override
+            public void onSuccess(DeviceDtos.HistoryResponse result) {
+                isLoading = false;
+                if (result == null) { nextCursor = null; return; }
+                List<DeviceDtos.Event> events = result.events != null
+                        ? result.events : new ArrayList<>();
+                adapter.appendData(HistorialMapper.mapAll(events));
+                nextCursor = result.next_cursor;
+            }
+            @Override
+            public void onError(String message) {
+                isLoading = false;
+                // No bloqueamos el cursor en error - reintentamos en proximo scroll.
+                Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_SHORT).show();
             }
         });
     }
