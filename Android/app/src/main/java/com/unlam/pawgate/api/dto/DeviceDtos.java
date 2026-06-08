@@ -73,5 +73,11 @@ public final class DeviceDtos {
         public String local_ip;
         public String firmware_version;
         public String hardware_model;
+        // W14 - WiFi info
+        public String wifi_ssid;
+        public String wifi_bssid;
+        public String wifi_band;
+        public String wifi_gateway;
+        public String wifi_security;
     }
 }

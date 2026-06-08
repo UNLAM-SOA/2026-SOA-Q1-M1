@@ -32,6 +32,9 @@ public class AjustesActivity extends AppCompatActivity {
         findViewById(R.id.ajustes_row_device_esp32).setOnClickListener(
                 v -> startActivity(new Intent(this, DeviceDetailActivity.class)));
 
+        findViewById(R.id.ajustes_row_device_wifi).setOnClickListener(
+                v -> startActivity(new Intent(this, WifiDetailActivity.class)));
+
         wirePushToggle();
 
         BottomNavHelper.bind(this, R.id.nav_ajustes);

@@ -157,6 +157,12 @@ def _update_device_info(device_id: str, payload: dict):
         "local_ip":         str(payload.get("local_ip", "")),
         "firmware_version": str(payload.get("firmware_version", "")),
         "hardware_model":   str(payload.get("hardware_model", "")),
+        # WiFi info (W14)
+        "wifi_ssid":        str(payload.get("wifi_ssid", "")),
+        "wifi_bssid":       str(payload.get("wifi_bssid", "")),
+        "wifi_band":        str(payload.get("wifi_band", "")),
+        "wifi_gateway":     str(payload.get("wifi_gateway", "")),
+        "wifi_security":    str(payload.get("wifi_security", "")),
         "updated_at":       datetime.now(timezone.utc).isoformat(),
     }
     try:

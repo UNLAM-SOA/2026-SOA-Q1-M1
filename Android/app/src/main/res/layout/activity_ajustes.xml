@@ -128,11 +128,19 @@
 
                 <View style="@style/AjustesRowDivider" />
 
-                <LinearLayout style="@style/AjustesRow">
+                <LinearLayout
+                    android:id="@+id/ajustes_row_device_wifi"
+                    style="@style/AjustesRow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_wifi" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_wifi" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="PawGate_5G · -42 dBm" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_wifi_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_device_wifi_subtitle_default" />
                     </LinearLayout>
                     <ImageView style="@style/AjustesRowChevron" />
                 </LinearLayout>

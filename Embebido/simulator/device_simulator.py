@@ -88,6 +88,15 @@ HARDWARE_MODEL = "ESP32-SIM (Python)"
 FLASH_TOTAL_KB = 4096
 HEAP_TOTAL_KB = 320
 
+# Datos de red simulados (los publicamos en telemetry para que la pantalla
+# W14 muestre la red a la que dice estar conectado el simulator). El ESP32
+# real va a usar WiFi.SSID(), WiFi.BSSIDstr(), WiFi.gatewayIP(), etc.
+WIFI_SSID = "PawGate_5G"
+WIFI_BSSID = "A8:42:E3:14:7F:2B"
+WIFI_BAND = "5 GHz"
+WIFI_GATEWAY = "192.168.1.1"
+WIFI_SECURITY = "WPA2-PSK"
+
 
 # ============================================================
 # LOGGING
@@ -335,6 +344,11 @@ class DeviceSimulator:
                 "local_ip":          local_ip,
                 "firmware_version":  FIRMWARE_VERSION,
                 "hardware_model":    HARDWARE_MODEL,
+                "wifi_ssid":         WIFI_SSID,
+                "wifi_bssid":        WIFI_BSSID,
+                "wifi_band":         WIFI_BAND,
+                "wifi_gateway":      WIFI_GATEWAY,
+                "wifi_security":     WIFI_SECURITY,
             },
             qos=0,
         )
@@ -427,6 +441,12 @@ class DeviceSimulator:
                     "local_ip":          local_ip,
                     "firmware_version":  FIRMWARE_VERSION,
                     "hardware_model":    HARDWARE_MODEL,
+                    # WiFi info (W14)
+                    "wifi_ssid":         WIFI_SSID,
+                    "wifi_bssid":        WIFI_BSSID,
+                    "wifi_band":         WIFI_BAND,
+                    "wifi_gateway":      WIFI_GATEWAY,
+                    "wifi_security":     WIFI_SECURITY,
                 },
                 qos=0,
             )

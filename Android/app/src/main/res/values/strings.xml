@@ -188,6 +188,35 @@
     <string name="historial_filter_7d">7d</string>
     <!-- Default subtitle de la row ESP32 en Ajustes mientras se carga el estado real -->
     <string name="ajustes_device_esp32_subtitle_default">Tocá para ver detalle</string>
+    <string name="ajustes_device_wifi_subtitle_default">Tocá para ver detalle</string>
+
+    <!-- W14 - Detalle red WiFi -->
+    <string name="wifi_detail_title">Red WiFi</string>
+    <string name="wifi_detail_loading">Cargando…</string>
+    <string name="wifi_detail_status_online">CONECTADA</string>
+    <string name="wifi_detail_status_offline">SIN SEÑAL</string>
+    <string name="wifi_detail_row_ssid">SSID</string>
+    <string name="wifi_detail_row_band">Banda</string>
+    <string name="wifi_detail_row_bssid">BSSID</string>
+    <string name="wifi_detail_row_ip">IP local</string>
+    <string name="wifi_detail_row_gateway">Gateway</string>
+    <string name="wifi_detail_row_security">Seguridad</string>
+    <string name="wifi_detail_row_rssi">Intensidad</string>
+    <string name="wifi_detail_signal_excellent">Excelente</string>
+    <string name="wifi_detail_signal_good">Buena</string>
+    <string name="wifi_detail_signal_fair">Regular</string>
+    <string name="wifi_detail_signal_poor">Pobre</string>
+    <string name="wifi_detail_btn_change">Cambiar red WiFi</string>
+    <string name="wifi_detail_btn_forget">Olvidar red</string>
+    <string name="wifi_provisioning_title">Cambiar red WiFi</string>
+    <string name="wifi_provisioning_subtitle">Ingresá las credenciales de la nueva red. El ESP32 se va a reiniciar y reconectar.</string>
+    <string name="wifi_provisioning_ssid_hint">SSID</string>
+    <string name="wifi_provisioning_password_hint">Contraseña</string>
+    <string name="wifi_provisioning_btn_connect">Conectar</string>
+    <string name="wifi_provisioning_sent">Credenciales enviadas. El dispositivo va a reiniciar para conectarse.</string>
+    <string name="wifi_provisioning_mock_notice">Funcionalidad mock: en esta versión las credenciales no se envían al ESP32 todavía (requiere BLE o AP-mode). En Fase 14 (firmware real) se conecta este flow.</string>
+    <string name="wifi_forget_confirm_title">¿Olvidar esta red?</string>
+    <string name="wifi_forget_confirm_msg">El ESP32 va a quedar sin conexión hasta que cargues una red nueva.</string>
 
     <!-- W15 - Detalle ESP32 -->
     <string name="device_detail_title">ESP32</string>

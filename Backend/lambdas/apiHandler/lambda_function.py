@@ -609,6 +609,12 @@ def handle_get_info(device_id):
         "local_ip":         str(info.get("local_ip", "") or ""),
         "firmware_version": str(info.get("firmware_version", "") or ""),
         "hardware_model":   str(info.get("hardware_model", "") or ""),
+        # WiFi info (W14)
+        "wifi_ssid":        str(info.get("wifi_ssid", "") or ""),
+        "wifi_bssid":       str(info.get("wifi_bssid", "") or ""),
+        "wifi_band":        str(info.get("wifi_band", "") or ""),
+        "wifi_gateway":     str(info.get("wifi_gateway", "") or ""),
+        "wifi_security":    str(info.get("wifi_security", "") or ""),
     })
 
 
