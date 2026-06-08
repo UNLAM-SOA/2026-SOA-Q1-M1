@@ -259,39 +259,58 @@ def handle_history(device_id, query_params):
     from_sk = f"{from_ms:013d}"
     to_sk = f"{to_ms:013d}#~"
     include_sensors = (query_params.get("include_sensors") or "").lower() == "true"
+    cursor = query_params.get("cursor")
 
-    # Filtrar sensors por default (telemetria spamea el historial). Aplicamos
-    # FilterExpression del lado del server: asi DDB lee mas items para devolver
-    # 100 NO-sensor en lugar de 100 totales (de los cuales ~95 serian sensors
-    # ocultos por filter post-query del cliente).
     query_kwargs = {
         "KeyConditionExpression": "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
         "ExpressionAttributeValues": {":dev": device_id, ":from_sk": from_sk, ":to_sk": to_sk},
         "ScanIndexForward": False,
-        "Limit": 500,  # leemos hasta 500 raw, despues filter limita
+        "Limit": 50,  # tamano de pagina (post filter puede quedar menor)
     }
     if not include_sensors:
         query_kwargs["FilterExpression"] = "#t <> :sensor"
         query_kwargs["ExpressionAttributeNames"] = {"#t": "type"}
         query_kwargs["ExpressionAttributeValues"][":sensor"] = "sensor"
 
+    # Pagination: cursor es el LastEvaluatedKey serializado base64+JSON
+    if cursor:
+        import base64
+        try:
+            last_key = json.loads(base64.b64decode(cursor).decode())
+            query_kwargs["ExclusiveStartKey"] = last_key
+        except Exception:
+            return _bad_request("cursor invalido")
+
     try:
         result = events_table.query(**query_kwargs)
     except ClientError as e:
         logger.error("DDB query failed: %s", e)
         return _server_error("query failed")
-    items = result.get("Items", [])[:100]  # cap a 100 finales para la UI
 
+    items = result.get("Items", [])
     for it in items:
         if "payload" in it and isinstance(it["payload"], str):
             try:
                 it["payload"] = json.loads(it["payload"])
             except json.JSONDecodeError:
                 pass
-    return _ok({
-        "device_id": device_id, "from": from_ms, "to": to_ms,
-        "count": len(items), "events": items,
-    })
+
+    response = {
+        "device_id": device_id,
+        "from": from_ms,
+        "to": to_ms,
+        "count": len(items),
+        "events": items,
+    }
+
+    # Si DDB indica que hay mas, devolvemos cursor para la proxima pagina.
+    last_evaluated = result.get("LastEvaluatedKey")
+    if last_evaluated:
+        import base64
+        response["next_cursor"] = base64.b64encode(
+            json.dumps(last_evaluated, cls=DecimalEncoder).encode()).decode()
+
+    return _ok(response)
 
 
 def handle_cmd(device_id, cmd, body):
