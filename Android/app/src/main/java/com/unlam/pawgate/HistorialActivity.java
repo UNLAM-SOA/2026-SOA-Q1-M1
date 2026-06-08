@@ -54,6 +54,10 @@ public class HistorialActivity extends AppCompatActivity {
     private boolean isLoading = false;
     /** Cuando el ultimo item visible esta a <= esta distancia del final, pedimos pag. */
     private static final int LOAD_MORE_THRESHOLD = 5;
+    /** Counter que invalida callbacks viejos cuando cambia el filtro. Cada
+     *  loadHistory() lo incrementa; los callbacks comparan su version local
+     *  y descartan la respuesta si difiere (filtro ya cambio). */
+    private int loadVersion = 0;
     // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d, -1=custom (filtros avanzados).
     private int activeChipIndex = 0;
 
@@ -161,23 +165,36 @@ public class HistorialActivity extends AppCompatActivity {
     // BACKEND CALL
     // ============================================================
 
-    /** Primera pagina: resetea cursor, reemplaza data. */
+    /** Primera pagina: invalida callbacks pendientes, resetea cursor, reemplaza data. */
     private void loadHistory() {
-        if (isLoading) return;
-        isLoading = true;
+        loadVersion++;          // invalida callbacks viejos
         nextCursor = null;
+        isLoading = true;
+        final int myVersion = loadVersion;
+        android.util.Log.d("HistorialActivity",
+                "loadHistory v=" + myVersion + " from=" + currentFromMs
+                        + " to=" + currentToMs + " sensors=" + includeSensors);
         deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, null,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
+                if (myVersion != loadVersion) {
+                    android.util.Log.d("HistorialActivity",
+                            "loadHistory v=" + myVersion + " stale, ignoring");
+                    return;
+                }
                 isLoading = false;
                 List<DeviceDtos.Event> events = result != null && result.events != null
                         ? result.events : new ArrayList<>();
                 adapter.setData(HistorialMapper.mapAll(events));
                 nextCursor = result != null ? result.next_cursor : null;
+                android.util.Log.d("HistorialActivity",
+                        "loadHistory v=" + myVersion + " ok, count=" + events.size()
+                                + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
             }
             @Override
             public void onError(String message) {
+                if (myVersion != loadVersion) return;
                 isLoading = false;
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
             }
@@ -189,21 +206,32 @@ public class HistorialActivity extends AppCompatActivity {
         if (isLoading || nextCursor == null) return;
         isLoading = true;
         final String cursor = nextCursor;
+        final int myVersion = loadVersion;
+        android.util.Log.d("HistorialActivity",
+                "loadMore v=" + myVersion + " cursor=" + cursor.substring(0, Math.min(20, cursor.length())) + "...");
         deviceRepo.history(deviceId, currentFromMs, currentToMs, includeSensors, cursor,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
+                if (myVersion != loadVersion) {
+                    android.util.Log.d("HistorialActivity",
+                            "loadMore v=" + myVersion + " stale, ignoring");
+                    return;
+                }
                 isLoading = false;
                 if (result == null) { nextCursor = null; return; }
                 List<DeviceDtos.Event> events = result.events != null
                         ? result.events : new ArrayList<>();
                 adapter.appendData(HistorialMapper.mapAll(events));
                 nextCursor = result.next_cursor;
+                android.util.Log.d("HistorialActivity",
+                        "loadMore v=" + myVersion + " appended=" + events.size()
+                                + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
             }
             @Override
             public void onError(String message) {
+                if (myVersion != loadVersion) return;
                 isLoading = false;
-                // No bloqueamos el cursor en error - reintentamos en proximo scroll.
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_SHORT).show();
             }
         });
