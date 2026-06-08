@@ -94,14 +94,22 @@ public class HistorialActivity extends AppCompatActivity {
             @Override
             public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
                 if (dy <= 0) return; // solo cuando scrollea hacia abajo
-                if (isLoading) return;
-                if (nextCursor == null) return; // backend dijo "no hay mas"
                 int lastVisible = lm.findLastVisibleItemPosition();
                 int total = lm.getItemCount();
+                // Log cada vez que el user scrollea al final - util para diagnosticar.
+                if (lastVisible >= total - LOAD_MORE_THRESHOLD - 2) {
+                    android.util.Log.d("HistorialActivity",
+                            "onScrolled near end lastVisible=" + lastVisible
+                                    + " total=" + total
+                                    + " isLoading=" + isLoading
+                                    + " cursor=" + (nextCursor != null ? "yes" : "no"));
+                }
+                if (isLoading) return;
+                if (nextCursor == null) return; // backend dijo "no hay mas"
                 if (lastVisible >= total - LOAD_MORE_THRESHOLD) {
                     android.util.Log.d("HistorialActivity",
                             "trigger loadMore lastVisible=" + lastVisible
-                                    + " total=" + total + " cursor=yes");
+                                    + " total=" + total);
                     loadMoreHistory();
                 }
             }

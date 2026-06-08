@@ -295,9 +295,14 @@ def handle_history(device_id, query_params):
     target_size = 50
     items = []
     safety = 0
-    # Safety alto: con sensores publicando cada 5s, podemos tener miles de items
-    # raw entre door events. Necesitamos margen para encontrar 50 door events.
-    # 20 paginas * 500 raw = hasta 10k items leidos por request (~lambda <5s).
+    # Downsampling de sensores cuando include_sensors=true: si publican cada
+    # 5s, en 50 items entran solo ~4 minutos y los door events quedan
+    # 'ahogados' debajo de cientos de telemetrias. Tomamos solo 1 sensor por
+    # bucket de 5 minutos asi la pagina queda con mezcla utiles de sensors +
+    # door events. Door events NUNCA se decimitan.
+    sensor_bucket_ms = 5 * 60 * 1000  # 5 minutos
+    last_sensor_bucket = None  # tracking entre paginas DDB
+
     while True:
         kwargs = dict(base_kwargs)
         if pagination_key:
@@ -307,7 +312,20 @@ def handle_history(device_id, query_params):
         except ClientError as e:
             logger.error("DDB query failed: %s", e)
             return _server_error("query failed")
-        items.extend(result.get("Items", []))
+
+        for raw_item in result.get("Items", []):
+            if include_sensors and raw_item.get("type") == "sensor":
+                # ts_event format: "<ms 013d>#<type>#<event_type>"
+                try:
+                    ts_ms = int(str(raw_item["ts_event"]).split("#", 1)[0])
+                    bucket = ts_ms // sensor_bucket_ms
+                    if bucket == last_sensor_bucket:
+                        continue  # ya tengo un sensor de este bucket
+                    last_sensor_bucket = bucket
+                except (ValueError, IndexError, KeyError):
+                    pass
+            items.append(raw_item)
+
         pagination_key = result.get("LastEvaluatedKey")
         safety += 1
         if len(items) >= target_size or not pagination_key or safety >= 20:
