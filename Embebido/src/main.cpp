@@ -32,9 +32,12 @@
 
   // Topics y ClientID
   // #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+  // #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
+  // #define MQTT_TOPIC_EVENT_DOOR "soa/puerta/evento" // Para enviar eventos de la puerta
   #define MQTT_CLIENT_ID AWS_THING_NAME
-  #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
-  #define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
+  #define MQTT_TOPIC_CMD_FILTER "pawgate/pawgate-001/cmd/+"
+  #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
+
 
   #define TAM_PAYLOAD_MQTT 32
   #define TAM_TOPIC_MQTT   64
@@ -579,14 +582,14 @@
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA AFUERA");
+          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA ABIERTA AFUERA");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA ADENTRO");
+          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA ABIERTA ADENTRO");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -594,7 +597,7 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA CERRADA");
+          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA CERRADA");
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -746,8 +749,7 @@
       if (client.connect(MQTT_CLIENT_ID))
       {
         Serial.println("Conexión MQTT OK");
-        client.subscribe(MQTT_TOPIC_CMD);
-        client.subscribe(MQTT_TOPIC_EVENTO);
+        client.subscribe(MQTT_TOPIC_CMD_FILTER);
       }
       else
       {
