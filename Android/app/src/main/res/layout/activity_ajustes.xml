@@ -155,7 +155,6 @@
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_ip" />
                         <TextView style="@style/AjustesRowSubtitle" android:text="192.168.1.42" />
                     </LinearLayout>
-                    <ImageView style="@style/AjustesRowChevron" />
                 </LinearLayout>
 
                 <View style="@style/AjustesRowDivider" />
