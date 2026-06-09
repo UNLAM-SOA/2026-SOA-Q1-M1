@@ -81,10 +81,10 @@ echo "   /devices/{id} resource ID: $DEVICES_ID_RESOURCE"
 ROOT_RES=$(get_resource_id "/")
 echo "   / (root) resource ID: $ROOT_RES"
 
-# /auth ya existe (creado en setup-15c). Solo agregamos /auth/refresh.
+# /auth ya existe (creado en setup-15c). El sub-resource /auth/refresh se
+# crea mas abajo, DESPUES de que ensure_resource este definida.
 AUTH_RES=$(get_resource_id "/auth")
 echo "   /auth resource ID: $AUTH_RES"
-AUTH_REFRESH_RES=$(ensure_resource "$AUTH_RES" "refresh" "/auth/refresh" | tail -1)
 
 # ============================================================
 # 2) Crear sub-resources nuevos (idempotente)
@@ -114,6 +114,10 @@ ensure_resource() {
   echo "   + $full_path (creado: $new_id)"
   echo "$new_id"
 }
+
+# /auth/refresh (token renewal). Aca SI funciona porque ensure_resource ya
+# esta definida arriba. (Originalmente estaba mas arriba y rompia silenciosamente.)
+AUTH_REFRESH_RES=$(ensure_resource "$AUTH_RES" "refresh" "/auth/refresh" | tail -1)
 
 SCHEDULES_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "schedules" "/devices/{id}/schedules" | tail -1)
 SCHEDULE_ID_RES=$(ensure_resource "$SCHEDULES_RES" "{schedule_id}" "/devices/{id}/schedules/{schedule_id}" | tail -1)
