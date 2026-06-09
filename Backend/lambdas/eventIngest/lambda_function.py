@@ -242,18 +242,29 @@ def _notify_owners(device_id, event_type, direction, payload):
 
 
 def _format_notification(event_type, direction):
-    """Devuelve (title, body) en castellano para mostrar en el celular."""
+    """Devuelve (title, body) en castellano para mostrar en el celular.
+
+    Ambos se usan para:
+      - Push notification (title -> barra de Android, body -> contenido)
+      - Bandeja persistida (title -> primera linea del row, body -> segunda).
+
+    Por eso conviene que title sea DESCRIPTIVO del evento (no la app),
+    asi en la bandeja el user ve "Puerta abierta" / "Puerta bloqueada"
+    en vez de 'PawGate' repetido 50 veces.
+    """
     if event_type == "opened":
         if direction == "in":
-            return "PawGate", "🐾 Puerta abierta hacia adentro"
+            return "Puerta abierta", "🐾 Tu mascota entró a casa"
         if direction == "out":
-            return "PawGate", "🐾 Puerta abierta hacia afuera"
-        return "PawGate", "🐾 Puerta abierta"
+            return "Puerta abierta", "🐾 Tu mascota salió de casa"
+        return "Puerta abierta", "🐾 La puerta se abrió"
     if event_type == "closed":
-        return "PawGate", "Puerta cerrada"
+        return "Puerta cerrada", "La puerta volvió a cerrarse"
     if event_type == "blocked":
-        return "PawGate", "🔒 Puerta bloqueada"
-    return "PawGate", "Evento de la puerta"
+        return "Puerta bloqueada", "🔒 El dispositivo bloqueó la puerta"
+    if event_type == "unblocked":
+        return "Puerta desbloqueada", "🔓 El dispositivo desbloqueó la puerta"
+    return "Evento de la puerta", event_type or "evento"
 
 
 def _persist_notification(user_email, device_id, event_type, direction,

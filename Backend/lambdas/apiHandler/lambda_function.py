@@ -1383,6 +1383,8 @@ def _format_audit_notification(notif_type, actor_email, extra):
     extra = extra or {}
 
     # --- Comandos manuales ---
+    # Titles descriptivos del EFECTO (no del tipo). Asi en la bandeja se ve
+    # "Puerta abierta · por Vos" en vez de "cmd_open · por Vos".
     if notif_type == "cmd_open":
         direction = extra.get("direction") if isinstance(extra, dict) else None
         if direction == "in":
@@ -1391,7 +1393,7 @@ def _format_audit_notification(notif_type, actor_email, extra):
             return "Puerta abierta", f"{actor_label} abrió la puerta hacia afuera"
         return "Puerta abierta", f"{actor_label} abrió la puerta"
     if notif_type == "cmd_block":
-        return "Puerta bloqueada", f"{actor_label} bloqueó la puerta manualmente"
+        return "Puerta bloqueada", f"{actor_label} bloqueó la puerta"
     if notif_type == "cmd_unblock":
         return "Puerta desbloqueada", f"{actor_label} desbloqueó la puerta"
     if notif_type == "cmd_call":
@@ -1400,10 +1402,15 @@ def _format_audit_notification(notif_type, actor_email, extra):
         return "Operación cancelada", f"{actor_label} canceló la operación"
 
     # --- Overrides ---
+    # Override = el user actuo fuera del horario natural. Mostramos un title
+    # especifico para que se distinga del cmd normal cuando estaba dentro
+    # de horario (mismo efecto en el device, distinta semantica).
     if notif_type == "override_unblock":
-        return "Override manual", f"{actor_label} desbloqueó fuera de horario"
+        return "Desbloqueo fuera de horario", \
+               f"{actor_label} forzó la apertura fuera del horario configurado"
     if notif_type == "override_block":
-        return "Override manual", f"{actor_label} bloqueó dentro de horario"
+        return "Bloqueo en horario", \
+               f"{actor_label} bloqueó la puerta dentro del horario configurado"
 
     # --- Schedules ---
     if notif_type == "schedule_created":
