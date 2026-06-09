@@ -1,5 +1,8 @@
 package com.unlam.pawgate;
 
+import android.os.Build;
+import android.text.Html;
+import android.text.Spanned;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -94,6 +97,16 @@ public class NotificacionAdapter extends RecyclerView.Adapter<NotificacionAdapte
         notifyItemChanged(position);
     }
 
+    /** Devuelve la cantidad de items NO leidas en la list actual. Usado
+     *  por NotificacionesActivity para computar el override del badge. */
+    public int countUnread() {
+        int c = 0;
+        for (Notificacion n : data) {
+            if (n.noLeida) c++;
+        }
+        return c;
+    }
+
     /** Marca todas como leidas. Usado por "Leer todo". */
     public void markAllRead() {
         boolean changed = false;
@@ -125,8 +138,19 @@ public class NotificacionAdapter extends RecyclerView.Adapter<NotificacionAdapte
             // INVISIBLE (no GONE) para preservar el espacio reservado a la izquierda.
             dot.setVisibility(n.noLeida ? View.VISIBLE : View.INVISIBLE);
             icon.setImageResource(n.iconRes);
-            title.setText(n.titulo);
+            // El title puede traer HTML basico (<b>...</b>) — ej. "Horario
+            // <b>Diurno</b> activado". Si no tiene HTML, fromHtml lo deja
+            // como texto plain.
+            title.setText(renderHtml(n.titulo));
             subtitle.setText(n.subtitulo);
+        }
+
+        private Spanned renderHtml(String s) {
+            if (s == null) return null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                return Html.fromHtml(s, Html.FROM_HTML_MODE_LEGACY);
+            }
+            return Html.fromHtml(s);
         }
     }
 }

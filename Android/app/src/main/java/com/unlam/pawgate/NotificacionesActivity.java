@@ -141,14 +141,38 @@ public class NotificacionesActivity extends AppCompatActivity {
     }
 
     /**
-     * Emite un broadcast LOCAL para que el Dashboard refresque su badge
-     * sin esperar al proximo onResume. El receiver en Dashboard hace un
-     * delay corto antes de pegar al server (asi el POST mark-read tiene
-     * tiempo de llegar primero).
+     * Avisa que el unread-count local cambio.
+     *
+     * Hace 2 cosas:
+     *   1) Guarda el conteo de NO-leidas que conocemos local (basado en el
+     *      adapter) como OVERRIDE en SharedPrefs. El Dashboard al refrescar
+     *      el badge va a usar este override (con MIN vs server) hasta que
+     *      el server confirme que ya proceso los POSTs.
+     *   2) Emite un broadcast LOCAL por si el Dashboard esta vivo en ese
+     *      momento (caso raro pero posible: split-screen, etc).
+     *
+     * La capa 1 cubre el caso comun donde el Dashboard esta paused durante
+     * el tap. El receiver del Dashboard del broadcast solo cubre extras.
      */
     private void notifyUnreadCountChanged() {
+        if (adapter != null) {
+            PrefsHelper.setUnreadOverride(this, countUnreadInAdapter());
+        }
         Intent broadcast = new Intent(ACTION_NOTIFS_READ_CHANGED);
         LocalBroadcastManager.getInstance(this).sendBroadcast(broadcast);
+    }
+
+    /** Cuenta cuantas notifs NO leidas tiene el adapter ahora. */
+    private int countUnreadInAdapter() {
+        if (adapter == null) return 0;
+        int count = 0;
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            // Usamos la API publica del adapter: items con noLeida=true.
+            // Si en algun momento agregamos un getter, lo cambiamos.
+            // Por ahora hacemos un truco: recargamos la list ref local.
+        }
+        // El adapter ahora expone countUnread(). Si no, contamos localmente.
+        return adapter.countUnread();
     }
 
     // ============================================================
@@ -264,38 +288,54 @@ public class NotificacionesActivity extends AppCompatActivity {
         return out;
     }
 
-    /** Mapea cada type del backend a un icono drawable. Tipos sin match -> bell. */
+    /**
+     * Mapea cada tipo CANONICO a un icono drawable. Esta es la fuente de
+     * verdad de "que notifs aceptamos en la bandeja". Si el backend manda
+     * un tipo no listado aca, igual lo muestra con el ic_bell por defecto.
+     *
+     * Lista canonica (la definida con Fede en la conversacion):
+     *
+     *   FROM eventIngest:
+     *     opened       -> Puerta abierta (mascota, con direction in/out)
+     *     blocked      -> Puerta bloqueada
+     *     unblocked    -> Puerta desbloqueada
+     *     light_on     -> Luz prendida
+     *     light_off    -> Luz apagada
+     *
+     *   FROM apiHandler (acciones del user con actor):
+     *     cmd_open     -> Puerta abierta hacia X por NAME
+     *     cmd_block    -> Puerta bloqueada por NAME
+     *     cmd_unblock  -> Puerta desbloqueada por NAME
+     *     cmd_call     -> NAME llamó a la mascota
+     *
+     *   FROM scheduleExecutor / horarios automaticos:
+     *     schedule_activated         -> Horario NAME activado
+     *     schedule_deactivated       -> Horario NAME desactivado
+     *     schedule_block_end         -> Puerta bloqueada por fin de horario
+     *     schedule_unblock_start     -> Puerta desbloqueada por inicio de horario
+     */
     static int iconForType(String type) {
         if (type == null) return R.drawable.ic_bell;
         switch (type) {
-            // Eventos del ESP32 / simulador
+            // ----- Eventos fisicos del ESP32 / simulador -----
             case "opened":         return R.drawable.ic_door_open;
-            case "closed":         return R.drawable.ic_door_open;
             case "blocked":        return R.drawable.ic_lock;
             case "unblocked":      return R.drawable.ic_shield_check;
+            case "light_on":       return R.drawable.ic_sun;
+            case "light_off":      return R.drawable.ic_moon;
 
-            // Comandos manuales (Sub-fase D)
+            // ----- Acciones manuales del user -----
             case "cmd_open":       return R.drawable.ic_log_in;
             case "cmd_block":      return R.drawable.ic_lock;
             case "cmd_unblock":    return R.drawable.ic_shield_check;
             case "cmd_call":       return R.drawable.ic_phone_call;
-            case "cmd_cancel":     return R.drawable.ic_x;
 
-            // Overrides (Sub-fase D)
-            case "override_unblock": return R.drawable.ic_shield_alert;
-            case "override_block":   return R.drawable.ic_shield;
+            // ----- Horarios automaticos -----
+            case "schedule_activated":     return R.drawable.ic_calendar;
+            case "schedule_deactivated":   return R.drawable.ic_calendar;
+            case "schedule_block_end":     return R.drawable.ic_moon;
+            case "schedule_unblock_start": return R.drawable.ic_sunrise;
 
-            // Schedules (Sub-fase D)
-            case "schedule_created": return R.drawable.ic_calendar;
-            case "schedule_updated": return R.drawable.ic_pencil;
-            case "schedule_deleted": return R.drawable.ic_x;
-            case "schedule_activated":   return R.drawable.ic_sun;
-            case "schedule_deactivated": return R.drawable.ic_moon;
-
-            // Auth / sistema
-            case "login":          return R.drawable.ic_user;
-            case "wifi_reconnect": return R.drawable.ic_wifi;
-            case "low_battery":    return R.drawable.ic_battery_low;
             default:               return R.drawable.ic_bell;
         }
     }

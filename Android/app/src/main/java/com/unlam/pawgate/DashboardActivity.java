@@ -348,24 +348,63 @@ public class DashboardActivity extends AppCompatActivity {
      * Errores son silenciosos: el badge simplemente no se actualiza. No
      * vale interrumpir al user con un toast por algo de UX.
      */
+    /** Ventana de validez del override local (ver PrefsHelper.setUnreadOverride). */
+    private static final long UNREAD_OVERRIDE_TTL_MS = 30_000L;
+
     private void refreshUnreadBadge() {
         TextView badge = findViewById(R.id.dashboard_notification_badge);
         if (badge == null) return;
         new NotificationRepository(this).unreadCount(
                 new ApiCallback<NotificationDtos.UnreadCountResponse>() {
             @Override public void onSuccess(NotificationDtos.UnreadCountResponse result) {
-                int n = result != null ? result.unread : 0;
-                if (n <= 0) {
-                    badge.setVisibility(View.GONE);
-                    return;
-                }
-                badge.setVisibility(View.VISIBLE);
-                badge.setText(n > 9 ? "9+" : String.valueOf(n));
+                int serverCount = result != null ? result.unread : 0;
+                int finalCount = applyLocalOverride(serverCount);
+                renderBadge(badge, finalCount);
             }
             @Override public void onError(String message) {
                 android.util.Log.w("DashboardBadge", "unreadCount error: " + message);
             }
         });
+    }
+
+    /**
+     * Aplica el override local de NotificacionesActivity. Cubre el caso
+     * donde el user acaba de marcar como leida y el POST aun no impactó:
+     *
+     *   serverCount=3 (no proceso), override=2 (local), -> MIN = 2
+     *   serverCount=5 (llegaron push nuevos), override=2 (stale), -> MIN = 2
+     *     hasta que pasen 30s y se confie en server (5 unread).
+     *   serverCount=2 (proceso), override=2 -> los limpiamos.
+     *   override no existe / expiro -> serverCount tal cual.
+     */
+    private int applyLocalOverride(int serverCount) {
+        long overrideAt = PrefsHelper.getUnreadOverrideAt(this);
+        if (overrideAt == 0L) return serverCount;
+        long age = System.currentTimeMillis() - overrideAt;
+        if (age > UNREAD_OVERRIDE_TTL_MS) {
+            PrefsHelper.clearUnreadOverride(this);
+            return serverCount;
+        }
+        int override = PrefsHelper.getUnreadOverride(this);
+        if (override < 0) return serverCount;
+        if (serverCount <= override) {
+            // server ya proceso (o estamos en sync): limpiar override y confiar.
+            PrefsHelper.clearUnreadOverride(this);
+            return serverCount;
+        }
+        // server tiene un count mayor: o no proceso aun, o llegaron push nuevos.
+        // En cualquiera de los dos casos preferimos mostrar el override (al
+        // user no le gusta ver el badge volver a subir).
+        return override;
+    }
+
+    private void renderBadge(TextView badge, int n) {
+        if (n <= 0) {
+            badge.setVisibility(View.GONE);
+            return;
+        }
+        badge.setVisibility(View.VISIBLE);
+        badge.setText(n > 9 ? "9+" : String.valueOf(n));
     }
 
     @Override
