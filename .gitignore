@@ -32,3 +32,12 @@ Thumbs.db
 # correr el simulador o el firmware deben pedir los archivos por canal
 # privado (Slack/Drive del equipo).
 secrets/
+
+# Python virtualenvs (simulator dev)
+**/.venv/
+
+# Build artefacts: Lambda zips son generados con scripts, no se commitean
+Backend/lambdas/**/*.zip
+
+# Outputs de scripts de setup (contienen ARNs/IDs especificos del entorno)
+Backend/setup-*-output.json

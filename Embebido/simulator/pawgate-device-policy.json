@@ -1,0 +1,39 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "iot:Connect",
+      "Resource": "arn:aws:iot:us-east-1:075138626693:client/${iot:ClientId}",
+      "Condition": {
+        "Bool": { "iot:Connection.Thing.IsAttached": "true" }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:Subscribe",
+      "Resource": [
+        "arn:aws:iot:us-east-1:075138626693:topicfilter/pawgate/${iot:Connection.Thing.ThingName}/cmd/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:Receive",
+      "Resource": [
+        "arn:aws:iot:us-east-1:075138626693:topic/pawgate/${iot:Connection.Thing.ThingName}/cmd/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Publish",
+        "iot:RetainPublish"
+      ],
+      "Resource": [
+        "arn:aws:iot:us-east-1:075138626693:topic/pawgate/${iot:Connection.Thing.ThingName}/status",
+        "arn:aws:iot:us-east-1:075138626693:topic/pawgate/${iot:Connection.Thing.ThingName}/events/*",
+        "arn:aws:iot:us-east-1:075138626693:topic/pawgate/${iot:Connection.Thing.ThingName}/telemetry"
+      ]
+    }
+  ]
+}

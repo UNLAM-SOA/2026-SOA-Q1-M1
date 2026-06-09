@@ -1,4 +1,8 @@
 <resources>
+    <!-- Backend config (apunta al API Gateway de AWS - cambiar si se redeploya) -->
+    <string name="api_base_url" translatable="false">https://e6wp3s6rdf.execute-api.us-east-1.amazonaws.com/prod/</string>
+    <string name="default_device_id" translatable="false">pawgate-001</string>
+
     <!-- Splash -->
     <string name="app_name">PawGate</string>
     <string name="splash_subtitle">Puerta inteligente para tu mascota</string>
@@ -24,6 +28,16 @@
     <string name="register_have_account">¿Ya tenés cuenta?</string>
     <string name="register_login_link">Iniciar sesión</string>
     <string name="cd_back_button">Volver</string>
+
+    <!-- Register - Confirmación de email (Cognito) -->
+    <string name="register_confirm_dialog_title">Confirmar email</string>
+    <string name="register_confirm_dialog_message">Te enviamos un código de 6 dígitos a %1$s. Ingresalo abajo.</string>
+    <string name="register_confirm_dialog_hint">Código de verificación</string>
+    <string name="register_confirm_dialog_confirm">Confirmar</string>
+    <string name="register_confirm_dialog_cancel">Cancelar</string>
+    <string name="register_confirm_code_required">Ingresá el código de 6 dígitos</string>
+    <string name="register_signup_ok">Cuenta creada. Ya podés iniciar sesión.</string>
+    <string name="register_confirm_ok">Email confirmado. Ya podés iniciar sesión.</string>
 
     <!-- BottomNav -->
     <string name="dashboard_tab_inicio">Inicio</string>

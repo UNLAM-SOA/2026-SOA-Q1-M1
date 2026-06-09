@@ -1,0 +1,13 @@
+{
+  "sql": "SELECT *, topic() as topic, timestamp() as server_ts FROM 'pawgate/+/events/+'",
+  "ruleDisabled": false,
+  "awsIotSqlVersion": "2016-03-23",
+  "description": "Captura eventos de los devices PawGate (door, sensor, etc) y los persiste en DynamoDB via Lambda eventIngest.",
+  "actions": [
+    {
+      "lambda": {
+        "functionArn": "arn:aws:lambda:us-east-1:075138626693:function:pawgate-event-ingest"
+      }
+    }
+  ]
+}
