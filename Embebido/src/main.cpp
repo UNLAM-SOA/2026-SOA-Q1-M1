@@ -2,6 +2,7 @@
   #include <MFRC522.h>
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
+  #include <ArduinoJson.h>
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
   #include "aws_certs.h"
 
@@ -39,7 +40,7 @@
   #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
 
 
-  #define TAM_PAYLOAD_MQTT 32
+  #define TAM_PAYLOAD_MQTT 128
   #define TAM_TOPIC_MQTT   64
   #define TAM_COLA_MQTT    10
 
@@ -569,6 +570,17 @@
     }
   }
 
+  void publicar_evento_puerta(const char* tipo, const char* direccion)
+  {
+    char buffer[TAM_PAYLOAD_MQTT];
+    JsonDocument doc;
+    doc["type"] = tipo;
+    if (direccion != nullptr) doc["direction"] = direccion;
+    doc["ts"] = millis();
+    serializeJson(doc, buffer, sizeof(buffer));
+    publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
+  }
+
   void puerta_accion(void *pvParametros)
   {
     while (1)
@@ -582,14 +594,14 @@
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA ABIERTA AFUERA");
+          publicar_evento_puerta("opened", "out");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA ABIERTA ADENTRO");
+          publicar_evento_puerta("opened", "in");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -597,7 +609,7 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, "PUERTA CERRADA");
+          publicar_evento_puerta("closed", nullptr);
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -605,6 +617,7 @@
           // Sonido descendente grave (600 -> 300 Hz): se bloquea
           buzzer_beep(600, 120);
           buzzer_beep(300, 200);
+          publicar_evento_puerta("blocked", nullptr);
         }
         else if (action_recibido == ACC_DESBLOQUEAR)
         {
@@ -612,6 +625,7 @@
           // Sonido ascendente agudo (600 -> 1200 Hz): se desbloquea
           buzzer_beep(600, 120);
           buzzer_beep(1200, 200);
+          publicar_evento_puerta("unblocked", nullptr);
         }
         else if (action_recibido == ACC_ENCENDER_LUZ)
         {
@@ -804,7 +818,7 @@
 
   // Función Callback que recibe los mensajes enviados por los dispositivos
   void callback(char* topico, byte* message, unsigned int length) 
-  {
+  {    
     Serial.print("Se recibió mensaje en el tópico: ");
     Serial.println(topico);
 
@@ -815,8 +829,29 @@
       Serial.print("El tópico recibido está malformado.");
       return;
     } else if(strcmp(comando + 1, "open") == 0) {
-      Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
-      ev = EV_ANIMAL_DETECTADO_AFUERA;
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, message, length);
+      if (err) {
+          Serial.print("JSON inválido: ");
+          Serial.println(err.c_str());
+          return;
+      }
+      const char* direction = doc["direction"];
+      if(direction != nullptr) {
+        if(strcmp(direction, "in") == 0) {
+          Serial.println("EV_ANIMAL_DETECTADO_ADENTRO DESDE MQTT");
+          ev = EV_ANIMAL_DETECTADO_ADENTRO;
+        } else if (strcmp(direction, "out") == 0){
+          Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
+          ev = EV_ANIMAL_DETECTADO_AFUERA;
+      } else {
+        Serial.println("ERROR: LA DIRECCION DE APERTURA NO ES CORRECTA");
+        return;
+      }
+    } else {
+      Serial.println("ERROR: FALTA DIRECCION DE APERTURA DE PUERTA");
+      return;
+    }
     } else if(strcmp(comando + 1, "block") == 0) {
       Serial.println("EV_BLOQUEO_POR_APP DESDE MQTT");
       ev = EV_BLOQUEO_POR_APP;
