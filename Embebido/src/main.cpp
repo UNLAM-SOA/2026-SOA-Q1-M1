@@ -31,6 +31,11 @@
   const char* mqtt_user;
   const char* mqtt_pass;
 
+  // Identidad del Firmware
+  #define FIRMWARE_VERSION "1.0.0"
+  #define HARDWARE_MODEL "ESP32-WROOM-32"
+  #define TELEMETRY_INTERVAL_MS 30000
+
   // Topics y ClientID
   // #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
   // #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
@@ -38,9 +43,9 @@
   #define MQTT_CLIENT_ID AWS_THING_NAME
   #define MQTT_TOPIC_CMD_FILTER "pawgate/pawgate-001/cmd/+"
   #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
+  #define MQTT_TOPIC_EVENT_TELEMETRY "pawgate/pawgate-001/events/telemetry"
 
-
-  #define TAM_PAYLOAD_MQTT 128
+  #define TAM_PAYLOAD_MQTT 512
   #define TAM_TOPIC_MQTT   64
   #define TAM_COLA_MQTT    10
 
@@ -645,6 +650,48 @@
       vTaskDelay(pdMS_TO_TICKS(200));
     }
   }
+  
+  // --- Telemetría ---
+  void publicar_telemetry()
+  {
+    char buffer[TAM_PAYLOAD_MQTT];
+    JsonDocument doc;
+    doc["type"] = "telemetry";
+    doc["ts"] = millis();
+    doc["uptime_s"] = millis() / 1000;
+    doc["rssi_dbm"] = WiFi.RSSI(); // Devuelve int. Valor negativo (-30 muy bueno, -90 muy malo)
+    doc["free_heap_kb"] = ESP.getFreeHeap() / 1024; // Pasamos a KB
+    doc["total_heap_kb"] = ESP.getHeapSize() / 1024; // RAM total disponible para heap. ~320KB en ESP32 estándar
+    doc["flash_used_kb"] = ESP.getSketchSize() / 1024; // Bytes ocupados por el firmware en flash
+    doc["flash_total_kb"] = ESP.getFlashChipSize() / 1024; // Tamaño total del chip de flash. Típicamente 4096 KB
+    doc["cpu_temp_c"] = temperatureRead(); // Disponible en ESP32, devuelve float en °C
+    doc["local_ip"] = WiFi.localIP().toString().c_str();
+    doc["firmware_version"] = FIRMWARE_VERSION;
+    doc["hardware_model"] = HARDWARE_MODEL;
+    doc["wifi_ssid"] = WiFi.SSID().c_str();
+    doc["wifi_bssid"] = WiFi.BSSIDstr().c_str(); // MAC address del AP
+    doc["wifi_band"] = "2.4 GHz"; // ESP32 estándar no tiene 5GHz nativo
+    doc["wifi_gateway"] = WiFi.gatewayIP().toString().c_str(); // IP del router
+    doc["wifi_security"] = "WPA2-PSK";
+
+    size_t written = serializeJson(doc, buffer, sizeof(buffer));
+    if (written == 0 || written >= sizeof(buffer)) {
+      Serial.println("[telemetry] buffer chico, payload truncado"); // Verificamos si nos alcanzó el TAM_PAYLOAD_MQTT
+    }
+    publicar_mqtt(MQTT_TOPIC_EVENT_TELEMETRY, buffer);
+  }
+
+  void telemetry_task(void *pvParametros)
+  {
+    // Esperar a que WiFi esté conectado antes del primer publish
+    while (WiFi.status() != WL_CONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    while (1) {
+        publicar_telemetry();
+        vTaskDelay(pdMS_TO_TICKS(TELEMETRY_INTERVAL_MS));
+    }
+  }
 
   // --- Setup ---
   void crear_colas_puerta()
@@ -661,6 +708,7 @@
     xTaskCreate(puerta_controlador, "Puerta controlador", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(puerta_accion,      "Puerta accion",      tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(mqtt_task,          "MQTT task",          tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
+    xTaskCreate(telemetry_task,     "Telemetry task",     tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
   }
 
   void setup_puerta()
