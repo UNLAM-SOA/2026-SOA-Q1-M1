@@ -178,11 +178,18 @@ def _notify_owners(device_id, event_type, direction, payload):
     # registrado (asi cada user ve la notif al abrir la pantalla). El dedupe
     # de SNS es solo para evitar push duplicado al mismo device, no para
     # evitar persistir N notifs (eso sería bug).
+    #
+    # Trackeamos {user_email -> notif_id} para despues incluir el notif_id
+    # CORRECTO en el push de cada endpoint. Asi cuando el user tap el push,
+    # la app sabe que notif marcar como leida.
+    user_to_notif_id = {}
     for ep in endpoints:
         user_email = ep.get("user_email")
         if user_email:
-            _persist_notification(user_email, device_id, event_type,
-                                   direction, title, body, payload)
+            nid = _persist_notification(user_email, device_id, event_type,
+                                         direction, title, body, payload)
+            if nid:
+                user_to_notif_id[user_email] = nid
 
     # Deduplicar por endpoint_arn: si 2 user_emails distintos apuntan al
     # mismo device (ej: 2 cuentas logueadas en el mismo celular -> SNS
@@ -202,23 +209,32 @@ def _notify_owners(device_id, event_type, direction, payload):
     # y "notification" es lo que FCM muestra automaticamente si la app esta
     # en background. Para tener UI consistente, usamos data-only y construimos
     # la notif en el cliente.
-    gcm_payload = json.dumps({
-        "data": {
-            "device_id":  device_id,
-            "event_type": event_type or "",
-            "direction":  direction or "",
-            "title":      title,
-            "body":       body,
-            "ts":         str(payload.get("ts", "")),
-        }
-    })
-    message = json.dumps({"GCM": gcm_payload})
-
+    #
+    # IMPORTANTE: el payload se construye PER endpoint, porque el notif_id
+    # cambia segun el user que vaya a recibir el push.
     sent = 0
     for ep in endpoints:
         arn = ep.get("endpoint_arn")
         if not arn:
             continue
+        user_email = ep.get("user_email")
+        notif_id = user_to_notif_id.get(user_email, "") if user_email else ""
+
+        gcm_payload = json.dumps({
+            "data": {
+                "device_id":  device_id,
+                "event_type": event_type or "",
+                "direction":  direction or "",
+                "title":      title,
+                "body":       body,
+                "ts":         str(payload.get("ts", "")),
+                # notif_id permite que la app, al hacer tap en el push,
+                # marque ESA notif especifica como leida (POST /{id}/read).
+                "notif_id":   notif_id,
+            }
+        })
+        message = json.dumps({"GCM": gcm_payload})
+
         try:
             sns.publish(TargetArn=arn, MessageStructure="json", Message=message)
             sent += 1
@@ -314,8 +330,10 @@ def _persist_notification(user_email, device_id, event_type, direction,
         notifications_table.put_item(Item=item)
         logger.info("Persisted notif user=%s id=%s type=%s",
                     user_email, notif_id, event_type)
+        return notif_id
     except Exception as e:
         logger.warning("Failed to persist notification (ignored): %s", e)
+        return None
 
 
 def _update_device_info(device_id: str, payload: dict):
