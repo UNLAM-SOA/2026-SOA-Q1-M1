@@ -38,6 +38,9 @@ public interface PawGateApi {
     @POST("auth/login")
     Call<AuthDtos.LoginResponse> login(@Body AuthDtos.LoginRequest body);
 
+    @POST("auth/refresh")
+    Call<AuthDtos.RefreshTokenResponse> refresh(@Body AuthDtos.RefreshTokenRequest body);
+
     // ===== Device events + cmds (requieren JWT) =====
 
     @GET("devices/{id}/history")

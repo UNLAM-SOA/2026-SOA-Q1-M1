@@ -200,6 +200,9 @@
     <string name="generic_network_error">No pudimos conectar. Revisá tu red e intentá de nuevo.</string>
     <string name="retry_label">Reintentar</string>
 
+    <!-- Auth refresh - sesion expirada irrecuperable -->
+    <string name="session_expired">Tu sesión expiró. Iniciá sesión de nuevo.</string>
+
     <!-- W14 - Detalle red WiFi -->
     <string name="wifi_detail_title">Red WiFi</string>
     <string name="wifi_detail_loading">Cargando…</string>

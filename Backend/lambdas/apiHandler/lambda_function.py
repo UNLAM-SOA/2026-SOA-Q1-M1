@@ -136,6 +136,7 @@ def lambda_handler(event, context):
         if method == "POST" and path == "/auth/signup":   return handle_signup(body)
         if method == "POST" and path == "/auth/confirm":  return handle_confirm(body)
         if method == "POST" and path == "/auth/login":    return handle_login(body)
+        if method == "POST" and path == "/auth/refresh":  return handle_refresh(body)
 
         path_params = event.get("pathParameters") or {}
         query_params = event.get("queryStringParameters") or {}
@@ -269,6 +270,47 @@ def handle_login(body):
         if code == "UserNotConfirmedException":
             return _unauthorized("email no confirmado, revisa tu inbox")
         raise
+
+
+def handle_refresh(body):
+    """
+    POST /auth/refresh
+    Body: {"refreshToken": "<refresh token de Cognito>"}
+
+    Usa el refreshToken (vida util 30 dias) para obtener un nuevo idToken
+    + accessToken (vida util 1 hora cada uno). Cognito NO devuelve un nuevo
+    refreshToken en este flow — el cliente debe seguir usando el original
+    hasta que se venza (a los 30 dias el user va a tener que loguearse de
+    vuelta con email/password).
+
+    Errores tipicos:
+      - NotAuthorizedException: refresh token vencido o invalido (>30 dias
+        sin uso, o el user cambio password, o el admin desactivo la cuenta).
+        En este caso el cliente debe forzar logout y mostrar login.
+    """
+    refresh_token = body.get("refreshToken")
+    if not refresh_token:
+        return _bad_request("refreshToken requerido")
+    try:
+        resp = cognito.initiate_auth(
+            ClientId=APP_CLIENT_ID,
+            AuthFlow="REFRESH_TOKEN_AUTH",
+            AuthParameters={"REFRESH_TOKEN": refresh_token},
+        )
+        tokens = resp["AuthenticationResult"]
+        # OJO: no incluimos refreshToken en la respuesta porque Cognito no lo
+        # devuelve aca. El cliente sigue usando el viejo.
+        return _ok({
+            "idToken":     tokens["IdToken"],
+            "accessToken": tokens["AccessToken"],
+            "expiresIn":   tokens.get("ExpiresIn", 3600),
+        })
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("NotAuthorizedException", "UserNotFoundException"):
+            return _unauthorized("refresh token invalido o vencido")
+        logger.exception("handle_refresh unexpected error")
+        return _server_error(str(e))
 
 
 # ============================================================

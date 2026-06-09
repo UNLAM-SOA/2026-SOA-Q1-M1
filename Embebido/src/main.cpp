@@ -11,7 +11,7 @@
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "ApPoloPB5"
+  #define WIFI_SSID "ApPoloPA2"
   #define WIFI_PASSWORD "polo2017"
 
   enum tipo_broker {
@@ -82,7 +82,7 @@
   // Sensores
   #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
   #define TIME_OUT_SENSOR_PROXIMIDAD 30000
-  #define PUERTO_SERIAL_WOKWY 9600
+  #define PUERTO_SERIAL_WOKWY 115200
 
   // Tareas
   #define TIME_OUT_CERO 0

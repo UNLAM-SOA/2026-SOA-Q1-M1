@@ -81,6 +81,11 @@ echo "   /devices/{id} resource ID: $DEVICES_ID_RESOURCE"
 ROOT_RES=$(get_resource_id "/")
 echo "   / (root) resource ID: $ROOT_RES"
 
+# /auth ya existe (creado en setup-15c). Solo agregamos /auth/refresh.
+AUTH_RES=$(get_resource_id "/auth")
+echo "   /auth resource ID: $AUTH_RES"
+AUTH_REFRESH_RES=$(ensure_resource "$AUTH_RES" "refresh" "/auth/refresh" | tail -1)
+
 # ============================================================
 # 2) Crear sub-resources nuevos (idempotente)
 # ============================================================
@@ -170,6 +175,36 @@ ensure_method() {
     --region $REGION >/dev/null
 
   echo "   + $label (creado)"
+}
+
+# Variante para metodos publicos (sin Cognito Authorizer). Usado por /auth/*.
+ensure_method_public() {
+  local resource_id="$1"
+  local http_method="$2"
+  local label="$3"
+
+  if method_exists $resource_id $http_method; then
+    echo "   = $label (ya existe)"
+    return
+  fi
+
+  aws apigateway put-method \
+    --rest-api-id $REST_API_ID \
+    --resource-id $resource_id \
+    --http-method $http_method \
+    --authorization-type NONE \
+    --region $REGION >/dev/null
+
+  aws apigateway put-integration \
+    --rest-api-id $REST_API_ID \
+    --resource-id $resource_id \
+    --http-method $http_method \
+    --type AWS_PROXY \
+    --integration-http-method POST \
+    --uri $LAMBDA_INVOKE_URI \
+    --region $REGION >/dev/null
+
+  echo "   + $label (creado, public)"
 }
 
 # CORS preflight (OPTIONS sin auth).
@@ -264,6 +299,10 @@ ensure_cors   $INFO_RES     "       /devices/{id}/info"
 ensure_method $FCM_TOKEN_RES POST   "POST   /users/me/fcm-token"
 ensure_method $FCM_TOKEN_RES DELETE "DELETE /users/me/fcm-token"
 ensure_cors   $FCM_TOKEN_RES        "       /users/me/fcm-token"
+
+# /auth/refresh                          POST (public, sin Cognito Authorizer)
+ensure_method_public $AUTH_REFRESH_RES POST "POST   /auth/refresh"
+ensure_cors          $AUTH_REFRESH_RES      "       /auth/refresh"
 
 # ============================================================
 # 4) Lambda permission para que API GW pueda invocar el handler
