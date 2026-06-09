@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Badge rojo circular para el contador de notificaciones no leidas.
+    Se muestra encima del bell del topbar del Dashboard. Tamaño minimo 16x16dp
+    para que se vea el numero hasta "99+" sin overflow visual.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#E11D48" />
+    <stroke
+        android:width="1.5dp"
+        android:color="@color/bg_card" />
+</shape>

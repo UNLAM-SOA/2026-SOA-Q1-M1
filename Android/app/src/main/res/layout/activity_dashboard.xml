@@ -50,6 +50,23 @@
                         android:src="@drawable/ic_bell"
                         app:tint="@color/text_primary"
                         android:layout_gravity="center" />
+                    <!-- Badge de notifs no leidas (Sub-fase C). DashboardActivity
+                         lo refresca cuando vuelve a foreground (onResume). Si
+                         count == 0 va GONE; > 9 muestra "9+". -->
+                    <TextView
+                        android:id="@+id/dashboard_notification_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top|end"
+                        android:minWidth="16dp"
+                        android:minHeight="16dp"
+                        android:paddingHorizontal="4dp"
+                        android:background="@drawable/bg_unread_badge"
+                        android:gravity="center"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:textColor="@android:color/white"
+                        android:visibility="gone" />
                 </FrameLayout>
             </LinearLayout>
             <TextView android:layout_width="wrap_content"

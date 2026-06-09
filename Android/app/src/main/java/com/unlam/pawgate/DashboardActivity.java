@@ -24,6 +24,8 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.NotificationRepository;
+import com.unlam.pawgate.api.dto.NotificationDtos;
 import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
@@ -179,6 +181,7 @@ public class DashboardActivity extends AppCompatActivity {
         refreshTickRunnable.run();
         statePollRunnable.run();
         loadDailyMetrics();
+        refreshUnreadBadge();
 
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(
@@ -305,6 +308,42 @@ public class DashboardActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Refresca el badge rojo encima del bell con el conteo de notifs no leidas.
+     *
+     * Se llama en onResume(): cubre el caso comun de "vine de Notificaciones,
+     * marque varias como leidas, vuelvo al Dashboard, el badge tiene que
+     * actualizarse". Tambien cubre push notifications que llegan mientras la
+     * app esta en background — al volver a foreground se ve el badge nuevo.
+     *
+     * Reglas de visibilidad:
+     *   count == 0 -> GONE
+     *   count <= 9 -> texto = count
+     *   count >  9 -> texto = "9+"  (evita overflow en el badge chiquito)
+     *
+     * Errores son silenciosos: el badge simplemente no se actualiza. No
+     * vale interrumpir al user con un toast por algo de UX.
+     */
+    private void refreshUnreadBadge() {
+        TextView badge = findViewById(R.id.dashboard_notification_badge);
+        if (badge == null) return;
+        new NotificationRepository(this).unreadCount(
+                new ApiCallback<NotificationDtos.UnreadCountResponse>() {
+            @Override public void onSuccess(NotificationDtos.UnreadCountResponse result) {
+                int n = result != null ? result.unread : 0;
+                if (n <= 0) {
+                    badge.setVisibility(View.GONE);
+                    return;
+                }
+                badge.setVisibility(View.VISIBLE);
+                badge.setText(n > 9 ? "9+" : String.valueOf(n));
+            }
+            @Override public void onError(String message) {
+                android.util.Log.w("DashboardBadge", "unreadCount error: " + message);
+            }
+        });
+    }
+
     @Override
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
@@ -350,6 +389,10 @@ public class DashboardActivity extends AppCompatActivity {
         // asi se actualiza en vivo (la mayoria de los broadcasts del Service son
         // de events no-door, pero cualquier door event nuevo podria ser un opened).
         loadDailyMetrics();
+        // Si el broadcast es por un evento nuevo, lo mas probable es que el
+        // backend tambien acabe de persistir una notif en pawgate_notifications,
+        // asi que refrescamos el badge tambien.
+        refreshUnreadBadge();
     }
 
     // ============================================================
