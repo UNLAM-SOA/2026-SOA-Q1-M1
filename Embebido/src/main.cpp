@@ -1,13 +1,9 @@
   #include <ESP32Servo.h>
   #include <MFRC522.h>
   #include <WiFi.h>
-  #include <WiFiClientSecure.h>  // mTLS contra AWS IoT Core (Fase 14)
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
-  #include "aws_certs.h"   // PEM embebidos (gitignored, ver aws_certs.h.example)
 
-  // Cliente TLS para mTLS X.509 contra AWS IoT Core port 8883.
-  // Antes era WiFiClient (TCP plano contra HiveMQ port 1883).
-  WiFiClientSecure espClient;
+  WiFiClient espClient;
   PubSubClient client(espClient);
 
   // WIFI
@@ -17,13 +13,12 @@
   enum tipo_broker {
     EMQX,
     HIVEMQ_PUBLIC,
-    MOSQUITTO_LOCAL,
-    AWS_IOT_CORE   // mTLS X.509 (Fase 14)
+    MOSQUITTO_LOCAL
   };
 
 
   // MQTT
-  #define BROKER AWS_IOT_CORE // Antes HIVEMQ_PUBLIC. Ahora apuntamos a AWS IoT.
+  #define BROKER HIVEMQ_PUBLIC // Nosotros vamos a usar este, acá lo seteo
 
   // Configuración dependiente del broker
   const char* mqtt_server;
@@ -31,17 +26,10 @@
   const char* mqtt_user;
   const char* mqtt_pass;
 
-  // Topics y ClientID.
-  // MQTT_CLIENT_ID = AWS_THING_NAME (definido en aws_certs.h). La policy de
-  // AWS IoT Core suele restringir ${iot:ClientId} para que solo el thing
-  // dueno del cert pueda conectar con ese client_id; matchearlo evita 'Connection
-  // refused, rc=4 (bad credentials)' aunque el cert sea valido.
-  // Topics viejos los dejamos un rato para que el codigo compile mientras
-  // migramos progresivamente; el proximo commit cambia a pawgate/{id}/cmd/+
-  // y pawgate/{id}/events/door.
-  #define MQTT_CLIENT_ID AWS_THING_NAME
-  #define MQTT_TOPIC_CMD "soa/puerta/cmd"
-  #define MQTT_TOPIC_EVENTO "soa/puerta/evento"
+  // Topics y ClientID
+  #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+  #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
+  #define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
 
   #define TAM_PAYLOAD_MQTT 32
   #define TAM_TOPIC_MQTT   64
@@ -767,27 +755,9 @@
 
   void definir_broker()
   {
+    // Ver código de esteban, hace mas cosas que solo definir variables
     switch (BROKER)
     {
-      case AWS_IOT_CORE:
-        // mTLS X.509 mutual auth (cert del device validado contra Amazon Root CA,
-        // y device valida que el server tenga un cert firmado por la misma CA).
-        // No hay user/pass: la "autenticacion" es el cert privado del device.
-        mqtt_server = AWS_IOT_ENDPOINT;
-        mqtt_port   = AWS_IOT_PORT;     // 8883
-        mqtt_user   = NULL;
-        mqtt_pass   = NULL;
-        // Configurar el TLS context del WiFiClientSecure con los 3 PEMs.
-        // Esto tiene que pasar UNA vez antes del primer client.connect().
-        // setCACert: usado para validar el server.
-        // setCertificate + setPrivateKey: usado para que el server nos valide.
-        espClient.setCACert(AWS_ROOT_CA);
-        espClient.setCertificate(AWS_DEVICE_CERT);
-        espClient.setPrivateKey(AWS_PRIVATE_KEY);
-        // Buffer mas grande: TLS handshake + IoT Core a veces manda payloads
-        // de ~600 bytes (sobre todo en re-conexion).
-        client.setBufferSize(1024);
-        break;
       case HIVEMQ_PUBLIC:
         mqtt_server = "broker.hivemq.com";
         mqtt_port   = 1883;

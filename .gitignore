@@ -33,10 +33,6 @@ Thumbs.db
 # privado (Slack/Drive del equipo).
 secrets/
 
-# Firmware: certs embebidos en el .h gitignored (los .pem reales).
-# El template aws_certs.h.example SI se commitea (con placeholders).
-Embebido/src/aws_certs.h
-
 # Python virtualenvs (simulator dev)
 **/.venv/
 
