@@ -1,5 +1,6 @@
 package com.unlam.pawgate;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.format.DateUtils;
 import android.view.View;
@@ -9,6 +10,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -41,6 +43,20 @@ import java.util.List;
  */
 public class NotificacionesActivity extends AppCompatActivity {
 
+    /**
+     * Extra del Intent. Cuando llega no-null, esta activity hace POST mark-read
+     * de esa notif al onCreate. Usado por PawGateFcmService cuando el user
+     * tap el push.
+     */
+    public static final String EXTRA_NOTIF_ID_TO_READ = "notif_id_to_read";
+
+    /**
+     * Broadcast emitido cuando se marcan notifs como leidas. El Dashboard lo
+     * escucha para actualizar su badge sin esperar al proximo onResume.
+     */
+    public static final String ACTION_NOTIFS_READ_CHANGED =
+            "com.unlam.pawgate.NOTIFS_READ_CHANGED";
+
     private TextView chipAll;
     private TextView chipUnread;
     private TextView markAllBtn;
@@ -72,6 +88,22 @@ public class NotificacionesActivity extends AppCompatActivity {
         wireChips();
         BottomNavHelper.bind(this, R.id.nav_inicio);
 
+        // Si llegamos desde un tap del push, marcamos la notif especifica como
+        // leida ANTES de cargar la lista. Si el POST mark-read llega rapido,
+        // cuando loadNotifications hace el GET ya viene read=true.
+        handlePushTapIfAny(getIntent());
+
+        loadNotifications();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // SINGLE_TOP: si la activity ya estaba abierta cuando llego el tap
+        // del push, no se crea instancia nueva, se reusa con onNewIntent.
+        // Aprovechamos para marcar como leida la notif del push tambien aca.
+        setIntent(intent);
+        handlePushTapIfAny(intent);
         loadNotifications();
     }
 
@@ -81,6 +113,42 @@ public class NotificacionesActivity extends AppCompatActivity {
         // Reload al volver de un push tapped o de Dashboard: garantiza que
         // si llegó un push nuevo mientras la pantalla estaba en pause, lo veamos.
         if (adapter != null) loadNotifications();
+    }
+
+    /**
+     * Si el Intent trae EXTRA_NOTIF_ID_TO_READ (proveniente del tap en push),
+     * marca esa notif como leida YA. Es fire-and-forget: si falla por red,
+     * el user va a verla como unread y la puede tapear manual.
+     *
+     * El extra se consume (lo borra del Intent) para que un onResume posterior
+     * o cambio de configuracion no la vuelva a procesar.
+     */
+    private void handlePushTapIfAny(Intent intent) {
+        if (intent == null) return;
+        String pushNotifId = intent.getStringExtra(EXTRA_NOTIF_ID_TO_READ);
+        if (pushNotifId == null || pushNotifId.isEmpty()) return;
+        intent.removeExtra(EXTRA_NOTIF_ID_TO_READ);
+
+        repo.markRead(pushNotifId, new ApiCallback<NotificationDtos.MarkReadResponse>() {
+            @Override public void onSuccess(NotificationDtos.MarkReadResponse result) {
+                notifyUnreadCountChanged();
+            }
+            @Override public void onError(String message) {
+                android.util.Log.w("Notificaciones",
+                        "auto markRead from push failed (ignored): " + message);
+            }
+        });
+    }
+
+    /**
+     * Emite un broadcast LOCAL para que el Dashboard refresque su badge
+     * sin esperar al proximo onResume. El receiver en Dashboard hace un
+     * delay corto antes de pegar al server (asi el POST mark-read tiene
+     * tiempo de llegar primero).
+     */
+    private void notifyUnreadCountChanged() {
+        Intent broadcast = new Intent(ACTION_NOTIFS_READ_CHANGED);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(broadcast);
     }
 
     // ============================================================
@@ -144,6 +212,11 @@ public class NotificacionesActivity extends AppCompatActivity {
         // UX optimista: marcamos local YA, luego avisamos al backend. Si falla,
         // log silencioso (el polling al volver la sincroniza).
         adapter.markRead(position);
+        // Emitimos el broadcast ANTES de esperar la respuesta del server. El
+        // Dashboard refresca el badge con un delay corto que cubre el roundtrip
+        // del POST mark-read. Si el POST falla, el badge se vuelve a sincronizar
+        // en el proximo onResume del Dashboard.
+        notifyUnreadCountChanged();
         repo.markRead(item.notifId, new ApiCallback<NotificationDtos.MarkReadResponse>() {
             @Override public void onSuccess(NotificationDtos.MarkReadResponse result) { /* ok */ }
             @Override public void onError(String message) {
@@ -156,6 +229,7 @@ public class NotificacionesActivity extends AppCompatActivity {
         if (adapter == null || adapter.getItemCount() == 0) return;
         // UX optimista igual que el tap individual.
         adapter.markAllRead();
+        notifyUnreadCountChanged();
         repo.markAllRead(new ApiCallback<NotificationDtos.MarkReadResponse>() {
             @Override public void onSuccess(NotificationDtos.MarkReadResponse result) {
                 int n = result.updated != null ? result.updated : 0;

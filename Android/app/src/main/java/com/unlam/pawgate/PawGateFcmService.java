@@ -103,19 +103,37 @@ public class PawGateFcmService extends FirebaseMessagingService {
         String title = data.getOrDefault("title", "PawGate");
         String body  = data.getOrDefault("body", "Nueva actividad");
         String eventType = data.get("event_type");
+        // notif_id permite que al tap el push, NotificacionesActivity sepa
+        // exactamente cual entrada marcar como leida (sin marcar todas).
+        // El backend (eventIngest._notify_owners) lo incluye en el payload
+        // per-endpoint, asi cada user recibe el push con SU notif_id.
+        String notifId = data.get("notif_id");
 
-        Log.i(TAG, "onMessageReceived: " + title + " - " + body + " (" + eventType + ")");
-        showNotification(title, body);
+        Log.i(TAG, "onMessageReceived: " + title + " - " + body
+                + " (" + eventType + ", notif_id=" + notifId + ")");
+        showNotification(title, body, notifId);
     }
 
-    private void showNotification(String title, String body) {
+    private void showNotification(String title, String body, String notifId) {
         Context ctx = getApplicationContext();
         ensureChannel(ctx);
 
-        // Intent que abre el Dashboard al tocar la notificacion.
-        Intent intent = new Intent(ctx, DashboardActivity.class);
+        // Intent que abre Notificaciones al tocar la notif. Le pasamos el
+        // notif_id como extra para que la activity lo marque como leido sin
+        // necesidad del tap manual. Si notifId es null o vacio (push viejo
+        // sin notif_id), igual abre Notificaciones, pero sin auto-mark.
+        Intent intent = new Intent(ctx, NotificacionesActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pending = PendingIntent.getActivity(ctx, 0, intent,
+        if (notifId != null && !notifId.isEmpty()) {
+            intent.putExtra(NotificacionesActivity.EXTRA_NOTIF_ID_TO_READ, notifId);
+        }
+        // requestCode distinto por notif para que el PendingIntent NO se
+        // reutilice entre pushes distintos (con FLAG_UPDATE_CURRENT, dos
+        // PendingIntents con requestCode=0 colapsan en uno solo).
+        int requestCode = notifId != null
+                ? notifId.hashCode()
+                : (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+        PendingIntent pending = PendingIntent.getActivity(ctx, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)

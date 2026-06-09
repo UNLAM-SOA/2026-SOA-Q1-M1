@@ -110,6 +110,22 @@ public class DashboardActivity extends AppCompatActivity {
         }
     };
 
+    /**
+     * Recibe el broadcast LOCAL de NotificacionesActivity cuando el user marca
+     * notifs como leidas (tap individual, "Leer todo", o tap del push).
+     *
+     * El refresh se hace con postDelayed(700ms) porque el POST mark-read
+     * de la otra activity es UX optimista — todavia esta en vuelo cuando
+     * llega este broadcast. 700ms es el roundtrip tipico al API Gateway
+     * desde un device. Si fallo, en el proximo onResume se reconcilia.
+     */
+    private final BroadcastReceiver notifsReadChangedReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handler.postDelayed(DashboardActivity.this::refreshUnreadBadge, 700);
+        }
+    };
+
     /** Permiso POST_NOTIFICATIONS (runtime desde Android 13). Si el user niega,
      *  el Service sigue funcionando pero su notification no se muestra. */
     private final ActivityResultLauncher<String> notificationPermissionLauncher =
@@ -189,6 +205,14 @@ public class DashboardActivity extends AppCompatActivity {
                 eventUpdateReceiver,
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        // LocalBroadcast desde NotificacionesActivity cuando el user marca
+        // notifs como leidas. Usa LocalBroadcastManager para mantener el
+        // broadcast IN-PROCESS (no expuesto a otras apps).
+        androidx.localbroadcastmanager.content.LocalBroadcastManager
+                .getInstance(this)
+                .registerReceiver(notifsReadChangedReceiver,
+                        new IntentFilter(NotificacionesActivity.ACTION_NOTIFS_READ_CHANGED));
 
         if (offlineBanner != null) offlineBanner.start();
 
@@ -353,6 +377,11 @@ public class DashboardActivity extends AppCompatActivity {
         } catch (IllegalArgumentException ignored) {
             // defensivo: race conditions en lifecycle
         }
+        try {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager
+                    .getInstance(this)
+                    .unregisterReceiver(notifsReadChangedReceiver);
+        } catch (IllegalArgumentException ignored) { /* defensivo */ }
         if (shakeDetector != null) shakeDetector.stop();
         if (offlineBanner != null) offlineBanner.stop();
         super.onPause();
