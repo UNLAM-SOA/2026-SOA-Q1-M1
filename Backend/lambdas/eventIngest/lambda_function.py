@@ -57,9 +57,19 @@ FCM_PLATFORM_APP_ARN = os.environ.get("FCM_PLATFORM_APP_ARN", "").strip()
 
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "90"))
 
-# Que tipos de eventos generan notificacion push. El resto (sensor,
-# telemetry, los propios cancel/unblock del user) NO suenan el celular.
-NOTIFIABLE_EVENT_TYPES = {"opened", "closed", "blocked"}
+# Que tipos de eventos del firmware GENERAN notificacion (push + persist).
+# El resto (sensor crudo, telemetry, closed) va solo al historial.
+#
+# closed NO esta aca por diseño: cerrar la puerta despues de abrirla es
+# un evento ruidoso (sucede ~5s despues de cada opened) y no aporta info
+# nueva al user. Se ve solo en el historial.
+NOTIFIABLE_EVENT_TYPES = {
+    "opened",
+    "blocked",
+    "unblocked",
+    "light_on",
+    "light_off",
+}
 
 
 def lambda_handler(event, context):
@@ -260,26 +270,36 @@ def _notify_owners(device_id, event_type, direction, payload):
 def _format_notification(event_type, direction):
     """Devuelve (title, body) en castellano para mostrar en el celular.
 
-    Ambos se usan para:
-      - Push notification (title -> barra de Android, body -> contenido)
-      - Bandeja persistida (title -> primera linea del row, body -> segunda).
+    Eventos cubiertos (la lista cerrada del proyecto):
+      - opened (in)   -> "Puerta abierta hacia adentro · por la mascota"
+      - opened (out)  -> "Puerta abierta hacia afuera · por la mascota"
+      - blocked       -> "Puerta bloqueada"
+      - unblocked     -> "Puerta desbloqueada"
+      - light_on      -> "Luz prendida"
+      - light_off     -> "Luz apagada"
 
-    Por eso conviene que title sea DESCRIPTIVO del evento (no la app),
-    asi en la bandeja el user ve "Puerta abierta" / "Puerta bloqueada"
-    en vez de 'PawGate' repetido 50 veces.
+    closed, sensor_*, telemetry, etc. NO se notifican (van solo al historial).
+
+    Cuando un user dispara cmd_open desde la app, apiHandler persiste su
+    PROPIA notif con actor="<user>" antes de que el ESP32 emita 'opened'.
+    Aca al ver el 'opened' lo persistimos como 'por la mascota'. En la
+    bandeja vas a ver las dos lineas (la del cmd con actor + la del
+    firmware). Es OK para parcial y trazable.
     """
     if event_type == "opened":
         if direction == "in":
-            return "Puerta abierta", "🐾 Tu mascota entró a casa"
+            return "Puerta abierta hacia adentro", "Por la mascota"
         if direction == "out":
-            return "Puerta abierta", "🐾 Tu mascota salió de casa"
-        return "Puerta abierta", "🐾 La puerta se abrió"
-    if event_type == "closed":
-        return "Puerta cerrada", "La puerta volvió a cerrarse"
+            return "Puerta abierta hacia afuera", "Por la mascota"
+        return "Puerta abierta", "Por la mascota"
     if event_type == "blocked":
-        return "Puerta bloqueada", "🔒 El dispositivo bloqueó la puerta"
+        return "Puerta bloqueada", "Por el dispositivo"
     if event_type == "unblocked":
-        return "Puerta desbloqueada", "🔓 El dispositivo desbloqueó la puerta"
+        return "Puerta desbloqueada", "Por el dispositivo"
+    if event_type == "light_on":
+        return "Luz prendida", "Por el dispositivo"
+    if event_type == "light_off":
+        return "Luz apagada", "Por el dispositivo"
     return "Evento de la puerta", event_type or "evento"
 
 

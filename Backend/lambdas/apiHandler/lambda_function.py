@@ -1382,51 +1382,56 @@ def _format_audit_notification(notif_type, actor_email, extra):
     actor_label = _short_actor_label(actor_email)
     extra = extra or {}
 
+    # ----------------------------------------------------------------
+    # LISTA CERRADA de tipos que PERSISTIMOS como notificacion.
+    # Cualquier otro tipo retorna (None, None) y NO se persiste. Esos
+    # eventos van solamente al historial (events table).
+    #
+    # SKIP por diseño:
+    #   - cmd_cancel       -> solo historial
+    #   - schedule_*       -> ABM de horarios va solo al historial
+    #   - login            -> auditoria pero no notif
+    # ----------------------------------------------------------------
+
     # --- Comandos manuales ---
     # Titles descriptivos del EFECTO (no del tipo). Asi en la bandeja se ve
     # "Puerta abierta · por Vos" en vez de "cmd_open · por Vos".
     if notif_type == "cmd_open":
         direction = extra.get("direction") if isinstance(extra, dict) else None
         if direction == "in":
-            return "Puerta abierta", f"{actor_label} abrió la puerta hacia adentro"
+            return "Puerta abierta hacia adentro", f"Por {actor_label}"
         if direction == "out":
-            return "Puerta abierta", f"{actor_label} abrió la puerta hacia afuera"
-        return "Puerta abierta", f"{actor_label} abrió la puerta"
-    if notif_type == "cmd_block":
-        return "Puerta bloqueada", f"{actor_label} bloqueó la puerta"
-    if notif_type == "cmd_unblock":
-        return "Puerta desbloqueada", f"{actor_label} desbloqueó la puerta"
+            return "Puerta abierta hacia afuera", f"Por {actor_label}"
+        return "Puerta abierta", f"Por {actor_label}"
+    if notif_type in ("cmd_block", "override_block"):
+        # cmd_block y override_block son indistinguibles para el user
+        # (mismo efecto). Mostramos el mismo mensaje.
+        return "Puerta bloqueada", f"Por {actor_label}"
+    if notif_type in ("cmd_unblock", "override_unblock"):
+        return "Puerta desbloqueada", f"Por {actor_label}"
     if notif_type == "cmd_call":
-        return "Llamada a la mascota", f"{actor_label} activó la llamada"
-    if notif_type == "cmd_cancel":
-        return "Operación cancelada", f"{actor_label} canceló la operación"
+        return f"{actor_label} llamó a la mascota", "Activó la alerta sonora"
 
-    # --- Overrides ---
-    # Override = el user actuo fuera del horario natural. Mostramos un title
-    # especifico para que se distinga del cmd normal cuando estaba dentro
-    # de horario (mismo efecto en el device, distinta semantica).
-    if notif_type == "override_unblock":
-        return "Desbloqueo fuera de horario", \
-               f"{actor_label} forzó la apertura fuera del horario configurado"
-    if notif_type == "override_block":
-        return "Bloqueo en horario", \
-               f"{actor_label} bloqueó la puerta dentro del horario configurado"
+    # --- Schedules: activacion / desactivacion automatica por cron ---
+    # (NO los created/updated/deleted del ABM — esos van solo al historial)
+    if notif_type == "schedule_activated":
+        nombre = extra.get("nombre", "") if isinstance(extra, dict) else ""
+        # <b>...</b> lo renderiza el cliente con Html.fromHtml().
+        return f"Horario <b>{nombre}</b> activado", \
+               "El horario está corriendo ahora"
+    if notif_type == "schedule_deactivated":
+        nombre = extra.get("nombre", "") if isinstance(extra, dict) else ""
+        return f"Horario <b>{nombre}</b> desactivado", \
+               "El horario terminó"
+    if notif_type == "schedule_block_end":
+        return "Puerta bloqueada por fin de horario", \
+               "Terminó el horario y la puerta se bloqueó automáticamente"
+    if notif_type == "schedule_unblock_start":
+        return "Puerta desbloqueada por inicio de horario", \
+               "Empezó el horario y la puerta se desbloqueó automáticamente"
 
-    # --- Schedules ---
-    if notif_type == "schedule_created":
-        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
-        return "Horario creado", f'{actor_label} creó el horario "{nombre}"'
-    if notif_type == "schedule_updated":
-        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
-        return "Horario editado", f'{actor_label} editó el horario "{nombre}"'
-    if notif_type == "schedule_deleted":
-        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
-        return "Horario eliminado", f'{actor_label} eliminó el horario "{nombre}"'
-
-    # --- Auth / sistema ---
-    if notif_type == "login":
-        return "Sesión iniciada", f"{actor_label} inició sesión"
-
+    # cmd_cancel, schedule_created, schedule_updated, schedule_deleted,
+    # login y cualquier otro tipo NO se persiste como notif. Solo historial.
     return None, None
 
 
