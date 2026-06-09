@@ -98,6 +98,25 @@
                 android:background="@drawable/bg_card"
                 android:clipToPadding="false"
                 android:nestedScrollingEnabled="false" />
+
+            <TextView
+                android:id="@+id/notif_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="40dp"
+                android:gravity="center"
+                android:text="@string/notif_empty"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <ProgressBar
+                android:id="@+id/notif_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="40dp"
+                android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
 

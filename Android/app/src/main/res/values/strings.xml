@@ -339,6 +339,13 @@
     <string name="notif_wifi">WiFi reconectado</string>
     <string name="notif_nocturno">Horario nocturno activado</string>
     <string name="notif_entro">Tu mascota entró a casa</string>
+    <string name="notif_empty">No tenés notificaciones todavía</string>
+    <string name="notif_empty_unread">No tenés notificaciones sin leer</string>
+    <string name="notif_actor_system">Sistema</string>
+    <string name="notif_actor_you">Vos</string>
+    <string name="notif_actor_by">por %1$s</string>
+    <string name="notif_loading_error">No se pudieron cargar las notificaciones</string>
+    <string name="notif_marked_all_read">%1$d notificaciones marcadas como leídas</string>
 
     <!-- Ajustes -->
     <string name="ajustes_title">Ajustes</string>

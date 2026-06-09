@@ -2,6 +2,7 @@ package com.unlam.pawgate.api;
 
 import com.unlam.pawgate.api.dto.AuthDtos;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.NotificationDtos;
 import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 import java.util.Map;
@@ -71,6 +72,23 @@ public interface PawGateApi {
 
     @DELETE("users/me/fcm-token")
     Call<Void> unregisterFcmToken();
+
+    // ===== Notifications (bandeja persistente) =====
+
+    @GET("users/me/notifications")
+    Call<NotificationDtos.ListResponse> getNotifications(
+            @Query("limit") Integer limit,
+            @Query("onlyUnread") Boolean onlyUnread);
+
+    @GET("users/me/notifications/unread-count")
+    Call<NotificationDtos.UnreadCountResponse> getUnreadCount();
+
+    @POST("users/me/notifications/read")
+    Call<NotificationDtos.MarkReadResponse> markAllNotificationsRead();
+
+    @POST("users/me/notifications/{notif_id}/read")
+    Call<NotificationDtos.MarkReadResponse> markNotificationRead(
+            @Path("notif_id") String notifId);
 
     // ===== Schedules CRUD =====
 
