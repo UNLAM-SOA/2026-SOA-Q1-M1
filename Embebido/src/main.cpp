@@ -808,16 +808,38 @@
     Serial.print("Se recibió mensaje en el tópico: ");
     Serial.println(topico);
 
+    char* comando = strrchr(topico, '/');
     eventos_puerta ev;
-    if (message[0] == 'B') {
+
+    if(!comando) {
+      Serial.print("El tópico recibido está malformado.");
+      return;
+    } else if(strcmp(comando + 1, "open") == 0) {
+      Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
+      ev = EV_ANIMAL_DETECTADO_AFUERA;
+    } else if(strcmp(comando + 1, "block") == 0) {
       Serial.println("EV_BLOQUEO_POR_APP DESDE MQTT");
       ev = EV_BLOQUEO_POR_APP;
-    }      
-    else if (message[0] == 'D') {
+    } else if(strcmp(comando + 1, "unblock") == 0) {
       Serial.println("EV_DESBLOQUEO_POR_APP DESDE MQTT");
       ev = EV_DESBLOQUEO_POR_APP;
+    } else if(strcmp(comando + 1, "call") == 0) {
+      Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
+      for (int i = 0; i < 3; i++) {
+        buzzer_beep(1200, 100);
+      }
+      return; // No cambia el estado de la puerta
+    } else if(strcmp(comando + 1, "cancel") == 0) {
+      Serial.println("CANCELAR COMANDO DESDE MQTT");
+      return; // No cambia el estado de la puerta
+    } else if(strcmp(comando + 1, "reboot") == 0) {
+      Serial.println("REINICIO ESP32 DESDE MQTT");
+      delay(100); // Damos tiempo a que se imprima al serial
+      ESP.restart();
+    } else {
+      Serial.println("COMANDO DESCONOCIDO");
+      return;
     }
-    else return;
 
     xQueueSend(queueEventos_puerta, &ev, 0); // no bloqueante
   }
