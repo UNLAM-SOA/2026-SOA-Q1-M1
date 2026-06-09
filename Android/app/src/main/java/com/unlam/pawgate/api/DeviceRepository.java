@@ -6,6 +6,7 @@ import android.util.Log;
 import com.google.gson.Gson;
 import com.unlam.pawgate.api.dto.AuthDtos;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -113,6 +114,118 @@ public class DeviceRepository {
             @Override
             public void onFailure(Call<DeviceDtos.CommandResponse> call, Throwable t) {
                 Log.e(TAG, "sendCommand network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    // ============================================================
+    // SCHEDULES CRUD
+    // ============================================================
+
+    public void getSchedules(String deviceId, ApiCallback<ScheduleDtos.ListResponse> cb) {
+        api.getSchedules(deviceId).enqueue(new Callback<ScheduleDtos.ListResponse>() {
+            @Override public void onResponse(Call<ScheduleDtos.ListResponse> call,
+                                             Response<ScheduleDtos.ListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudieron cargar los horarios"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.ListResponse> call, Throwable t) {
+                Log.e(TAG, "getSchedules network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    public void createSchedule(String deviceId, ScheduleDtos.CreateRequest body,
+                                ApiCallback<ScheduleDtos.Schedule> cb) {
+        api.createSchedule(deviceId, body).enqueue(new Callback<ScheduleDtos.Schedule>() {
+            @Override public void onResponse(Call<ScheduleDtos.Schedule> call,
+                                             Response<ScheduleDtos.Schedule> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo crear el horario"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.Schedule> call, Throwable t) {
+                Log.e(TAG, "createSchedule network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    public void updateSchedule(String deviceId, String scheduleId, ScheduleDtos.CreateRequest body,
+                                ApiCallback<ScheduleDtos.Schedule> cb) {
+        api.updateSchedule(deviceId, scheduleId, body).enqueue(new Callback<ScheduleDtos.Schedule>() {
+            @Override public void onResponse(Call<ScheduleDtos.Schedule> call,
+                                             Response<ScheduleDtos.Schedule> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo actualizar el horario"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.Schedule> call, Throwable t) {
+                Log.e(TAG, "updateSchedule network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    public void deleteSchedule(String deviceId, String scheduleId, ApiCallback<Void> cb) {
+        api.deleteSchedule(deviceId, scheduleId).enqueue(new Callback<Void>() {
+            @Override public void onResponse(Call<Void> call, Response<Void> response) {
+                if (response.isSuccessful()) cb.onSuccess(null);
+                else cb.onError(parseError(response.errorBody(), "No se pudo eliminar el horario"));
+            }
+            @Override public void onFailure(Call<Void> call, Throwable t) {
+                Log.e(TAG, "deleteSchedule network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    // ============================================================
+    // DEVICE STATE + OVERRIDE
+    // ============================================================
+
+    public void getDeviceState(String deviceId,
+                               ApiCallback<ScheduleDtos.DeviceStateResponse> cb) {
+        api.getDeviceState(deviceId).enqueue(new Callback<ScheduleDtos.DeviceStateResponse>() {
+            @Override public void onResponse(Call<ScheduleDtos.DeviceStateResponse> call,
+                                             Response<ScheduleDtos.DeviceStateResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo obtener el estado"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.DeviceStateResponse> call, Throwable t) {
+                Log.e(TAG, "getDeviceState network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    public void overrideUnblock(String deviceId,
+                                 ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
+        api.overrideUnblock(deviceId, Collections.emptyMap())
+                .enqueue(new Callback<ScheduleDtos.OverrideUnblockResponse>() {
+            @Override public void onResponse(Call<ScheduleDtos.OverrideUnblockResponse> call,
+                                             Response<ScheduleDtos.OverrideUnblockResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo desbloquear"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.OverrideUnblockResponse> call, Throwable t) {
+                Log.e(TAG, "overrideUnblock network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    public void overrideBlock(String deviceId,
+                               ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
+        api.overrideBlock(deviceId, Collections.emptyMap())
+                .enqueue(new Callback<ScheduleDtos.OverrideUnblockResponse>() {
+            @Override public void onResponse(Call<ScheduleDtos.OverrideUnblockResponse> call,
+                                             Response<ScheduleDtos.OverrideUnblockResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudo bloquear"));
+            }
+            @Override public void onFailure(Call<ScheduleDtos.OverrideUnblockResponse> call, Throwable t) {
+                Log.e(TAG, "overrideBlock network error", t);
                 cb.onError(networkErrorMessage(t));
             }
         });

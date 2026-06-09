@@ -39,6 +39,10 @@
             android:name=".HorariosActivity"
             android:exported="false" />
         <activity
+            android:name=".horarios.FormHorarioActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".NotificacionesActivity"
             android:exported="false" />
         <activity

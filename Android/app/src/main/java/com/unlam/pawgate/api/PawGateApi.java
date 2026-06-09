@@ -2,13 +2,16 @@ package com.unlam.pawgate.api;
 
 import com.unlam.pawgate.api.dto.AuthDtos;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 import java.util.Map;
 
 import retrofit2.Call;
 import retrofit2.http.Body;
+import retrofit2.http.DELETE;
 import retrofit2.http.GET;
 import retrofit2.http.POST;
+import retrofit2.http.PUT;
 import retrofit2.http.Path;
 import retrofit2.http.Query;
 
@@ -35,7 +38,7 @@ public interface PawGateApi {
     @POST("auth/login")
     Call<AuthDtos.LoginResponse> login(@Body AuthDtos.LoginRequest body);
 
-    // ===== Device (requieren JWT) =====
+    // ===== Device events + cmds (requieren JWT) =====
 
     @GET("devices/{id}/history")
     Call<DeviceDtos.HistoryResponse> getHistory(
@@ -47,5 +50,41 @@ public interface PawGateApi {
     Call<DeviceDtos.CommandResponse> sendCommand(
             @Path("id") String deviceId,
             @Path("cmd") String cmd,
+            @Body Map<String, Object> body);
+
+    // ===== Schedules CRUD =====
+
+    @GET("devices/{id}/schedules")
+    Call<ScheduleDtos.ListResponse> getSchedules(@Path("id") String deviceId);
+
+    @POST("devices/{id}/schedules")
+    Call<ScheduleDtos.Schedule> createSchedule(
+            @Path("id") String deviceId,
+            @Body ScheduleDtos.CreateRequest body);
+
+    @PUT("devices/{id}/schedules/{schedule_id}")
+    Call<ScheduleDtos.Schedule> updateSchedule(
+            @Path("id") String deviceId,
+            @Path("schedule_id") String scheduleId,
+            @Body ScheduleDtos.CreateRequest body);
+
+    @DELETE("devices/{id}/schedules/{schedule_id}")
+    Call<Void> deleteSchedule(
+            @Path("id") String deviceId,
+            @Path("schedule_id") String scheduleId);
+
+    // ===== Device state + override =====
+
+    @GET("devices/{id}/state")
+    Call<ScheduleDtos.DeviceStateResponse> getDeviceState(@Path("id") String deviceId);
+
+    @POST("devices/{id}/state/override-unblock")
+    Call<ScheduleDtos.OverrideUnblockResponse> overrideUnblock(
+            @Path("id") String deviceId,
+            @Body Map<String, Object> body);
+
+    @POST("devices/{id}/state/override-block")
+    Call<ScheduleDtos.OverrideUnblockResponse> overrideBlock(
+            @Path("id") String deviceId,
             @Body Map<String, Object> body);
 }

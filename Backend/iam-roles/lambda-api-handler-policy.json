@@ -15,6 +15,7 @@
       "Resource": [
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_events",
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_schedules",
+        "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_device_state",
         "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_users"
       ]
     },

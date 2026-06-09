@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
  * Foreground Service que pollea el backend cada 3s y emite broadcasts con el
@@ -106,6 +107,37 @@ public class PawGatePollingService extends Service {
     // ============================================================
 
     private void pollBackend() {
+        // 1) /state: autoritativo para el lock. El backend ya conoce el estado
+        //    correcto independiente de events o de la ventana del polling.
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (state == null || state.lock_state == null) return;
+                // OJO: "AUTO_UNBLOCKED".contains("BLOCKED") es true. Por eso
+                // chequeamos explicitamente los 2 valores que representan bloqueada.
+                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
+                        || "MANUAL_BLOCKED".equals(state.lock_state);
+                boolean locallyBlocked = PrefsHelper.isDoorBlocked(PawGatePollingService.this);
+                Log.d(TAG, "state poll: backend=" + state.lock_state
+                        + " local=" + locallyBlocked);
+                if (shouldBeBlocked && !locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, true);
+                    PrefsHelper.clearCycle(PawGatePollingService.this);
+                    Log.d(TAG, "sync -> setDoorBlocked(true)");
+                    broadcastLockChange();
+                } else if (!shouldBeBlocked && locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, false);
+                    Log.d(TAG, "sync -> setDoorBlocked(false)");
+                    broadcastLockChange();
+                }
+            }
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "state poll error: " + message);
+            }
+        });
+
+        // 2) /history: solo para el label "Ultima actividad" y la notification.
         long now = System.currentTimeMillis();
         Long from = now - POLL_WINDOW_MS;
         deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
@@ -114,25 +146,37 @@ public class PawGatePollingService extends Service {
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
-                DeviceDtos.Event mostRecent = pickMostRecent(result.events);
-                if (mostRecent == null) return;
-
-                String label = humanLabelFor(mostRecent.event_type);
-                updateNotification("Último: " + label);
-                reconcileBlockedFlag(mostRecent);
-                broadcastEvent(mostRecent);
+                DeviceDtos.Event mostRecent = pickMostRecent(result.events, null);
+                if (mostRecent != null) {
+                    String label = humanLabelFor(mostRecent.event_type);
+                    updateNotification("Último: " + label);
+                    broadcastEvent(mostRecent);
+                }
             }
             @Override
             public void onError(String message) {
-                Log.w(TAG, "poll error: " + message);
+                Log.w(TAG, "history poll error: " + message);
             }
         });
     }
 
-    private DeviceDtos.Event pickMostRecent(java.util.List<DeviceDtos.Event> events) {
+    /** Broadcast vacio para que el Dashboard sepa que el lock_state cambio. */
+    private void broadcastLockChange() {
+        Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
+        broadcast.setPackage(getPackageName());
+        sendBroadcast(broadcast);
+    }
+
+    /**
+     * Devuelve el evento con created_at mas reciente.
+     * Si typeFilter != null, solo considera eventos con ese type.
+     */
+    private DeviceDtos.Event pickMostRecent(java.util.List<DeviceDtos.Event> events,
+                                             String typeFilter) {
         DeviceDtos.Event best = null;
         long bestMs = -1L;
         for (DeviceDtos.Event e : events) {
+            if (typeFilter != null && !typeFilter.equals(e.type)) continue;
             long ms = HistorialMapper.parseIsoToMs(e.created_at);
             if (ms > bestMs) {
                 bestMs = ms;
@@ -145,11 +189,15 @@ public class PawGatePollingService extends Service {
     private void reconcileBlockedFlag(DeviceDtos.Event e) {
         if (e.event_type == null) return;
         boolean locallyBlocked = PrefsHelper.isDoorBlocked(this);
+        Log.d(TAG, "reconcile: event_type=" + e.event_type
+                + " locallyBlocked=" + locallyBlocked);
         if ("blocked".equals(e.event_type) && !locallyBlocked) {
             PrefsHelper.setDoorBlocked(this, true);
             PrefsHelper.clearCycle(this);
+            Log.d(TAG, "reconcile -> setDoorBlocked(true)");
         } else if ("unblocked".equals(e.event_type) && locallyBlocked) {
             PrefsHelper.setDoorBlocked(this, false);
+            Log.d(TAG, "reconcile -> setDoorBlocked(false)");
         }
     }
 

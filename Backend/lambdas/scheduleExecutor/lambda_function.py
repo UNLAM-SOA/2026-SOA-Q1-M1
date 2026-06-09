@@ -2,39 +2,49 @@
 Lambda: pawgate-schedule-executor
 ==================================
 
-Cron de 30 minutos. Cada vez que dispara:
-  1) Calcula el slot actual (hora:30 o hora:00) en zona horaria Argentina.
-  2) Calcula el dia actual (L/M/X/J/V/S/D).
-  3) Scan a pawgate_schedules de horarios activos.
-  4) Para cada match (mismo dia + slot == hora_inicio o == hora_fin):
-     - Resuelve qué cmd publicar segun el tipo de horario.
-     - Idempotencia: ConditionalPut en pawgate_schedule_runs con clave
-       <schedule_id>_<YYYY-MM-DD_HH-MM>_<action>. Si ya existe -> skip.
-     - Publica via iot:Publish al topic pawgate/<device_id>/cmd/<cmd>.
+Cron de 30 minutos. Cada vez que dispara, evalua la state machine del lock
+del device contra los schedules activos.
+
+Modelo:
+    Un schedule = ventana en que la puerta queda DESBLOQUEADA.
+    Fuera de cualquier schedule, la puerta debe estar bloqueada.
+
+Modelo de override:
+    El override MANUAL_BLOCKED / MANUAL_UNBLOCKED se libera cuando hay una
+    TRANSICION de horarios activos (no solo cuando cambia el binario
+    in_horario). Para detectar esto, persistimos `horario_marker` (string
+    con los IDs de horarios actualmente activos sorted+joined). Si el marker
+    cambia entre ticks, hay transicion -> override consumido.
+
+    Ej: si tenes 2 horarios contiguos 16:30-17:00 y 17:00-18:30:
+      16:59 -> marker = "{A}"
+      17:01 -> marker = "{B}"
+      Aunque in_horario sigue True, hay transicion -> override liberado.
+
+State machine (despues de eventual liberacion de override):
+
+  in_horario=True:
+    AUTO_BLOCKED   -> AUTO_UNBLOCKED  (publish unblock)
+    AUTO_UNBLOCKED -> AUTO_UNBLOCKED  (no-op)
+
+  in_horario=False:
+    AUTO_BLOCKED   -> AUTO_BLOCKED    (no-op)
+    AUTO_UNBLOCKED -> AUTO_BLOCKED    (publish block)
+
+Si NO hubo transicion de horarios, los overrides se mantienen:
+  MANUAL_BLOCKED   -> MANUAL_BLOCKED
+  MANUAL_UNBLOCKED -> MANUAL_UNBLOCKED
+
+Idempotencia: si el state ya es el correcto, no publicamos.
 
 Trigger:
-    EventBridge cron(0,30 * * * ? *) — minuto 0 y 30 de cada hora UTC.
-    Tiempo de ejecucion esperado: <2s por invocacion (depende de cuantos
-    horarios haya en la tabla).
-
-Tipos de horario soportados:
-    "abrir_auto"     hora_inicio -> cmd/open
-                     hora_fin    -> ignorado (la puerta se cierra sola)
-    "modo_nocturno"  hora_inicio -> cmd/block
-                     hora_fin    -> cmd/unblock
-    "paseo"          hora_inicio -> cmd/open
-                     hora_fin    -> ignorado
-
-Restriccion UX:
-    Los horarios se configuran SOLO en slots de 30 min (HH:00 o HH:30).
-    Esto lo enforce la app Android en el TimePicker. Si llega un horario con
-    minutos != 00 y != 30, simplemente no va a matchear (Lambda lo ignora).
+    EventBridge cron(0,30 * * * ? *)
 """
 
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -47,123 +57,181 @@ ddb = boto3.resource("dynamodb")
 iot_data = boto3.client("iot-data")
 
 SCHEDULES_TABLE = os.environ.get("SCHEDULES_TABLE", "pawgate_schedules")
-RUNS_TABLE = os.environ.get("RUNS_TABLE", "pawgate_schedule_runs")
+DEVICE_STATE_TABLE = os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state")
 
 schedules_table = ddb.Table(SCHEDULES_TABLE)
-runs_table = ddb.Table(RUNS_TABLE)
+device_state_table = ddb.Table(DEVICE_STATE_TABLE)
 
-# Argentina no tiene DST asi que UTC-3 es fijo. Si en el futuro queremos soportar
-# multiples zonas horarias, esto se hace por usuario (campo timezone en pawgate_users).
 TZ_LOCAL = ZoneInfo("America/Argentina/Buenos_Aires")
-
-# Mapeo de weekday() (0=Monday) a las letras que guardamos en el campo "dias".
 DAY_MAP = ["L", "M", "X", "J", "V", "S", "D"]
-
-# Que cmd publicar segun tipo + momento del horario.
-TIPO_ACTIONS = {
-    "abrir_auto":    {"inicio": "open",  "fin": None},
-    "modo_nocturno": {"inicio": "block", "fin": "unblock"},
-    "paseo":         {"inicio": "open",  "fin": None},
-}
 
 
 def lambda_handler(event, context):
-    """Entry point. event es el evento de EventBridge, lo ignoramos."""
     now_local = datetime.now(TZ_LOCAL)
     current_day = DAY_MAP[now_local.weekday()]
+    current_min = now_local.hour * 60 + now_local.minute
+    logger.info("Tick: day=%s time=%02d:%02d", current_day, now_local.hour, now_local.minute)
 
-    # Redondear el minuto al slot de 30: 0-29 -> 00, 30-59 -> 30.
-    # Esto absorbe el jitter de Lambda (puede arrancar a XX:30:01 o XX:30:30).
-    slot_minute = 0 if now_local.minute < 30 else 30
-    slot_time = f"{now_local.hour:02d}:{slot_minute:02d}"
-    slot_id = now_local.strftime(f"%Y-%m-%d_%H-{slot_minute:02d}")
-
-    logger.info("Slot: %s · day=%s · slot_id=%s", slot_time, current_day, slot_id)
-
-    # Scan de horarios activos. Para 100s de horarios esta bien; para 10K+
-    # convendria un GSI por (activo, day_index) y query por dia.
+    # Agrupar schedules por device_id (scan completo)
     try:
-        result = schedules_table.scan(
-            FilterExpression="activo = :true",
-            ExpressionAttributeValues={":true": True},
-        )
+        result = schedules_table.scan()
     except ClientError as e:
-        logger.error("Failed to scan schedules: %s", e)
+        logger.error("Scan schedules failed: %s", e)
         raise
 
-    schedules = result.get("Items", [])
-    logger.info("Schedules activos encontrados: %d", len(schedules))
-
-    fired = 0
-    skipped = 0
-
-    for sched in schedules:
-        device_id = sched.get("device_id")
-        schedule_id = sched.get("schedule_id")
-        tipo = sched.get("tipo", "abrir_auto")
-        dias = sched.get("dias", [])
-        hora_inicio = sched.get("hora_inicio")
-        hora_fin = sched.get("hora_fin")
-
-        # Filtro 1: día actual no esta en los dias del horario
-        if current_day not in dias:
+    schedules_by_device = {}
+    for s in result.get("Items", []):
+        if not s.get("activo"):
             continue
+        schedules_by_device.setdefault(s["device_id"], []).append(s)
 
-        # Filtro 2: matchear contra inicio y/o fin
-        actions = TIPO_ACTIONS.get(tipo, {})
+    # Si no hay schedules en la tabla, evaluamos igual los devices que tengan state
+    # registrado (asi siguen recibiendo block si corresponde).
+    try:
+        state_result = device_state_table.scan()
+        for st in state_result.get("Items", []):
+            schedules_by_device.setdefault(st["device_id"], [])
+    except ClientError as e:
+        logger.warning("Scan device_state failed (ignoring): %s", e)
 
-        for moment, slot in (("inicio", hora_inicio), ("fin", hora_fin)):
-            cmd = actions.get(moment)
-            if not cmd or not slot or slot != slot_time:
-                continue
+    transitions = 0
+    for device_id, schedules in schedules_by_device.items():
+        if _evaluate_device(device_id, schedules, current_day, current_min):
+            transitions += 1
 
-            # Idempotencia: clave unica por schedule + slot + moment
-            run_key = f"{schedule_id}_{slot_id}_{moment}"
+    logger.info("Done. devices_evaluated=%d transitions=%d",
+                len(schedules_by_device), transitions)
+    return {"devices_evaluated": len(schedules_by_device), "transitions": transitions}
 
-            try:
-                _put_run_marker(run_key)
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                    logger.info("Already fired %s (skip)", run_key)
-                    skipped += 1
-                    continue
-                raise
 
-            # Publish al topic MQTT
-            topic = f"pawgate/{device_id}/cmd/{cmd}"
-            payload = {
-                "source": "schedule",
-                "schedule_id": schedule_id,
-                "tipo": tipo,
-                "moment": moment,
-                "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
-            }
-            iot_data.publish(
-                topic=topic,
-                qos=1,
-                payload=json.dumps(payload),
-            )
-            logger.info("⬆ PUB %s (schedule_id=%s)", topic, schedule_id)
-            fired += 1
+def _evaluate_device(device_id, schedules, current_day, current_min):
+    """Evalua un device contra sus schedules. Devuelve True si hubo transicion."""
+    active_ids = _active_schedule_ids(schedules, current_day, current_min)
+    in_horario = bool(active_ids)
+    new_marker = _marker(active_ids)
 
-    logger.info("Done. fired=%d skipped=%d total_active=%d", fired, skipped, len(schedules))
-    return {
-        "checked": len(schedules),
-        "fired": fired,
-        "skipped": skipped,
-        "slot": slot_time,
-        "day": current_day,
+    state_item = _get_state_item(device_id)
+    current_state = state_item.get("lock_state", "AUTO_BLOCKED")
+    last_marker = state_item.get("horario_marker", "")
+
+    # Liberar override si hubo transicion de horarios activos.
+    if current_state in ("MANUAL_BLOCKED", "MANUAL_UNBLOCKED") and last_marker != new_marker:
+        logger.info("Device %s: override liberado (marker %s -> %s)",
+                    device_id, last_marker, new_marker)
+        current_state = "AUTO_BLOCKED" if current_state == "MANUAL_BLOCKED" else "AUTO_UNBLOCKED"
+
+    next_state, action = _transition(current_state, in_horario)
+
+    # Si nada cambio (state ni marker), no escribimos.
+    if (next_state == state_item.get("lock_state") and action is None
+            and new_marker == last_marker):
+        return False
+
+    _set_state(device_id, next_state, new_marker)
+    if action:
+        _publish_cmd(device_id, action)
+    logger.info("Device %s: %s -> %s (in_horario=%s, marker=%s, action=%s)",
+                device_id, state_item.get("lock_state"), next_state,
+                in_horario, new_marker, action)
+    return True
+
+
+def _transition(current_state, in_horario):
+    """Despues de la posible liberacion del override, aplica la state machine
+       basica AUTO_BLOCKED <-> AUTO_UNBLOCKED. Los MANUAL_* que llegan aca
+       significa que NO hubo transicion de horarios y el override sigue."""
+    if in_horario:
+        if current_state == "AUTO_BLOCKED":
+            return "AUTO_UNBLOCKED", "unblock"
+        if current_state == "AUTO_UNBLOCKED":
+            return "AUTO_UNBLOCKED", None
+        if current_state == "MANUAL_UNBLOCKED":
+            return "MANUAL_UNBLOCKED", None
+        if current_state == "MANUAL_BLOCKED":
+            return "MANUAL_BLOCKED", None
+    else:
+        if current_state == "AUTO_BLOCKED":
+            return "AUTO_BLOCKED", None
+        if current_state == "AUTO_UNBLOCKED":
+            return "AUTO_BLOCKED", "block"
+        if current_state == "MANUAL_UNBLOCKED":
+            return "MANUAL_UNBLOCKED", None
+        if current_state == "MANUAL_BLOCKED":
+            return "MANUAL_BLOCKED", None
+    return "AUTO_BLOCKED", "block"
+
+
+def _active_schedule_ids(schedules, current_day, current_min):
+    """Devuelve la lista (sorted) de schedule_id que estan activos AHORA."""
+    active = []
+    for s in schedules:
+        if current_day not in (s.get("dias") or []):
+            continue
+        try:
+            h1, m1 = map(int, s["hora_inicio"].split(":"))
+            h2, m2 = map(int, s["hora_fin"].split(":"))
+        except (ValueError, KeyError):
+            continue
+        inicio_min = h1 * 60 + m1
+        fin_min = h2 * 60 + m2
+        is_active = (
+            (fin_min > inicio_min and inicio_min <= current_min < fin_min)
+            or (fin_min <= inicio_min and (current_min >= inicio_min or current_min < fin_min))
+        )
+        if is_active:
+            active.append(s.get("schedule_id", ""))
+    return sorted(active)
+
+
+def _marker(active_ids):
+    """String para comparar entre ticks. Vacio si no hay activos."""
+    return "|".join(active_ids)
+
+
+# ============================================================
+# DEVICE STATE HELPERS
+# ============================================================
+
+def _get_state_item(device_id):
+    """Devuelve el item completo (lock_state + horario_marker + updated_at).
+       Si no existe, defaults.
+
+       ConsistentRead=True evita race conditions con escrituras recientes del
+       apiHandler. Sin esto, un override que recien se persistio podria
+       leerse stale y el cron lo libera por verlo con marker vacio."""
+    try:
+        resp = device_state_table.get_item(
+            Key={"device_id": device_id},
+            ConsistentRead=True,
+        )
+        item = resp.get("Item")
+        if item:
+            return item
+    except ClientError as e:
+        logger.error("get_state_item failed: %s", e)
+    return {"lock_state": "AUTO_BLOCKED", "horario_marker": ""}
+
+
+def _set_state(device_id, lock_state, horario_marker):
+    try:
+        device_state_table.put_item(Item={
+            "device_id": device_id,
+            "lock_state": lock_state,
+            "horario_marker": horario_marker,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except ClientError as e:
+        logger.error("set_state failed: %s", e)
+
+
+def _publish_cmd(device_id, cmd):
+    topic = f"pawgate/{device_id}/cmd/{cmd}"
+    payload = {
+        "source": "schedule_executor",
+        "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
     }
-
-
-def _put_run_marker(run_key: str):
-    """ConditionalPut: solo escribe si la key no existe. Falla con
-    ConditionalCheckFailedException si ya fue disparado en este slot."""
-    ttl_epoch = int((datetime.now(timezone.utc) + timedelta(minutes=10)).timestamp())
-    runs_table.put_item(
-        Item={
-            "run_key": run_key,
-            "ttl_epoch": ttl_epoch,
-        },
-        ConditionExpression="attribute_not_exists(run_key)",
-    )
+    try:
+        iot_data.publish(topic=topic, qos=1, payload=json.dumps(payload))
+        logger.info("⬆ PUB %s", topic)
+    except ClientError as e:
+        logger.error("IoT publish failed: %s", e)

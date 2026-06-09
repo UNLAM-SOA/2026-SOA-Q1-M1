@@ -188,3 +188,113 @@ event persisted ✅
 | CloudWatch Logs | ~50 MB | 5 GB | 1% |
 
 **Total: $0/mes en free tier permanente.**
+
+---
+
+## Rework: Horarios = ventanas de desbloqueo + state machine del lock
+
+El backend evolucionó para tratar a los horarios como **ventanas en que la puerta queda desbloqueada**. Fuera de cualquier horario activo, la puerta se bloquea sola. El `scheduleExecutor` mantiene una máquina de estados del lock por device en una tabla DDB nueva.
+
+### Modelo de schedule (DDB `pawgate_schedules`)
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| device_id (PK) | string | |
+| schedule_id (SK) | string | UUID generado por la API |
+| nombre | string | min 3 caracteres |
+| hora_inicio | string `"HH:MM"` | minutos siempre `00` o `30` |
+| hora_fin | string `"HH:MM"` | idem |
+| dias | list<string> | de `{L,M,X,J,V,S,D}` |
+| activo | bool | |
+| created_at, updated_at | ISO 8601 | |
+
+### Tabla nueva: `pawgate_device_state`
+
+PK = `device_id`. Item:
+```
+{ device_id, lock_state, updated_at }
+lock_state ∈ {AUTO_BLOCKED, AUTO_UNBLOCKED, MANUAL_UNBLOCKED, MANUAL_BLOCKED}
+```
+
+Crear la tabla:
+```bash
+aws dynamodb create-table \
+  --table-name pawgate_device_state \
+  --attribute-definitions AttributeName=device_id,AttributeType=S \
+  --key-schema AttributeName=device_id,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+```
+
+### State machine (scheduleExecutor cron 30min)
+
+| Estado actual | In horario? | Próximo estado | Acción |
+|---|---|---|---|
+| AUTO_BLOCKED | sí | AUTO_UNBLOCKED | publish `cmd/unblock` |
+| AUTO_BLOCKED | no | AUTO_BLOCKED | no-op |
+| AUTO_UNBLOCKED | sí | AUTO_UNBLOCKED | no-op |
+| AUTO_UNBLOCKED | no | AUTO_BLOCKED | publish `cmd/block` |
+| MANUAL_UNBLOCKED | sí | AUTO_UNBLOCKED | no-op (override consumido) |
+| MANUAL_UNBLOCKED | no | MANUAL_UNBLOCKED | no-op (override sigue activo) |
+| MANUAL_BLOCKED | sí | MANUAL_BLOCKED | no-op (override sigue activo) |
+| MANUAL_BLOCKED | no | AUTO_BLOCKED | no-op (override consumido) |
+
+### Endpoints nuevos en `apiHandler`
+
+| Método | Path | Descripción |
+|---|---|---|
+| GET    | `/devices/{id}/schedules` | listar |
+| POST   | `/devices/{id}/schedules` | crear (body: nombre, hora_inicio, hora_fin, dias, activo) |
+| PUT    | `/devices/{id}/schedules/{schedule_id}` | editar |
+| DELETE | `/devices/{id}/schedules/{schedule_id}` | eliminar |
+| GET    | `/devices/{id}/state` | `{lock_state, updated_at, currently_in_horario}` |
+| POST   | `/devices/{id}/state/override-unblock` | manual override → `MANUAL_UNBLOCKED` + publish unblock |
+| POST   | `/devices/{id}/state/override-block` | manual override → `MANUAL_BLOCKED` + publish block |
+
+Hay que registrar estos paths en API Gateway con el Cognito Authorizer. El path `/devices/{id}/schedules/{schedule_id}` requiere dos path parameters; en la consola de API GW usás `{id}` y `{schedule_id}`.
+
+### Re-deploy de las lambdas
+
+Cuando cambies el código:
+```bash
+# apiHandler
+cd Backend/lambdas/apiHandler
+zip apiHandler.zip lambda_function.py
+aws lambda update-function-code \
+  --function-name pawgate-api-handler \
+  --zip-file fileb://apiHandler.zip
+cd ../../..
+
+# scheduleExecutor
+cd Backend/lambdas/scheduleExecutor
+zip scheduleExecutor.zip lambda_function.py
+aws lambda update-function-code \
+  --function-name pawgate-schedule-executor \
+  --zip-file fileb://scheduleExecutor.zip
+cd ../../..
+```
+
+Si las env vars cambiaron (ahora apiHandler necesita `DEVICE_STATE_TABLE` y scheduleExecutor también):
+```bash
+aws lambda update-function-configuration \
+  --function-name pawgate-api-handler \
+  --environment "Variables={USER_POOL_ID=us-east-1_dJscv8ddq,APP_CLIENT_ID=s4bfmo11tfu81k5f4q7pm6ri8,EVENTS_TABLE=pawgate_events,SCHEDULES_TABLE=pawgate_schedules,DEVICE_STATE_TABLE=pawgate_device_state}"
+
+aws lambda update-function-configuration \
+  --function-name pawgate-schedule-executor \
+  --environment "Variables={SCHEDULES_TABLE=pawgate_schedules,DEVICE_STATE_TABLE=pawgate_device_state}"
+```
+
+Si actualizaste las IAM policies (JSONs en `iam-roles/`):
+```bash
+aws iam put-role-policy \
+  --role-name pawgate-api-handler-role \
+  --policy-name pawgate-api-handler-policy \
+  --policy-document file://Backend/iam-roles/lambda-api-handler-policy.json
+
+aws iam put-role-policy \
+  --role-name pawgate-schedule-executor-role \
+  --policy-name pawgate-schedule-executor-policy \
+  --policy-document file://Backend/iam-roles/lambda-schedule-executor-policy.json
+```
+
