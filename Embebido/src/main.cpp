@@ -1,9 +1,12 @@
   #include <ESP32Servo.h>
   #include <MFRC522.h>
   #include <WiFi.h>
+  #include <WiFiClientSecure.h>
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
+  #include "aws_certs.h"
 
-  WiFiClient espClient;
+  // WiFiClient espClient; // Se activa cuando no queremos correr contra AWS IoT Core
+  WiFiClientSecure espClient;
   PubSubClient client(espClient);
 
   // WIFI
@@ -13,12 +16,13 @@
   enum tipo_broker {
     EMQX,
     HIVEMQ_PUBLIC,
-    MOSQUITTO_LOCAL
+    MOSQUITTO_LOCAL,
+    AWS_IOT_CORE
   };
 
 
   // MQTT
-  #define BROKER HIVEMQ_PUBLIC // Nosotros vamos a usar este, acá lo seteo
+  #define BROKER AWS_IOT_CORE // Nosotros vamos a usar este, acá lo seteo
 
   // Configuración dependiente del broker
   const char* mqtt_server;
@@ -27,7 +31,8 @@
   const char* mqtt_pass;
 
   // Topics y ClientID
-  #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+  // #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+  #define MQTT_CLIENT_ID AWS_THING_NAME
   #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
   #define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
 
@@ -81,6 +86,9 @@
   #define TAM_EV_COLA_PUERTA 10
   #define TAM_ACC_COLA_PUERTA 10
   #define TIEMPO_TIMEOUT_PUERTA 4500
+
+  // Buffer para envío de mensajes en MQTT para AWS IoT Core
+  #define BUFFER_SIZE 1024
 
   // ================================================================
   // TIPOS COMPARTIDOS
@@ -775,6 +783,16 @@
         mqtt_port   = 1883;
         mqtt_user   = NULL;
         mqtt_pass   = NULL;
+        break;
+      case AWS_IOT_CORE:
+        mqtt_server = AWS_IOT_ENDPOINT;
+        mqtt_port   = AWS_IOT_PORT;
+        mqtt_user   = NULL;
+        mqtt_pass   = NULL;
+        espClient.setCACert(AWS_ROOT_CA);
+        espClient.setCertificate(AWS_DEVICE_CERT);
+        espClient.setPrivateKey(AWS_PRIVATE_KEY);
+        client.setBufferSize(BUFFER_SIZE);
         break;
       default:
         Serial.println("Error: Broker mal seleccionado");
