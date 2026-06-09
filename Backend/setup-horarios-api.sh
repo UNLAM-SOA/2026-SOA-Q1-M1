@@ -129,6 +129,13 @@ USERS_RES=$(ensure_resource "$ROOT_RES" "users" "/users" | tail -1)
 USERS_ME_RES=$(ensure_resource "$USERS_RES" "me" "/users/me" | tail -1)
 FCM_TOKEN_RES=$(ensure_resource "$USERS_ME_RES" "fcm-token" "/users/me/fcm-token" | tail -1)
 
+# Notificaciones persistidas (Sub-fase B+C)
+NOTIFS_RES=$(ensure_resource "$USERS_ME_RES" "notifications" "/users/me/notifications" | tail -1)
+NOTIFS_UNREAD_RES=$(ensure_resource "$NOTIFS_RES" "unread-count" "/users/me/notifications/unread-count" | tail -1)
+NOTIFS_READ_RES=$(ensure_resource "$NOTIFS_RES" "read" "/users/me/notifications/read" | tail -1)
+NOTIF_ID_RES=$(ensure_resource "$NOTIFS_RES" "{notif_id}" "/users/me/notifications/{notif_id}" | tail -1)
+NOTIF_ID_READ_RES=$(ensure_resource "$NOTIF_ID_RES" "read" "/users/me/notifications/{notif_id}/read" | tail -1)
+
 # ============================================================
 # 3) Crear methods con Cognito Authorizer + Lambda proxy (idempotente)
 # ============================================================
@@ -299,6 +306,16 @@ ensure_cors   $INFO_RES     "       /devices/{id}/info"
 ensure_method $FCM_TOKEN_RES POST   "POST   /users/me/fcm-token"
 ensure_method $FCM_TOKEN_RES DELETE "DELETE /users/me/fcm-token"
 ensure_cors   $FCM_TOKEN_RES        "       /users/me/fcm-token"
+
+# /users/me/notifications
+ensure_method $NOTIFS_RES GET           "GET    /users/me/notifications"
+ensure_cors   $NOTIFS_RES               "       /users/me/notifications"
+ensure_method $NOTIFS_UNREAD_RES GET    "GET    /users/me/notifications/unread-count"
+ensure_cors   $NOTIFS_UNREAD_RES        "       /users/me/notifications/unread-count"
+ensure_method $NOTIFS_READ_RES POST     "POST   /users/me/notifications/read"
+ensure_cors   $NOTIFS_READ_RES          "       /users/me/notifications/read"
+ensure_method $NOTIF_ID_READ_RES POST   "POST   /users/me/notifications/{notif_id}/read"
+ensure_cors   $NOTIF_ID_READ_RES        "       /users/me/notifications/{notif_id}/read"
 
 # /auth/refresh                          POST (public, sin Cognito Authorizer)
 ensure_method_public $AUTH_REFRESH_RES POST "POST   /auth/refresh"

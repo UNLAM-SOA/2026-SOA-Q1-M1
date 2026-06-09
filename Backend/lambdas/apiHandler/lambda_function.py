@@ -42,7 +42,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.exceptions import ClientError
@@ -74,11 +74,13 @@ SCHEDULES_TABLE = os.environ.get("SCHEDULES_TABLE", "pawgate_schedules")
 DEVICE_STATE_TABLE = os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state")
 FCM_ENDPOINTS_TABLE = os.environ.get("FCM_ENDPOINTS_TABLE", "pawgate_fcm_endpoints")
 FCM_PLATFORM_APP_ARN = os.environ.get("FCM_PLATFORM_APP_ARN", "").strip()
+NOTIFICATIONS_TABLE = os.environ.get("NOTIFICATIONS_TABLE", "pawgate_notifications")
 
 events_table = ddb.Table(EVENTS_TABLE)
 schedules_table = ddb.Table(SCHEDULES_TABLE)
 device_state_table = ddb.Table(DEVICE_STATE_TABLE)
 fcm_endpoints_table = ddb.Table(FCM_ENDPOINTS_TABLE)
+notifications_table = ddb.Table(NOTIFICATIONS_TABLE)
 
 VALID_DAYS = {"L", "M", "X", "J", "V", "S", "D"}
 VALID_LOCK_STATES = {"AUTO_BLOCKED", "AUTO_UNBLOCKED", "MANUAL_UNBLOCKED", "MANUAL_BLOCKED"}
@@ -149,17 +151,21 @@ def lambda_handler(event, context):
             return handle_history(device_id, query_params)
 
         if method == "POST" and "/cmd/" in path:
-            return handle_cmd(device_id, cmd, body)
+            actor = _extract_user_email(event)
+            return handle_cmd(device_id, cmd, body, actor=actor)
 
         # ===== Schedules CRUD =====
         if method == "GET" and path.endswith("/schedules"):
             return handle_list_schedules(device_id)
         if method == "POST" and path.endswith("/schedules"):
-            return handle_create_schedule(device_id, body)
+            actor = _extract_user_email(event)
+            return handle_create_schedule(device_id, body, actor=actor)
         if method == "PUT" and "/schedules/" in path:
-            return handle_update_schedule(device_id, schedule_id, body)
+            actor = _extract_user_email(event)
+            return handle_update_schedule(device_id, schedule_id, body, actor=actor)
         if method == "DELETE" and "/schedules/" in path:
-            return handle_delete_schedule(device_id, schedule_id)
+            actor = _extract_user_email(event)
+            return handle_delete_schedule(device_id, schedule_id, actor=actor)
 
         # ===== Metrics =====
         if method == "GET" and path.endswith("/metrics/today"):
@@ -181,13 +187,43 @@ def lambda_handler(event, context):
             if method == "DELETE":
                 return handle_unregister_fcm_token(user_email)
 
+        # ===== Notificaciones (bandeja persistida en pawgate_notifications) =====
+        # GET    /users/me/notifications?limit=&onlyUnread=
+        # GET    /users/me/notifications/unread-count
+        # POST   /users/me/notifications/read         (marca TODAS leidas)
+        # POST   /users/me/notifications/{notif_id}/read   (marca UNA leida)
+        if "/users/me/notifications" in path:
+            user_email = _extract_user_email(event)
+            if not user_email:
+                return _response(401, {"error": "no user identity in token"})
+
+            query_params = event.get("queryStringParameters") or {}
+            path_params = event.get("pathParameters") or {}
+
+            if method == "GET" and path.endswith("/notifications/unread-count"):
+                return handle_notifications_unread_count(user_email)
+            if method == "POST" and path.endswith("/notifications/read"):
+                return handle_notifications_mark_all_read(user_email)
+            if method == "POST" and path.endswith("/read") and "/notifications/" in path:
+                notif_id = path_params.get("notif_id")
+                if not notif_id:
+                    # fallback: parsear de path /users/me/notifications/{id}/read
+                    parts = path.rstrip("/").split("/")
+                    if len(parts) >= 2 and parts[-1] == "read":
+                        notif_id = parts[-2]
+                return handle_notifications_mark_one_read(user_email, notif_id)
+            if method == "GET" and path.endswith("/notifications"):
+                return handle_notifications_list(user_email, query_params)
+
         # ===== Device state =====
         if method == "GET" and path.endswith("/state"):
             return handle_get_state(device_id)
         if method == "POST" and path.endswith("/state/override-unblock"):
-            return handle_override_unblock(device_id)
+            actor = _extract_user_email(event)
+            return handle_override_unblock(device_id, actor=actor)
         if method == "POST" and path.endswith("/state/override-block"):
-            return handle_override_block(device_id)
+            actor = _extract_user_email(event)
+            return handle_override_block(device_id, actor=actor)
 
         return _response(404, {"error": f"route not found: {method} {path}"})
 
@@ -257,6 +293,10 @@ def handle_login(body):
             AuthParameters={"USERNAME": email, "PASSWORD": password},
         )
         tokens = resp["AuthenticationResult"]
+        # Audit: registramos el login para que aparezca en la bandeja de los
+        # OTROS users (sirve para detectar accesos no autorizados). El user
+        # que se logueo no necesita verlo, pero igual le aparece como "Vos".
+        _audit_notify(email, "pawgate-001", "login", {})
         return _ok({
             "idToken":      tokens["IdToken"],
             "accessToken":  tokens["AccessToken"],
@@ -432,7 +472,7 @@ def handle_history(device_id, query_params):
     return _ok(response)
 
 
-def handle_cmd(device_id, cmd, body):
+def handle_cmd(device_id, cmd, body, actor=None):
     if not device_id or not cmd:
         return _bad_request("device_id y cmd son requeridos")
     allowed_cmds = {"open", "block", "unblock", "call", "cancel", "reboot"}
@@ -467,6 +507,12 @@ def handle_cmd(device_id, cmd, body):
     try:
         iot_data.publish(topic=topic, qos=1, payload=json.dumps(payload))
         logger.info("Published to %s: %s", topic, payload)
+        # Audit/notif: registramos QUE el user ejecuto un cmd manual. El evento
+        # del ESP32 (door opened) tambien se va a notificar via eventIngest,
+        # pero con type=opened (sin actor). Aca lo registramos con actor=user
+        # para que en la bandeja se vea "Vos abriste la puerta" antes de que
+        # el ESP32 confirme con el evento real.
+        _audit_notify(actor, device_id, f"cmd_{cmd}", body)
         return _ok({"queued": True, "topic": topic, "payload": payload})
     except ClientError as e:
         logger.error("IoT publish failed: %s", e)
@@ -533,7 +579,7 @@ def handle_list_schedules(device_id):
     return _ok({"device_id": device_id, "schedules": result.get("Items", [])})
 
 
-def handle_create_schedule(device_id, body):
+def handle_create_schedule(device_id, body, actor=None):
     if not device_id:
         return _bad_request("device_id requerido")
     errors, sanitized = _validate_schedule(body)
@@ -553,10 +599,11 @@ def handle_create_schedule(device_id, body):
     except ClientError as e:
         logger.error("DDB put schedule failed: %s", e)
         return _server_error("create failed")
+    _audit_notify(actor, device_id, "schedule_created", {"nombre": sanitized["nombre"]})
     return _created(item)
 
 
-def handle_update_schedule(device_id, schedule_id, body):
+def handle_update_schedule(device_id, schedule_id, body, actor=None):
     if not device_id or not schedule_id:
         return _bad_request("device_id y schedule_id son requeridos")
     errors, sanitized = _validate_schedule(body)
@@ -588,12 +635,24 @@ def handle_update_schedule(device_id, schedule_id, body):
         return _server_error("update failed")
 
     item = {"device_id": device_id, "schedule_id": schedule_id, **sanitized}
+    _audit_notify(actor, device_id, "schedule_updated", {"nombre": sanitized["nombre"]})
     return _ok(item)
 
 
-def handle_delete_schedule(device_id, schedule_id):
+def handle_delete_schedule(device_id, schedule_id, actor=None):
     if not device_id or not schedule_id:
         return _bad_request("device_id y schedule_id son requeridos")
+    # Antes de borrar leemos el nombre para incluirlo en la notif.
+    nombre = None
+    try:
+        existing = schedules_table.get_item(
+            Key={"device_id": device_id, "schedule_id": schedule_id}
+        ).get("Item")
+        if existing:
+            nombre = existing.get("nombre")
+    except ClientError:
+        pass
+
     try:
         schedules_table.delete_item(
             Key={"device_id": device_id, "schedule_id": schedule_id},
@@ -604,6 +663,8 @@ def handle_delete_schedule(device_id, schedule_id):
             return _not_found("schedule not found")
         logger.error("DDB delete schedule failed: %s", e)
         return _server_error("delete failed")
+    _audit_notify(actor, device_id, "schedule_deleted",
+                  {"nombre": nombre or "(sin nombre)"})
     return _no_content()
 
 
@@ -878,21 +939,23 @@ def handle_metrics_today(device_id):
     return _ok(response)
 
 
-def handle_override_unblock(device_id):
+def handle_override_unblock(device_id, actor=None):
     """Manual override: el user desbloquea fuera de horario.
        Setea lock_state=MANUAL_UNBLOCKED y publica cmd/unblock al device.
        El cron lo respeta hasta que entre a un horario natural."""
-    return _do_override(device_id, "MANUAL_UNBLOCKED", "unblock")
+    return _do_override(device_id, "MANUAL_UNBLOCKED", "unblock", actor=actor,
+                         notif_type="override_unblock")
 
 
-def handle_override_block(device_id):
+def handle_override_block(device_id, actor=None):
     """Manual override: el user bloquea dentro de horario.
        Setea lock_state=MANUAL_BLOCKED y publica cmd/block al device.
        El cron lo respeta hasta que salga del horario natural."""
-    return _do_override(device_id, "MANUAL_BLOCKED", "block")
+    return _do_override(device_id, "MANUAL_BLOCKED", "block", actor=actor,
+                         notif_type="override_block")
 
 
-def _do_override(device_id, target_state, cmd):
+def _do_override(device_id, target_state, cmd, actor=None, notif_type=None):
     if not device_id:
         return _bad_request("device_id requerido")
     _set_device_state(device_id, target_state)
@@ -906,6 +969,8 @@ def _do_override(device_id, target_state, cmd):
     except ClientError as e:
         logger.error("IoT publish failed: %s", e)
         return _server_error("publish failed")
+    if notif_type:
+        _audit_notify(actor, device_id, notif_type, {"target_state": target_state})
     return _ok({"lock_state": target_state, "topic": topic, "payload": payload})
 
 
@@ -1037,3 +1102,332 @@ def _currently_in_horario(device_id):
 
 def _iso_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# NOTIFICATIONS (bandeja persistente, Sub-fase B+C)
+# ============================================================
+#
+# La tabla pawgate_notifications usa:
+#   PK: user_email (S)
+#   SK: notif_id   (S) = "{ts_inverted:013d}#{uuid8}"
+#                        ts_inverted = 9_999_999_999_999 - timestamp_ms
+#
+# El SK invertido es el truco clave: como DynamoDB Query devuelve por
+# defecto los SK en orden ASCENDENTE de string, y nosotros invertimos el
+# timestamp, los items vienen automaticamente del MAS RECIENTE al mas viejo.
+# Esto evita ScanIndexForward=False (que tambien funciona pero es menos
+# ergonomico cuando paginamos en el cliente).
+#
+# Los items tienen ttl_epoch para que DynamoDB los borre solo a los 30 dias.
+
+
+def handle_notifications_list(user_email, query_params):
+    """GET /users/me/notifications?limit=&onlyUnread=
+
+    Devuelve lista de notifs del user, mas recientes primero.
+    Si onlyUnread=true, filtra solo las read=false.
+    """
+    try:
+        limit = int(query_params.get("limit", "50"))
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 100))
+    only_unread = (query_params.get("onlyUnread", "").lower() == "true")
+
+    # Como el SK ya esta invertido, ScanIndexForward=True (default) devuelve
+    # del mas reciente al mas viejo.
+    kwargs = {
+        "KeyConditionExpression": "user_email = :u",
+        "ExpressionAttributeValues": {":u": user_email},
+        "Limit": limit,
+    }
+    if only_unread:
+        # Reservamos 'read' porque es palabra reservada en DDB expressions.
+        kwargs["FilterExpression"] = "#r = :false"
+        kwargs["ExpressionAttributeNames"] = {"#r": "read"}
+        kwargs["ExpressionAttributeValues"][":false"] = False
+        # Con filter, traigo mas paginas para llenar el limit.
+        kwargs["Limit"] = max(limit * 3, 100)
+
+    items = []
+    try:
+        resp = notifications_table.query(**kwargs)
+        items = resp.get("Items", [])
+        # Si pidio onlyUnread, recortamos al limit real despues del filter.
+        if only_unread:
+            items = items[:limit]
+    except ClientError as e:
+        logger.error("notifications query failed: %s", e)
+        return _server_error("query failed")
+
+    return _ok({"items": [_notif_to_json(i) for i in items]})
+
+
+def handle_notifications_unread_count(user_email):
+    """GET /users/me/notifications/unread-count
+
+    Devuelve {unread: N}. Hacemos Query con Select=COUNT y Filter por read=false.
+    En este proyecto el volumen por user es chico (< 200 notifs), asi que
+    un Query con scan-page es aceptable. Si crece, agregar un GSI por
+    (user_email, read) y Count sobre el GSI.
+    """
+    total = 0
+    last_key = None
+    while True:
+        kwargs = {
+            "KeyConditionExpression": "user_email = :u",
+            "ExpressionAttributeValues": {":u": user_email, ":false": False},
+            "FilterExpression": "#r = :false",
+            "ExpressionAttributeNames": {"#r": "read"},
+            "Select": "COUNT",
+        }
+        if last_key:
+            kwargs["ExclusiveStartKey"] = last_key
+        try:
+            resp = notifications_table.query(**kwargs)
+        except ClientError as e:
+            logger.error("unread-count query failed: %s", e)
+            return _server_error("query failed")
+        total += resp.get("Count", 0)
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        # Safety break: si pasa de 500 items unread, devolvemos lo que tengamos.
+        if total >= 500:
+            break
+    return _ok({"unread": total})
+
+
+def handle_notifications_mark_all_read(user_email):
+    """POST /users/me/notifications/read
+
+    Marca TODAS las notifs no leidas del user como leidas. Hacemos
+    query+update item-por-item porque DDB no tiene un BATCH UPDATE.
+    BatchWriteItem solo soporta Put/Delete, no Update.
+    """
+    updated = 0
+    last_key = None
+    while True:
+        kwargs = {
+            "KeyConditionExpression": "user_email = :u",
+            "ExpressionAttributeValues": {":u": user_email, ":false": False},
+            "FilterExpression": "#r = :false",
+            "ExpressionAttributeNames": {"#r": "read"},
+            "ProjectionExpression": "user_email, notif_id",
+        }
+        if last_key:
+            kwargs["ExclusiveStartKey"] = last_key
+        try:
+            resp = notifications_table.query(**kwargs)
+        except ClientError as e:
+            logger.error("mark_all_read query failed: %s", e)
+            return _server_error("query failed")
+
+        for item in resp.get("Items", []):
+            try:
+                notifications_table.update_item(
+                    Key={
+                        "user_email": item["user_email"],
+                        "notif_id":   item["notif_id"],
+                    },
+                    UpdateExpression="SET #r = :true",
+                    ExpressionAttributeNames={"#r": "read"},
+                    ExpressionAttributeValues={":true": True},
+                )
+                updated += 1
+            except ClientError as e:
+                logger.warning("update_item failed (ignored): %s", e)
+
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            break
+    return _ok({"updated": updated})
+
+
+def handle_notifications_mark_one_read(user_email, notif_id):
+    """POST /users/me/notifications/{notif_id}/read"""
+    if not notif_id:
+        return _bad_request("notif_id requerido")
+    try:
+        notifications_table.update_item(
+            Key={"user_email": user_email, "notif_id": notif_id},
+            UpdateExpression="SET #r = :true",
+            ExpressionAttributeNames={"#r": "read"},
+            ExpressionAttributeValues={":true": True},
+            # ConditionExpression: que exista. Si no, devolvemos 404.
+            ConditionExpression="attribute_exists(notif_id)",
+        )
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code == "ConditionalCheckFailedException":
+            return _response(404, {"error": "notif not found"})
+        logger.error("mark_one_read failed: %s", e)
+        return _server_error("update failed")
+    return _ok({"ok": True})
+
+
+def _notif_to_json(item):
+    """Normaliza item de DDB a JSON para el cliente."""
+    return {
+        "notif_id":   item.get("notif_id"),
+        "type":       item.get("type"),
+        "title":      item.get("title"),
+        "body":       item.get("body"),
+        "device_id":  item.get("device_id"),
+        "direction":  item.get("direction"),
+        "actor":      item.get("actor"),      # quien lo ejecuto (Sub-fase D)
+        "read":       bool(item.get("read", False)),
+        "created_at": item.get("created_at"),
+    }
+
+
+# ============================================================
+# AUDIT / TRAZABILIDAD (Sub-fase D)
+# ============================================================
+#
+# Toda accion de un user autenticado (cmd, override, schedule CUD, login)
+# se persiste como notif para TODOS los users registrados en
+# pawgate_fcm_endpoints, con el campo actor=email para que en la app se vea
+# quien lo hizo. El que hizo la accion se va a ver a si mismo como "Vos",
+# el resto va a ver el nombre del que lo hizo.
+#
+# Diseño multi-user: si la familia entera tiene 3 cuentas activas y uno
+# bloquea la puerta, los 3 ven en su bandeja "Puerta bloqueada por
+# nombre_del_user". Para no spammear el celu del que disparo la accion con
+# push, NO disparamos push (solo persistimos). Si en el futuro queremos push
+# para acciones de OTROS users, podemos cambiarlo aca.
+
+# Tipos soportados (13 + los 4 del firmware):
+#   Comandos manuales:   cmd_open, cmd_block, cmd_unblock, cmd_call, cmd_cancel
+#   Overrides:           override_unblock, override_block
+#   Schedules:           schedule_created, schedule_updated, schedule_deleted
+#   Auth:                login
+#   ESP32/system:        opened, closed, blocked, unblocked  (los pone eventIngest)
+
+
+def _audit_notify(actor_email, device_id, notif_type, extra):
+    """
+    Persiste una notif para CADA user registrado en pawgate_fcm_endpoints,
+    con actor=actor_email. Si actor_email es None, se setea "system".
+
+    Best-effort: errores no bloquean la respuesta al cliente. La notif
+    es secundaria al efecto real (publish a IoT / put en DDB), por eso si
+    DDB esta lento no queremos demorar al user.
+    """
+    try:
+        title, body = _format_audit_notification(notif_type, actor_email, extra)
+        if not title:
+            return  # type no soportado, no hacemos nada
+        users = _list_registered_users()
+        if not users:
+            return
+        actor = actor_email or "system"
+        now = datetime.now(timezone.utc)
+        for user_email in users:
+            _put_audit_notification(user_email, device_id, notif_type,
+                                     title, body, actor, extra, now)
+    except Exception as e:
+        # Catch general: la trazabilidad no rompe la operacion principal.
+        logger.warning("audit_notify failed (ignored): %s", e)
+
+
+def _list_registered_users():
+    """Devuelve set de user_email distintos en pawgate_fcm_endpoints.
+       Es la fuente de verdad de 'usuarios activos del sistema'. Si tu cuenta
+       no registro un FCM endpoint (ej: te logueaste en un device sin permisos
+       de notif), no entras en este broadcast."""
+    try:
+        resp = fcm_endpoints_table.scan(
+            ProjectionExpression="user_email"
+        )
+    except ClientError as e:
+        logger.warning("scan fcm endpoints failed: %s", e)
+        return set()
+    return {it.get("user_email") for it in resp.get("Items", []) if it.get("user_email")}
+
+
+def _put_audit_notification(user_email, device_id, notif_type,
+                              title, body, actor, extra, now):
+    """Inserta UNA fila en pawgate_notifications. Mismo schema que
+       eventIngest._persist_notification (Sub-fase B)."""
+    ts_ms = int(now.timestamp() * 1000)
+    ts_inverted = 9_999_999_999_999 - ts_ms
+    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+
+    item = {
+        "user_email":  user_email,
+        "notif_id":    notif_id,
+        "type":        notif_type,
+        "title":       title,
+        "body":        body,
+        "device_id":   device_id or "pawgate-001",
+        "actor":       actor,
+        "read":        False,
+        "created_at":  now.isoformat(),
+        "ttl_epoch":   int((now + timedelta(days=30)).timestamp()),
+    }
+    if isinstance(extra, dict) and extra.get("direction") in ("in", "out"):
+        item["direction"] = extra["direction"]
+
+    try:
+        notifications_table.put_item(Item=item)
+    except ClientError as e:
+        logger.warning("put audit notif failed: %s", e)
+
+
+def _format_audit_notification(notif_type, actor_email, extra):
+    """Devuelve (title, body) en castellano. Si el type no se reconoce,
+       devuelve (None, None) y la notif no se persiste."""
+    actor_label = _short_actor_label(actor_email)
+    extra = extra or {}
+
+    # --- Comandos manuales ---
+    if notif_type == "cmd_open":
+        direction = extra.get("direction") if isinstance(extra, dict) else None
+        if direction == "in":
+            return "Puerta abierta", f"{actor_label} abrió la puerta hacia adentro"
+        if direction == "out":
+            return "Puerta abierta", f"{actor_label} abrió la puerta hacia afuera"
+        return "Puerta abierta", f"{actor_label} abrió la puerta"
+    if notif_type == "cmd_block":
+        return "Puerta bloqueada", f"{actor_label} bloqueó la puerta manualmente"
+    if notif_type == "cmd_unblock":
+        return "Puerta desbloqueada", f"{actor_label} desbloqueó la puerta"
+    if notif_type == "cmd_call":
+        return "Llamada a la mascota", f"{actor_label} activó la llamada"
+    if notif_type == "cmd_cancel":
+        return "Operación cancelada", f"{actor_label} canceló la operación"
+
+    # --- Overrides ---
+    if notif_type == "override_unblock":
+        return "Override manual", f"{actor_label} desbloqueó fuera de horario"
+    if notif_type == "override_block":
+        return "Override manual", f"{actor_label} bloqueó dentro de horario"
+
+    # --- Schedules ---
+    if notif_type == "schedule_created":
+        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
+        return "Horario creado", f'{actor_label} creó el horario "{nombre}"'
+    if notif_type == "schedule_updated":
+        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
+        return "Horario editado", f'{actor_label} editó el horario "{nombre}"'
+    if notif_type == "schedule_deleted":
+        nombre = extra.get("nombre", "(sin nombre)") if isinstance(extra, dict) else ""
+        return "Horario eliminado", f'{actor_label} eliminó el horario "{nombre}"'
+
+    # --- Auth / sistema ---
+    if notif_type == "login":
+        return "Sesión iniciada", f"{actor_label} inició sesión"
+
+    return None, None
+
+
+def _short_actor_label(actor_email):
+    """Nombre amigable a partir del email. 'federico@gmail.com' -> 'federico'.
+       Si es None o 'system', devuelve 'El sistema'."""
+    if not actor_email or actor_email == "system":
+        return "El sistema"
+    if "@" in actor_email:
+        return actor_email.split("@", 1)[0]
+    return actor_email

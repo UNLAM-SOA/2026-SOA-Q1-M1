@@ -47,6 +47,7 @@ ddb = boto3.resource("dynamodb")
 events_table = ddb.Table(os.environ.get("EVENTS_TABLE", "pawgate_events"))
 device_state_table = ddb.Table(os.environ.get("DEVICE_STATE_TABLE", "pawgate_device_state"))
 fcm_endpoints_table = ddb.Table(os.environ.get("FCM_ENDPOINTS_TABLE", "pawgate_fcm_endpoints"))
+notifications_table = ddb.Table(os.environ.get("NOTIFICATIONS_TABLE", "pawgate_notifications"))
 
 # Cliente SNS para mandar push via Platform Application. Si la variable
 # FCM_PLATFORM_APP_ARN no esta seteada, las notificaciones se skipean
@@ -167,7 +168,21 @@ def _notify_owners(device_id, event_type, direction, payload):
     endpoints = resp.get("Items", [])
     if not endpoints:
         logger.info("No FCM endpoints registered, skipping push")
+        # Igual persistimos la notif para que aparezca en la pantalla cuando
+        # el user abra la app, aunque no llegue push. Pero como no sabemos
+        # a quien pertenece, salimos sin persistir.
         return
+
+    # ====== Persistencia 1-fila-por-user en pawgate_notifications ======
+    # ANTES del dedupe de SNS: queremos guardar 1 notif para CADA user_email
+    # registrado (asi cada user ve la notif al abrir la pantalla). El dedupe
+    # de SNS es solo para evitar push duplicado al mismo device, no para
+    # evitar persistir N notifs (eso sería bug).
+    for ep in endpoints:
+        user_email = ep.get("user_email")
+        if user_email:
+            _persist_notification(user_email, device_id, event_type,
+                                   direction, title, body, payload)
 
     # Deduplicar por endpoint_arn: si 2 user_emails distintos apuntan al
     # mismo device (ej: 2 cuentas logueadas en el mismo celular -> SNS
@@ -239,6 +254,57 @@ def _format_notification(event_type, direction):
     if event_type == "blocked":
         return "PawGate", "🔒 Puerta bloqueada"
     return "PawGate", "Evento de la puerta"
+
+
+def _persist_notification(user_email, device_id, event_type, direction,
+                           title, body, payload):
+    """
+    Guarda 1 notif en pawgate_notifications para que el user la vea en su
+    bandeja de la app aunque no estuviera online cuando llego el push.
+
+    Schema:
+      user_email   (S, PK)
+      notif_id     (S, SK) = "{ts_inverted}#{uuid}" donde ts_inverted es
+                   (9999999999999 - timestamp_ms) padded para que el ORDER
+                   BY natural del SK (asc) coincida con orden chronologico
+                   DESC del evento (mas reciente primero). Util para ListQuery
+                   con Limit sin tener que ScanIndexForward=False.
+      type         (S) — event_type del payload original
+      direction    (S, opcional)
+      title        (S)
+      body         (S)
+      device_id    (S)
+      read         (BOOL) — false hasta que el user marca como leida
+      created_at   (S) — ISO 8601
+      ttl_epoch    (N) — borra automatico despues de 30 dias
+    """
+    import uuid
+    now = datetime.now(timezone.utc)
+    ts_ms = int(now.timestamp() * 1000)
+    # Sort key invertido para que descending order = ASC sort
+    ts_inverted = 9_999_999_999_999 - ts_ms
+    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+
+    item = {
+        "user_email":  user_email,
+        "notif_id":    notif_id,
+        "type":        event_type or "",
+        "title":       title,
+        "body":        body,
+        "device_id":   device_id,
+        "read":        False,
+        "created_at":  now.isoformat(),
+        "ttl_epoch":   int((now + timedelta(days=30)).timestamp()),
+    }
+    if direction:
+        item["direction"] = direction
+
+    try:
+        notifications_table.put_item(Item=item)
+        logger.info("Persisted notif user=%s id=%s type=%s",
+                    user_email, notif_id, event_type)
+    except Exception as e:
+        logger.warning("Failed to persist notification (ignored): %s", e)
 
 
 def _update_device_info(device_id: str, payload: dict):
