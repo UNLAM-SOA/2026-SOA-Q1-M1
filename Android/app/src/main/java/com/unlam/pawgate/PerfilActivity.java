@@ -73,11 +73,33 @@ public class PerfilActivity extends AppCompatActivity {
     }
 
     private void doLogout() {
-        // 1) Parar el Service de polling.
+        // 1) Avisar al backend que este device ya NO recibe push para esta
+        //    cuenta. Esto borra el mapping user_email -> endpoint_arn en DDB
+        //    y el endpoint en SNS. Si no lo hicieramos, este device seguiria
+        //    recibiendo push de esta cuenta hasta que alguien mas se loguee
+        //    en este device (que es el unico path que limpia el mapping
+        //    automaticamente).
+        //
+        //    Es "fire-and-forget": no esperamos respuesta. Si falla por
+        //    red, el endpoint queda huerfano hasta el proximo login en
+        //    este device — no es bloqueante para el logout local.
+        new com.unlam.pawgate.api.DeviceRepository(this)
+                .unregisterFcmToken(new com.unlam.pawgate.api.ApiCallback<Void>() {
+                    @Override public void onSuccess(Void result) { /* ok */ }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("PerfilActivity",
+                                "unregisterFcmToken failed (ignored): " + message);
+                    }
+                });
+
+        // 2) Parar el Service de polling.
         PawGatePollingService.stop(this);
-        // 2) Limpiar tokens + user info de SharedPreferences.
+
+        // 3) Limpiar tokens + user info + pending FCM token de SharedPreferences.
         PrefsHelper.clearAuth(this);
-        // 3) Volver al Login limpiando todo el back stack para que Back salga
+        PrefsHelper.clearPendingFcmToken(this);
+
+        // 4) Volver al Login limpiando todo el back stack para que Back salga
         //    de la app en vez de volver al Dashboard sin sesion.
         Intent i = new Intent(this, LoginActivity.class);
         i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
