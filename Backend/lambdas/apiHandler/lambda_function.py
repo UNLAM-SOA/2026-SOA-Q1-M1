@@ -686,7 +686,32 @@ def handle_register_fcm_token(user_email, body):
     except Exception as e:
         logger.warning("set_endpoint_attributes failed: %s", e)
 
-    # 4) Persistir el mapeo user_email -> endpoint_arn en DDB.
+    # 4) Antes de persistir, limpiar OTRAS filas que apunten al MISMO
+    #    endpoint_arn (mismo device, otro user previamente logueado).
+    #    Sino, cuando llega un evento, _notify_owners hace scan, encuentra
+    #    N filas con el mismo ARN, y publica N push notifications al mismo
+    #    device. La deduplicacion en eventIngest tambien lo cubre como
+    #    safety net, pero limpiar aca evita acumular registros muertos.
+    try:
+        existing = fcm_endpoints_table.scan(
+            FilterExpression="endpoint_arn = :arn AND user_email <> :ue",
+            ExpressionAttributeValues={
+                ":arn": endpoint_arn,
+                ":ue":  user_email,
+            },
+        ).get("Items", [])
+        for stale in existing:
+            try:
+                fcm_endpoints_table.delete_item(
+                    Key={"user_email": stale["user_email"]})
+                logger.info("Cleaned stale FCM mapping user=%s -> arn=%s",
+                            stale["user_email"], endpoint_arn)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("scan-and-clean stale endpoints failed: %s", e)
+
+    # 5) Persistir el mapeo user_email -> endpoint_arn en DDB.
     fcm_endpoints_table.put_item(Item={
         "user_email":   user_email,
         "endpoint_arn": endpoint_arn,

@@ -11,8 +11,8 @@
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "ApPoloPA2"
-  #define WIFI_PASSWORD "polo2017"
+  #define WIFI_SSID "SO Avanzados"
+  #define WIFI_PASSWORD "SOA.2019"
 
   enum tipo_broker {
     EMQX,
@@ -350,6 +350,7 @@
       digitalWrite(BUZZER, HIGH);
       delayMicroseconds(medio_periodo_us);
     }
+    digitalWrite(BUZZER, HIGH);
   }
 
   void leer_sensor_proximidad()

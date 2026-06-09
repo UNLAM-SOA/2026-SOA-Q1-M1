@@ -169,6 +169,19 @@ def _notify_owners(device_id, event_type, direction, payload):
         logger.info("No FCM endpoints registered, skipping push")
         return
 
+    # Deduplicar por endpoint_arn: si 2 user_emails distintos apuntan al
+    # mismo device (ej: 2 cuentas logueadas en el mismo celular -> SNS
+    # devuelve el mismo endpoint_arn para ambos), solo notificar UNA vez al
+    # device. Sino llegan N push idénticas a la barra de notificaciones.
+    seen_arns = set()
+    unique_endpoints = []
+    for ep in endpoints:
+        arn = ep.get("endpoint_arn")
+        if arn and arn not in seen_arns:
+            seen_arns.add(arn)
+            unique_endpoints.append(ep)
+    endpoints = unique_endpoints
+
     # SNS espera el message ya envuelto en formato GCM/FCM. El campo "data"
     # es el que llega como msg.getData() en onMessageReceived del Android,
     # y "notification" es lo que FCM muestra automaticamente si la app esta
