@@ -42,72 +42,14 @@ import com.unlam.pawgate.api.dto.ScheduleDtos;
 public class DashboardActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-
-    /** Tick local de 1s para refrescar countdown del estado. */
-    private final Runnable refreshTickRunnable = new Runnable() {
-        @Override public void run() {
-            renderDoorState();
-            DoorStateMachine.DoorState s = DoorStateMachine.currentState(DashboardActivity.this);
-            if (s != DoorStateMachine.DoorState.IDLE
-                    && s != DoorStateMachine.DoorState.BLOCKED) {
-                handler.postDelayed(this, 1000);
-            }
-        }
-    };
-
     private LinearLayout actionBlock;
     private ImageView actionBlockIcon;
     private TextView actionBlockLabel;
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
-
     private DeviceRepository deviceRepo;
     private String deviceId;
     private boolean toggleInFlight;
-
-    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
-
-    /** Tick local que pollea /state cada 3s y sincroniza el flag BLOQUEADO. */
-    private final Runnable statePollRunnable = new Runnable() {
-        @Override public void run() {
-            pollDeviceState();
-            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
-        }
-    };
-
-    private void pollDeviceState() {
-        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
-            @Override
-            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
-                if (state == null || state.lock_state == null) return;
-                // "AUTO_UNBLOCKED".contains("BLOCKED") es true; chequeo explicito.
-                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
-                        || "MANUAL_BLOCKED".equals(state.lock_state);
-                boolean locallyBlocked = PrefsHelper.isDoorBlocked(DashboardActivity.this);
-                if (shouldBeBlocked != locallyBlocked) {
-                    PrefsHelper.setDoorBlocked(DashboardActivity.this, shouldBeBlocked);
-                    if (shouldBeBlocked) PrefsHelper.clearCycle(DashboardActivity.this);
-                    renderDoorState();
-                }
-            }
-            @Override public void onError(String message) { /* silencio */ }
-        });
-    }
-
-    /** Recibe los broadcasts de PawGatePollingService con los eventos del backend. */
-    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            handleEventUpdate(intent);
-        }
-    };
-
-    /** Permiso POST_NOTIFICATIONS (runtime desde Android 13). Si el user niega,
-     *  el Service sigue funcionando pero su notification no se muestra. */
-    private final ActivityResultLauncher<String> notificationPermissionLauncher =
-            registerForActivityResult(
-                    new ActivityResultContracts.RequestPermission(),
-                    granted -> { /* no-op: funcionamos igual sin la notification */ });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -170,6 +112,62 @@ public class DashboardActivity extends AppCompatActivity {
         }
         super.onPause();
     }
+
+    /** Tick local de 1s para refrescar countdown del estado. */
+    private final Runnable refreshTickRunnable = new Runnable() {
+        @Override public void run() {
+            renderDoorState();
+            DoorStateMachine.DoorState s = DoorStateMachine.currentState(DashboardActivity.this);
+            if (s != DoorStateMachine.DoorState.IDLE
+                    && s != DoorStateMachine.DoorState.BLOCKED) {
+                handler.postDelayed(this, 1000);
+            }
+        }
+    };
+
+    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
+
+    /** Tick local que pollea /state cada 3s y sincroniza el flag BLOQUEADO. */
+    private final Runnable statePollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceState();
+            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceState() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (state == null || state.lock_state == null) return;
+                // "AUTO_UNBLOCKED".contains("BLOCKED") es true; chequeo explicito.
+                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
+                        || "MANUAL_BLOCKED".equals(state.lock_state);
+                boolean locallyBlocked = PrefsHelper.isDoorBlocked(DashboardActivity.this);
+                if (shouldBeBlocked != locallyBlocked) {
+                    PrefsHelper.setDoorBlocked(DashboardActivity.this, shouldBeBlocked);
+                    if (shouldBeBlocked) PrefsHelper.clearCycle(DashboardActivity.this);
+                    renderDoorState();
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
+    /** Recibe los broadcasts de PawGatePollingService con los eventos del backend. */
+    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handleEventUpdate(intent);
+        }
+    };
+
+    /** Permiso POST_NOTIFICATIONS (runtime desde Android 13). Si el user niega,
+     *  el Service sigue funcionando pero su notification no se muestra. */
+    private final ActivityResultLauncher<String> notificationPermissionLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.RequestPermission(),
+                    granted -> { /* no-op: funcionamos igual sin la notification */ });
 
     // ============================================================
     // PERMISO RUNTIME: POST_NOTIFICATIONS

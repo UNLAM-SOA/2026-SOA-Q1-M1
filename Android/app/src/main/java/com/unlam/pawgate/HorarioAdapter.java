@@ -1,5 +1,6 @@
 package com.unlam.pawgate;
 
+import android.content.Context;
 import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -118,8 +119,11 @@ public class HorarioAdapter extends RecyclerView.Adapter<HorarioAdapter.HorarioV
         }
 
         private TextView makeChip(String letra) {
-            TextView chip = new TextView(itemView.getContext());
-            int dp4 = dp(4), dp6 = dp(6), dp2 = dp(2);
+            Context itemViewCtx = itemView.getContext();
+            TextView chip = new TextView(itemViewCtx);
+            int dp4 = UserInterfaceHelper.dp(itemViewCtx, 4);
+            int dp6 = UserInterfaceHelper.dp(itemViewCtx, 6);
+            int dp2 = UserInterfaceHelper.dp(itemViewCtx, 2);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMarginEnd(dp4);
@@ -127,23 +131,21 @@ public class HorarioAdapter extends RecyclerView.Adapter<HorarioAdapter.HorarioV
             chip.setText(letra);
             chip.setTextSize(11);
             chip.setTypeface(chip.getTypeface(), Typeface.BOLD);
-            chip.setTextColor(ContextCompat.getColor(itemView.getContext(), R.color.text_secondary));
+            chip.setTextColor(ContextCompat.getColor(itemViewCtx, R.color.text_secondary));
             chip.setBackgroundResource(R.drawable.bg_day_chip);
             chip.setPadding(dp6, dp2, dp6, dp2);
             return chip;
         }
 
         private void renderBadge(boolean activo) {
+            Context itemViewCtx = itemView.getContext();
             badge.setText(activo ? R.string.horarios_estado_on : R.string.horarios_estado_off);
             badge.setBackgroundResource(activo ? R.drawable.bg_badge_on : R.drawable.bg_badge_off);
-            badge.setTextColor(ContextCompat.getColor(itemView.getContext(),
+            badge.setTextColor(ContextCompat.getColor(itemViewCtx,
                     activo ? R.color.bg_card : R.color.text_muted));
-            int dp8 = dp(8), dp3 = dp(3);
+            int dp8 = UserInterfaceHelper.dp(itemViewCtx, 8);
+            int dp3 = UserInterfaceHelper.dp(itemViewCtx, 3);
             badge.setPadding(dp8, dp3, dp8, dp3);
-        }
-
-        private int dp(int value) {
-            return Math.round(value * itemView.getResources().getDisplayMetrics().density);
         }
     }
 }

@@ -18,6 +18,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.google.android.material.timepicker.MaterialTimePicker;
 import com.google.android.material.timepicker.TimeFormat;
 import com.unlam.pawgate.R;
+import com.unlam.pawgate.UserInterfaceHelper;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
 import com.unlam.pawgate.api.dto.ScheduleDtos;
@@ -157,8 +158,8 @@ public class FormHorarioActivity extends AppCompatActivity {
 
     private void renderDiasChips() {
         diasContainer.removeAllViews();
-        int chipSize = dp(40);
-        int gap = dp(6);
+        int chipSize = UserInterfaceHelper.dp(this, 40);
+        int gap = UserInterfaceHelper.dp(this, 6);
         for (int i = 0; i < DIAS_BITS.length; i++) {
             final int bit = DIAS_BITS[i];
             TextView chip = new TextView(this);
@@ -362,9 +363,5 @@ public class FormHorarioActivity extends AppCompatActivity {
         this.inFlight = inFlight;
         saveButton.setEnabled(!inFlight);
         saveButton.setText(inFlight ? R.string.form_horario_saving : R.string.form_horario_guardar);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }

@@ -12,6 +12,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -35,6 +36,15 @@ public class RegisterActivity extends AppCompatActivity {
 
     // Key del Bundle para sobrevivir a rotacion / process death.
     private static final String STATE_PENDING_EMAIL = "pending_email";
+    private static final String NAME_IS_MANDATORY = "El nombre es obligatorio";
+    private static final String NAME_MUST_HAVE_AT_LEAST_TWO_CHARACTERS = "El nombre debe tener al menos 2 caracteres";
+    private static final String EMAIL_IS_MANDATORY = "El email es obligatorio";
+    private static final String INSERT_A_VALID_EMAIL = "Ingresá un email válido";
+    private static final String PASSWORD_IS_MANDATORY = "La contraseña es obligatoria";
+    private static final String PASSWORD_CONSTRAINT_ERROR_MESSAGE = "Debe tener mínimo 8 caracteres, una mayúscula, una minúscula y un número";
+    private static final String CONFIRM_PASSWORD= "Confirmá la contraseña";
+    private static final String PASSWORDS_DO_NOT_MATCH = "Las contraseñas no coinciden";
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,7 +76,7 @@ public class RegisterActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         if (pendingEmail != null) {
             outState.putString(STATE_PENDING_EMAIL, pendingEmail);
@@ -116,24 +126,9 @@ public class RegisterActivity extends AppCompatActivity {
         codeInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
 
         // Container con padding para que no quede el input pegado al borde del dialog
-        int paddingPx = (int) (16 * getResources().getDisplayMetrics().density);
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(paddingPx, paddingPx / 2, paddingPx, 0);
-        container.addView(codeInput);
+        LinearLayout container = createContainer(codeInput);
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.register_confirm_dialog_title)
-                .setMessage(getString(R.string.register_confirm_dialog_message, emailValue))
-                .setView(container)
-                .setCancelable(false)
-                .setPositiveButton(R.string.register_confirm_dialog_confirm, null) // override mas abajo
-                .setNegativeButton(R.string.register_confirm_dialog_cancel, (d, w) -> {
-                    // Limpiamos el pending asi al rotar no re-abrimos el dialog.
-                    pendingEmail = null;
-                })
-                .create();
-
+        AlertDialog dialog = createAlertDialogue(container, emailValue);
         dialog.show();
 
         // Override del positive button para NO cerrar el dialog si hay error de validacion
@@ -186,61 +181,46 @@ public class RegisterActivity extends AppCompatActivity {
     private boolean validateForm() {
         clearErrors();
 
-        boolean isValid = true;
-        EditText firstInvalidField = null;
-
         String nameValue = getNameValue();
         String emailValue = getEmailValue();
         String passwordValue = getPasswordValue();
         String confirmPasswordValue = getConfirmPasswordValue();
 
+        EditText firstInvalidField = null;
+
         if (nameValue.isEmpty()) {
-            name.setError("El nombre es obligatorio");
-            firstInvalidField = name;
-            isValid = false;
+            firstInvalidField = setFieldError(null, name, NAME_IS_MANDATORY);
         } else if (nameValue.length() < 2) {
-            name.setError("El nombre debe tener al menos 2 caracteres");
-            firstInvalidField = name;
-            isValid = false;
+            firstInvalidField = setFieldError(null, name, NAME_MUST_HAVE_AT_LEAST_TWO_CHARACTERS);
         }
 
         if (emailValue.isEmpty()) {
-            email.setError("El email es obligatorio");
-            if (firstInvalidField == null) firstInvalidField = email;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, email, EMAIL_IS_MANDATORY);
         } else if (!Patterns.EMAIL_ADDRESS.matcher(emailValue).matches()) {
-            email.setError("Ingresá un email válido");
-            if (firstInvalidField == null) firstInvalidField = email;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, email, INSERT_A_VALID_EMAIL);
         }
 
         if (passwordValue.isEmpty()) {
-            password.setError("La contraseña es obligatoria");
-            if (firstInvalidField == null) firstInvalidField = password;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, password, PASSWORD_IS_MANDATORY);
         } else if (!isValidPassword(passwordValue)) {
-            password.setError("Debe tener mínimo 8 caracteres, una mayúscula, una minúscula y un número");
-            if (firstInvalidField == null) firstInvalidField = password;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, password, PASSWORD_CONSTRAINT_ERROR_MESSAGE);
         }
 
         if (confirmPasswordValue.isEmpty()) {
-            confirmPassword.setError("Confirmá la contraseña");
-            if (firstInvalidField == null) firstInvalidField = confirmPassword;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, confirmPassword, CONFIRM_PASSWORD);
         } else if (!passwordValue.equals(confirmPasswordValue)) {
-            confirmPassword.setError("Las contraseñas no coinciden");
-            if (firstInvalidField == null) firstInvalidField = confirmPassword;
-            isValid = false;
+            firstInvalidField = setFieldError(firstInvalidField, confirmPassword, PASSWORDS_DO_NOT_MATCH);
         }
 
         if (firstInvalidField != null) {
             firstInvalidField.requestFocus();
+            return false;
         }
 
-        return isValid;
+        return true;
     }
 
+    // reset de los mensajes de error que muestro en la vista
     private void clearErrors() {
         name.setError(null);
         email.setError(null);
@@ -254,6 +234,11 @@ public class RegisterActivity extends AppCompatActivity {
         boolean hasLowercase = value.matches(".*[a-z].*");
         boolean hasNumber = value.matches(".*\\d.*");
         return hasMinimumLength && hasUppercase && hasLowercase && hasNumber;
+    }
+
+    private EditText setFieldError(EditText currentFirstInvalid, EditText field, String message) {
+        field.setError(message);
+        return currentFirstInvalid == null ? field : currentFirstInvalid;
     }
 
     private String getNameValue() {
@@ -270,5 +255,29 @@ public class RegisterActivity extends AppCompatActivity {
 
     private String getConfirmPasswordValue() {
         return confirmPassword.getText().toString();
+    }
+
+    private LinearLayout createContainer(EditText codeInput) {
+        int paddingPx = (int) (16 * getResources().getDisplayMetrics().density);
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(paddingPx, paddingPx / 2, paddingPx, 0);
+        container.addView(codeInput);
+
+        return container;
+    }
+
+    private AlertDialog createAlertDialogue(LinearLayout container, String emailValue) {
+        return new AlertDialog.Builder(this)
+                .setTitle(R.string.register_confirm_dialog_title)
+                .setMessage(getString(R.string.register_confirm_dialog_message, emailValue))
+                .setView(container)
+                .setCancelable(false)
+                .setPositiveButton(R.string.register_confirm_dialog_confirm, null) // override mas abajo
+                .setNegativeButton(R.string.register_confirm_dialog_cancel, (d, w) -> {
+                    // Limpiamos el pending asi al rotar no re-abrimos el dialog.
+                    pendingEmail = null;
+                })
+                .create();
     }
 }

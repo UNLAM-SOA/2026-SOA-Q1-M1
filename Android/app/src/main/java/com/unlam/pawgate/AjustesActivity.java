@@ -76,19 +76,18 @@ public class AjustesActivity extends AppCompatActivity {
 
         // Knob: a la derecha si enabled, a la izquierda si no.
         // Color: blanco si enabled (sobre verde), gris claro si no (sobre gris).
-        FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(dp(16), dp(16));
+        FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(
+                UserInterfaceHelper.dp(this, 16),
+                UserInterfaceHelper.dp(this, 16)
+        );
         knobParams.gravity = (enabled ? Gravity.END : Gravity.START) | Gravity.CENTER_VERTICAL;
         if (enabled) {
-            knobParams.setMarginEnd(dp(3));
+            knobParams.setMarginEnd(UserInterfaceHelper.dp(this,3));
         } else {
-            knobParams.setMarginStart(dp(3));
+            knobParams.setMarginStart(UserInterfaceHelper.dp(this, 3));
         }
         pushKnob.setLayoutParams(knobParams);
         pushKnob.setBackgroundTintList(ColorStateList.valueOf(
                 ContextCompat.getColor(this, enabled ? R.color.bg_card : R.color.text_muted)));
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }

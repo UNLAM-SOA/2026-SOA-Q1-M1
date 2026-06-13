@@ -1,5 +1,7 @@
 package com.unlam.pawgate;
 
+import static com.unlam.pawgate.UserInterfaceHelper.dp;
+
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.view.View;
@@ -179,7 +181,7 @@ public class HistorialActivity extends AppCompatActivity {
                     ? R.drawable.bg_filter_chip_active : R.drawable.bg_button_secondary);
             chips[i].setTextColor(ContextCompat.getColor(this,
                     isActive ? R.color.text_primary : R.color.text_secondary));
-            chips[i].setPadding(dp(12), dp(6), dp(12), dp(6));
+            chips[i].setPadding(dp(this, 12), dp(this,6), dp(this,12), dp(this,6));
         }
     }
 
@@ -195,10 +197,6 @@ public class HistorialActivity extends AppCompatActivity {
 
     private void showToast(int messageRes) {
         Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show();
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     /**

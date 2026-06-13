@@ -67,12 +67,13 @@ public class NotificacionesActivity extends AppCompatActivity {
             chip.setBackgroundResource(isActive ? R.drawable.bg_chip_active : R.drawable.bg_chip_inactive);
             chip.setTextColor(ContextCompat.getColor(this,
                     isActive ? R.color.bg_card : R.color.text_secondary));
-            chip.setPadding(dp(14), dp(8), dp(14), dp(8));
+            chip.setPadding(
+                    UserInterfaceHelper.dp(this,14),
+                    UserInterfaceHelper.dp(this,8),
+                    UserInterfaceHelper.dp(this, 14),
+                    UserInterfaceHelper.dp(this, 8)
+            );
         }
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void showToast(int messageRes) {

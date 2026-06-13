@@ -62,7 +62,7 @@ public class HorariosActivity extends AppCompatActivity {
         listView.setLayoutManager(new LinearLayoutManager(this));
         this.adapter = new HorarioAdapter(Collections.emptyList(), this::openFormEditar);
         listView.setAdapter(adapter);
-        listView.addItemDecoration(new VerticalGapDecoration(dp(10)));
+        listView.addItemDecoration(new VerticalGapDecoration(UserInterfaceHelper.dp(this, 10)));
 
         BottomNavHelper.bind(this, R.id.nav_ajustes);
     }
@@ -125,10 +125,6 @@ public class HorariosActivity extends AppCompatActivity {
         i.putExtra(FormHorarioActivity.EXTRA_HORARIO_ID, h.id);
         i.putExtra(FormHorarioActivity.EXTRA_HORARIO_JSON, new com.google.gson.Gson().toJson(h));
         startActivity(i);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     static final class VerticalGapDecoration extends RecyclerView.ItemDecoration {
