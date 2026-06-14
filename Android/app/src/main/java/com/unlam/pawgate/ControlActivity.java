@@ -69,57 +69,6 @@ public class ControlActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    /** Tick que re-renderiza el estado actual cada 1s.
-     *  Se autosuspende cuando llegamos a un estado terminal (IDLE / BLOCKED). */
-    private final Runnable refreshTickRunnable = new Runnable() {
-        @Override public void run() {
-            DoorStateMachine.DoorState now = currentState();
-            render(now);
-            if (now != DoorStateMachine.DoorState.IDLE
-                    && now != DoorStateMachine.DoorState.BLOCKED) {
-                handler.postDelayed(this, 1000);
-            }
-        }
-    };
-
-    /** Recibe los broadcasts del PawGatePollingService cuando el lock cambia. */
-    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            // El Service ya sincronizo PrefsHelper.isDoorBlocked.
-            // Solo necesitamos re-renderizar leyendo el state actual.
-            refreshTickRunnable.run();
-        }
-    };
-
-    /** Tick local que pollea /state cada 3s mientras Control sea visible.
-     *  Independiente del PawGatePollingService. */
-    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
-    private final Runnable statePollRunnable = new Runnable() {
-        @Override public void run() {
-            pollDeviceState();
-            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
-        }
-    };
-
-    private void pollDeviceState() {
-        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
-            @Override
-            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
-                if (state == null || state.lock_state == null) return;
-                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
-                        || "MANUAL_BLOCKED".equals(state.lock_state);
-                boolean locallyBlocked = PrefsHelper.isDoorBlocked(ControlActivity.this);
-                if (shouldBeBlocked != locallyBlocked) {
-                    PrefsHelper.setDoorBlocked(ControlActivity.this, shouldBeBlocked);
-                    if (shouldBeBlocked) PrefsHelper.clearCycle(ControlActivity.this);
-                    refreshTickRunnable.run();
-                }
-            }
-            @Override public void onError(String message) { /* silencio */ }
-        });
-    }
-
     // ===== Backend =====
     private DeviceRepository deviceRepo;
     private String deviceId;
@@ -143,6 +92,9 @@ public class ControlActivity extends AppCompatActivity {
     private ImageView infoIcon;
     private TextView infoTitle;
     private TextView infoSubtitle;
+    /** Tick local que pollea /state cada 3s mientras Control sea visible.
+     *  Independiente del PawGatePollingService. */
+    private static final long STATE_POLL_INTERVAL_MS = 3_000L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -722,5 +674,48 @@ public class ControlActivity extends AppCompatActivity {
 
     private int color(int resId) {
         return ContextCompat.getColor(this, resId);
+    }
+
+    /** Tick que re-renderiza el estado actual cada 1s.
+     *  Se autosuspende cuando llegamos a un estado terminal (IDLE / BLOCKED). */
+    private final Runnable refreshTickRunnable = new Runnable() {
+        @Override public void run() {
+            DoorStateMachine.DoorState now = currentState();
+            render(now);
+            if (now != DoorStateMachine.DoorState.IDLE
+                    && now != DoorStateMachine.DoorState.BLOCKED) {
+                handler.postDelayed(this, 1000);
+            }
+        }
+    };
+
+    /** Recibe los broadcasts del PawGatePollingService cuando el lock cambia. */
+    private final BroadcastReceiver eventUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // El Service ya sincronizo PrefsHelper.isDoorBlocked.
+            // Solo necesitamos re-renderizar leyendo el state actual.
+            refreshTickRunnable.run();
+        }
+    };
+
+    private final Runnable statePollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceState();
+            handler.postDelayed(this, STATE_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceState() {
+        deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
+            @Override
+            public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
+                if (DoorStateMachine.isInvalidState(state)) return;
+                if (DoorStateMachine.updateLockState(ControlActivity.this, state.lock_state)) {
+                    refreshTickRunnable.run();
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
     }
 }

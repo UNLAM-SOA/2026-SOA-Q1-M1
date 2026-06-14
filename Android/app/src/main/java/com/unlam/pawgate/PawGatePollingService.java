@@ -31,6 +31,8 @@ import com.unlam.pawgate.api.dto.ScheduleDtos;
 public class PawGatePollingService extends Service {
 
     private static final String TAG = "PawGatePollingSvc";
+    private static final String LOCKED_DOOR_LOG = "sync -> setDoorBlocked(true)";
+    private static final String UNLOCKED_DOOR_LOG = "sync -> setDoorBlocked(false)";
 
     public static final String ACTION_EVENT_UPDATE = "com.unlam.pawgate.ACTION_EVENT_UPDATE";
     public static final String EXTRA_EVENT_TYPE = "event_type";
@@ -112,22 +114,15 @@ public class PawGatePollingService extends Service {
         deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
             @Override
             public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
-                if (state == null || state.lock_state == null) return;
-                // OJO: "AUTO_UNBLOCKED".contains("BLOCKED") es true. Por eso
-                // chequeamos explicitamente los 2 valores que representan bloqueada.
-                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
-                        || "MANUAL_BLOCKED".equals(state.lock_state);
+                if (DoorStateMachine.isInvalidState(state)) return;
+
+                boolean shouldBeBlocked = DoorStateMachine.shouldBeBlocked(state.lock_state);
                 boolean locallyBlocked = PrefsHelper.isDoorBlocked(PawGatePollingService.this);
-                Log.d(TAG, "state poll: backend=" + state.lock_state
-                        + " local=" + locallyBlocked);
-                if (shouldBeBlocked && !locallyBlocked) {
-                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, true);
-                    PrefsHelper.clearCycle(PawGatePollingService.this);
-                    Log.d(TAG, "sync -> setDoorBlocked(true)");
-                    broadcastLockChange();
-                } else if (!shouldBeBlocked && locallyBlocked) {
-                    PrefsHelper.setDoorBlocked(PawGatePollingService.this, false);
-                    Log.d(TAG, "sync -> setDoorBlocked(false)");
+                boolean wasLockStateUpdated = DoorStateMachine.updateLockState(PawGatePollingService.this, state.lock_state);
+                Log.d(TAG, "state poll: backend=" + state.lock_state + " local=" + locallyBlocked);
+                if (wasLockStateUpdated) {
+                    String log = (shouldBeBlocked && !locallyBlocked) ? LOCKED_DOOR_LOG : UNLOCKED_DOOR_LOG;
+                    Log.d(TAG, log);
                     broadcastLockChange();
                 }
             }

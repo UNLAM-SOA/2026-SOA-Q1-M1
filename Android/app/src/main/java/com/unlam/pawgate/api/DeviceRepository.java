@@ -3,6 +3,8 @@ package com.unlam.pawgate.api;
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
+
 import com.google.gson.Gson;
 import com.unlam.pawgate.api.dto.AuthDtos;
 import com.unlam.pawgate.api.dto.DeviceDtos;
@@ -39,6 +41,20 @@ public class DeviceRepository {
     public static final String CMD_BLOCK = "block";
     public static final String CMD_UNBLOCK = "unblock";
     public static final String CMD_CALL = "call";
+    private static final String GET_SCHEDULE_ERROR_LOG = "getSchedules network error";
+    private static final String GET_SCHEDULE_FALLBACK_MSG = "No se pudieron cargar los horarios";
+    private static final String CREATE_SCHEDULE_ERROR_LOG = "createSchedule network error";
+    private static final String CREATE_SCHEDULE_FALLBACK_MSG = "No se pudo crear el horario";
+    private static final String UPDATE_SCHEDULE_ERROR_LOG = "updateSchedule network error";
+    private static final String UPDATE_SCHEDULE_FALLBACK_MSG = "No se pudo actualizar el horario";
+    private static final String GET_DEVICE_STATE_ERROR_LOG = "getDeviceState network error";
+    private static final String GET_DEVICE_STATE_FALLBACK_MSG = "No se pudo obtener el estado";
+    private static final String OVERRIDE_UNBLOCK_STATE_ERROR_LOG = "overrideUnblock network error";
+    private static final String OVERRIDE_UNBLOCK_STATE_FALLBACK_MSG = "No se pudo desbloquear";
+    private static final String OVERRIDE_BLOCK_STATE_ERROR_LOG = "overrideBlock network error";
+    private static final String OVERRIDE_BLOCK_STATE_FALLBACK_MSG = "No se pudo bloquear";
+    private static final String SEND_COMMAND_ERROR_LOG = "sendCommand network error";
+    private static final String SEND_COMMAND_FALLBACK_MSG = "No se pudo enviar el comando \"%s\"";
 
     private final Context appContext;
     private final PawGateApi api;
@@ -96,27 +112,15 @@ public class DeviceRepository {
      * Si onError, mostramos toast pero NO revertimos el estado local (el polling
      * de /history terminara conciliando si el simulador realmente no recibio el cmd).
      */
-    public void sendCommand(String deviceId, String cmd,
-                            ApiCallback<DeviceDtos.CommandResponse> cb) {
+    public void sendCommand(String deviceId, String cmd, ApiCallback<DeviceDtos.CommandResponse> cb) {
         // Body vacio - el backend solo mira el path por ahora
         Map<String, Object> body = Collections.emptyMap();
-        api.sendCommand(deviceId, cmd, body).enqueue(new Callback<DeviceDtos.CommandResponse>() {
-            @Override
-            public void onResponse(Call<DeviceDtos.CommandResponse> call,
-                                   Response<DeviceDtos.CommandResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    cb.onSuccess(response.body());
-                } else {
-                    cb.onError(parseError(response.errorBody(),
-                            "No se pudo enviar el comando \"" + cmd + "\""));
-                }
-            }
-            @Override
-            public void onFailure(Call<DeviceDtos.CommandResponse> call, Throwable t) {
-                Log.e(TAG, "sendCommand network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+        enqueue(
+                api.sendCommand(deviceId, cmd, body),
+                SEND_COMMAND_ERROR_LOG,
+                String.format(SEND_COMMAND_FALLBACK_MSG, cmd),
+                cb
+        );
     }
 
     // ============================================================
@@ -124,47 +128,16 @@ public class DeviceRepository {
     // ============================================================
 
     public void getSchedules(String deviceId, ApiCallback<ScheduleDtos.ListResponse> cb) {
-        api.getSchedules(deviceId).enqueue(new Callback<ScheduleDtos.ListResponse>() {
-            @Override public void onResponse(Call<ScheduleDtos.ListResponse> call,
-                                             Response<ScheduleDtos.ListResponse> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudieron cargar los horarios"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.ListResponse> call, Throwable t) {
-                Log.e(TAG, "getSchedules network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+        enqueue(api.getSchedules(deviceId), GET_SCHEDULE_ERROR_LOG, GET_SCHEDULE_FALLBACK_MSG, cb);
     }
 
-    public void createSchedule(String deviceId, ScheduleDtos.CreateRequest body,
-                                ApiCallback<ScheduleDtos.Schedule> cb) {
-        api.createSchedule(deviceId, body).enqueue(new Callback<ScheduleDtos.Schedule>() {
-            @Override public void onResponse(Call<ScheduleDtos.Schedule> call,
-                                             Response<ScheduleDtos.Schedule> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo crear el horario"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.Schedule> call, Throwable t) {
-                Log.e(TAG, "createSchedule network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+    public void createSchedule(String deviceId, ScheduleDtos.CreateRequest body, ApiCallback<ScheduleDtos.Schedule> cb) {
+        enqueue(api.createSchedule(deviceId, body), CREATE_SCHEDULE_ERROR_LOG, CREATE_SCHEDULE_FALLBACK_MSG, cb);
     }
 
     public void updateSchedule(String deviceId, String scheduleId, ScheduleDtos.CreateRequest body,
                                 ApiCallback<ScheduleDtos.Schedule> cb) {
-        api.updateSchedule(deviceId, scheduleId, body).enqueue(new Callback<ScheduleDtos.Schedule>() {
-            @Override public void onResponse(Call<ScheduleDtos.Schedule> call,
-                                             Response<ScheduleDtos.Schedule> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo actualizar el horario"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.Schedule> call, Throwable t) {
-                Log.e(TAG, "updateSchedule network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+        enqueue(api.updateSchedule(deviceId, scheduleId, body), UPDATE_SCHEDULE_ERROR_LOG, UPDATE_SCHEDULE_FALLBACK_MSG, cb);
     }
 
     public void deleteSchedule(String deviceId, String scheduleId, ApiCallback<Void> cb) {
@@ -184,51 +157,26 @@ public class DeviceRepository {
     // DEVICE STATE + OVERRIDE
     // ============================================================
 
-    public void getDeviceState(String deviceId,
-                               ApiCallback<ScheduleDtos.DeviceStateResponse> cb) {
-        api.getDeviceState(deviceId).enqueue(new Callback<ScheduleDtos.DeviceStateResponse>() {
-            @Override public void onResponse(Call<ScheduleDtos.DeviceStateResponse> call,
-                                             Response<ScheduleDtos.DeviceStateResponse> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo obtener el estado"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.DeviceStateResponse> call, Throwable t) {
-                Log.e(TAG, "getDeviceState network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+    public void getDeviceState(String deviceId, ApiCallback<ScheduleDtos.DeviceStateResponse> cb) {
+        enqueue(api.getDeviceState(deviceId), GET_DEVICE_STATE_ERROR_LOG, GET_DEVICE_STATE_FALLBACK_MSG, cb);
     }
 
-    public void overrideUnblock(String deviceId,
-                                 ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
-        api.overrideUnblock(deviceId, Collections.emptyMap())
-                .enqueue(new Callback<ScheduleDtos.OverrideUnblockResponse>() {
-            @Override public void onResponse(Call<ScheduleDtos.OverrideUnblockResponse> call,
-                                             Response<ScheduleDtos.OverrideUnblockResponse> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo desbloquear"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.OverrideUnblockResponse> call, Throwable t) {
-                Log.e(TAG, "overrideUnblock network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+    public void overrideUnblock(String deviceId, ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
+        enqueue(
+                api.overrideUnblock(deviceId, Collections.emptyMap()),
+                OVERRIDE_UNBLOCK_STATE_ERROR_LOG,
+                OVERRIDE_UNBLOCK_STATE_FALLBACK_MSG,
+                cb
+        );
     }
 
-    public void overrideBlock(String deviceId,
-                               ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
-        api.overrideBlock(deviceId, Collections.emptyMap())
-                .enqueue(new Callback<ScheduleDtos.OverrideUnblockResponse>() {
-            @Override public void onResponse(Call<ScheduleDtos.OverrideUnblockResponse> call,
-                                             Response<ScheduleDtos.OverrideUnblockResponse> response) {
-                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo bloquear"));
-            }
-            @Override public void onFailure(Call<ScheduleDtos.OverrideUnblockResponse> call, Throwable t) {
-                Log.e(TAG, "overrideBlock network error", t);
-                cb.onError(networkErrorMessage(t));
-            }
-        });
+    public void overrideBlock(String deviceId, ApiCallback<ScheduleDtos.OverrideUnblockResponse> cb) {
+        enqueue(
+                api.overrideBlock(deviceId, Collections.emptyMap()),
+                OVERRIDE_BLOCK_STATE_ERROR_LOG,
+                OVERRIDE_BLOCK_STATE_FALLBACK_MSG,
+                cb
+        );
     }
 
     // ============================================================
@@ -259,5 +207,24 @@ public class DeviceRepository {
             return "El servidor no responde, reintentá en unos segundos";
         }
         return "Error de red: " + msg;
+    }
+
+    private <T> void enqueue(Call<T> call, String errorLog, String fallbackMessage, ApiCallback<T> cb) {
+        call.enqueue(new Callback<T>() {
+            @Override
+            public void onResponse(@NonNull Call<T> call, @NonNull Response<T> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    cb.onSuccess(response.body());
+                } else {
+                    cb.onError(parseError(response.errorBody(), fallbackMessage));
+                }
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<T> call, @NonNull Throwable t) {
+                Log.e(TAG, errorLog, t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
     }
 }

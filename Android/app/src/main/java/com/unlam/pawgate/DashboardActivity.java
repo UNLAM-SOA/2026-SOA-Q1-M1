@@ -139,14 +139,8 @@ public class DashboardActivity extends AppCompatActivity {
         deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
             @Override
             public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
-                if (state == null || state.lock_state == null) return;
-                // "AUTO_UNBLOCKED".contains("BLOCKED") es true; chequeo explicito.
-                boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
-                        || "MANUAL_BLOCKED".equals(state.lock_state);
-                boolean locallyBlocked = PrefsHelper.isDoorBlocked(DashboardActivity.this);
-                if (shouldBeBlocked != locallyBlocked) {
-                    PrefsHelper.setDoorBlocked(DashboardActivity.this, shouldBeBlocked);
-                    if (shouldBeBlocked) PrefsHelper.clearCycle(DashboardActivity.this);
+                if (DoorStateMachine.isInvalidState(state)) return;
+                if (DoorStateMachine.updateLockState(DashboardActivity.this, state.lock_state)) {
                     renderDoorState();
                 }
             }

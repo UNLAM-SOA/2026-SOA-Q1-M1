@@ -3,6 +3,8 @@ package com.unlam.pawgate;
 import android.content.Context;
 import android.os.SystemClock;
 
+import com.unlam.pawgate.api.dto.ScheduleDtos;
+
 /**
  * State machine de la puerta basada en SharedPreferences + timestamps.
  *
@@ -42,11 +44,11 @@ public final class DoorStateMachine {
 
     // Duraciones de cada subestado (ms). Si cambia algo aca, todos los Activities
     // que usen el helper ven el cambio (sin tocar codigo en cada uno).
-    public static final long OPENING_MS = 2_000L;
-    public static final long OPEN_MS = 5_000L;
-    public static final long CLOSING_MS = 2_000L;
-    public static final long CALLING_MS = 3_000L;
-    public static final long CALL_ENDING_MS = 1_000L;
+    private static final long OPENING_MS = 2_000L;
+    private static final long OPEN_MS = 5_000L;
+    private static final long CLOSING_MS = 2_000L;
+    private static final long CALLING_MS = 3_000L;
+    private static final long CALL_ENDING_MS = 1_000L;
 
     private DoorStateMachine() { /* no instanciar */ }
 
@@ -77,7 +79,6 @@ public final class DoorStateMachine {
     /**
      * Segundos restantes para mostrar en el countdown del estado actual.
      * Devuelve 0 si el estado no tiene countdown visible (transients sin numero).
-     *
      * Solo OPEN (5,4,3,2,1) y CALLING (3,2,1) tienen countdown visible.
      */
     public static int secondsRemainingInCountdown(Context ctx) {
@@ -98,5 +99,28 @@ public final class DoorStateMachine {
         }
 
         return 0;
+    }
+
+    public static boolean updateLockState(Context ctx, String lockState) {
+        boolean shouldBeBlocked = shouldBeBlocked(lockState);
+        boolean locallyBlocked = PrefsHelper.isDoorBlocked(ctx);
+
+        if (shouldBeBlocked == locallyBlocked) {
+            return false;
+        }
+
+        PrefsHelper.setDoorBlocked(ctx, shouldBeBlocked);
+        if (shouldBeBlocked) {
+            PrefsHelper.clearCycle(ctx);
+        }
+        return true;
+    }
+
+    public static boolean shouldBeBlocked(String lockState) {
+        return "AUTO_BLOCKED".equals(lockState) || "MANUAL_BLOCKED".equals(lockState);
+    }
+
+    public static boolean isInvalidState(ScheduleDtos.DeviceStateResponse state) {
+        return state == null || state.lock_state == null;
     }
 }
