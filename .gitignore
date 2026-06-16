@@ -41,3 +41,9 @@ Backend/lambdas/**/*.zip
 
 # Outputs de scripts de setup (contienen ARNs/IDs especificos del entorno)
 Backend/setup-*-output.json
+
+# Firebase: google-services.json contiene el API key publico del proyecto
+# Firebase. Aunque es "publico", restringimos por package name + SHA-1, asi
+# que NO es secreto en sentido estricto, pero igual cada dev lo descarga
+# desde su Firebase Console y no lo commitea para evitar quilombos de merge.
+Android/app/google-services.json

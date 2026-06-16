@@ -58,6 +58,14 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
+        // Pre-check offline: si no hay red, evitamos el call y damos feedback
+        // inmediato. Igual Retrofit lo manejaria, pero el toast es mas claro
+        // que un "Failed to connect to host..."
+        if (!NetworkUtils.isOnline(this)) {
+            Toast.makeText(this, R.string.generic_network_error, Toast.LENGTH_LONG).show();
+            return;
+        }
+
         // Bloquear el boton mientras hay request en curso para evitar doble click
         loginButton.setEnabled(false);
         loginButton.setText(R.string.loading);
@@ -66,6 +74,13 @@ public class LoginActivity extends AppCompatActivity {
             @Override
             public void onSuccess(AuthDtos.LoginResponse result) {
                 // Tokens ya quedaron persistidos por AuthRepository.
+                // Si Firebase ya nos habia dado un FCM token antes del login
+                // (caso boot inicial), lo registramos ahora que tenemos sesion.
+                registerPendingFcmTokenIfAny();
+                // Tambien pedimos a Firebase el token actual (puede ser distinto
+                // al pending, y cubre el caso donde onNewToken nunca llego pero
+                // Firebase ya tiene un token asignado).
+                FcmTokenSync.syncIfLoggedIn(LoginActivity.this);
                 goToDashboard(emailValue);
             }
 
@@ -76,6 +91,25 @@ public class LoginActivity extends AppCompatActivity {
                 Toast.makeText(LoginActivity.this, message, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    /** Si Firebase nos dio un token antes del login, lo enviamos al backend. */
+    private void registerPendingFcmTokenIfAny() {
+        String pending = PrefsHelper.getPendingFcmToken(this);
+        if (pending == null || pending.isEmpty()) return;
+        new com.unlam.pawgate.api.DeviceRepository(this).registerFcmToken(pending,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.RegisterFcmTokenResponse>() {
+                    @Override
+                    public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.RegisterFcmTokenResponse r) {
+                        PrefsHelper.clearPendingFcmToken(LoginActivity.this);
+                        android.util.Log.i("LoginActivity",
+                                "Pending FCM token registered post-login: " + r.endpoint_arn);
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("LoginActivity",
+                                "Pending FCM token registration failed: " + message);
+                    }
+                });
     }
 
     private void goToDashboard(String emailValue) {

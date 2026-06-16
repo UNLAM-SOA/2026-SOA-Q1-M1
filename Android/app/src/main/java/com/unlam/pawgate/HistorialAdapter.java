@@ -77,6 +77,14 @@ public class HistorialAdapter extends RecyclerView.Adapter<HistorialAdapter.Even
         notifyDataSetChanged();
     }
 
+    /** Concatena items al final (para infinite scroll / paginacion). */
+    public void appendData(List<Evento> moreData) {
+        if (moreData == null || moreData.isEmpty()) return;
+        int prevSize = data.size();
+        data.addAll(moreData);
+        notifyItemRangeInserted(prevSize, moreData.size());
+    }
+
     /** Crea un ViewHolder nuevo. Llamado por el RV solo cuando no hay reciclables disponibles. */
     @NonNull
     @Override

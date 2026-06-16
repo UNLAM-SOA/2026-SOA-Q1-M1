@@ -11,8 +11,12 @@
         tools:ignore="ForegroundServicesPolicy" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Vibrator para feedback haptic del shake-to-call (Fase 19). Normal permission,
+         no requiere runtime request. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:name=".PawGateApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -50,12 +54,30 @@
             android:exported="false"
             android:launchMode="singleTop" />
         <activity
+            android:name=".PerfilActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DeviceDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".WifiDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".LoginActivity"
             android:exported="false" />
         <service
             android:name=".PawGatePollingService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- FCM messaging service (Fase 20). Recibe onNewToken + onMessageReceived. -->
+        <service
+            android:name=".PawGateFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".SplashActivity"

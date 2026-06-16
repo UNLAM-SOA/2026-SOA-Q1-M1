@@ -1,0 +1,22 @@
+#ifndef AWS_CERTS_H
+#define AWS_CERTS_H
+
+static const char* AWS_IOT_ENDPOINT = "Campo iot_endpoint del config.json del certificado";
+
+static const int AWS_IOT_PORT = <<Puerto que conecta con IoT CORE>>;
+
+static const char* AWS_THING_NAME = "Nombre del thing creado en AWS";
+
+static const char AWS_ROOT_CA[] =R"EOF(
+    Contenido completo de AmazonRootCA1.pem
+)EOF";
+
+static const char AWS_DEVICE_CERT[] = R"EOF(
+    Contenido completo de certificate.pem.crt
+)EOF";
+
+static const char AWS_PRIVATE_KEY[] = R"EOF(
+    Contenido completo de private.pem.key
+)EOF";
+
+#endif

@@ -65,6 +65,20 @@ public final class AuthDtos {
         public int expiresIn;  // segundos
     }
 
+    // ===== POST /auth/refresh =====
+
+    public static final class RefreshTokenRequest {
+        public String refreshToken;
+        public RefreshTokenRequest(String refreshToken) { this.refreshToken = refreshToken; }
+    }
+
+    public static final class RefreshTokenResponse {
+        public String idToken;
+        public String accessToken;
+        public int expiresIn;
+        // No incluye refreshToken porque Cognito no devuelve uno nuevo en este flow.
+    }
+
     // ===== Error response generico =====
 
     public static final class ApiError {

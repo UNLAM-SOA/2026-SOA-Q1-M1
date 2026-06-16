@@ -52,6 +52,8 @@
     <!-- Dashboard - Saludo -->
     <string name="dashboard_greeting_template">Hola, %1$s</string>
 
+    <string name="dashboard_no_recent_activity">Última actividad: sin actividad reciente</string>
+
     <!-- Dashboard - Card estado puerta -->
     <string name="dashboard_door_closed">Puerta · Cerrada</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
@@ -60,7 +62,7 @@
     <string name="dashboard_door_closing">Puerta · Cerrando…</string>
     <string name="dashboard_door_calling_countdown">Puerta · Llamando · %1$ds</string>
     <string name="dashboard_door_ending_call">Puerta · Finalizando llamada…</string>
-    <string name="dashboard_last_activity_template">Última actividad: hace %1$s</string>
+    <string name="dashboard_last_activity_template">Última actividad: %1$s</string>
 
     <!-- Dashboard - Metric cards -->
     <string name="dashboard_metric_openings_label">Aperturas hoy</string>
@@ -79,6 +81,17 @@
     <string name="dashboard_block_dialog_message">La puerta quedará en modo seguridad. Tu mascota no podrá pasar hasta que la desbloquees.</string>
     <string name="dashboard_unblock_dialog_title">¿Desbloquear puerta?</string>
     <string name="dashboard_unblock_dialog_message">La puerta volverá al modo normal y se podrá abrir.</string>
+
+    <!-- Perfil de usuario (W16) -->
+    <string name="perfil_title">Mi perfil</string>
+    <string name="perfil_section_account">CUENTA</string>
+    <string name="perfil_field_name">Nombre</string>
+    <string name="perfil_field_email">Email</string>
+    <string name="perfil_section_session">SESIÓN</string>
+    <string name="perfil_logout_button">Cerrar sesión</string>
+    <string name="perfil_logout_dialog_title">¿Cerrar sesión?</string>
+    <string name="perfil_logout_dialog_message">Vas a tener que volver a iniciar sesión para acceder a tu PawGate.</string>
+    <string name="perfil_logout_dialog_confirm">Cerrar sesión</string>
 
     <!-- Toast placeholders -->
     <string name="toast_coming_soon">Próximamente</string>
@@ -141,6 +154,31 @@
     <string name="control_info_calling_title">Tu mascota fue notificada</string>
     <string name="control_info_calling_subtitle">Esperando respuesta · %1$ds</string>
 
+    <!-- Direccion de apertura (RFID afuera / ultrasonido adentro) -->
+    <string name="historial_event_opened_in">Puerta abierta hacia adentro</string>
+    <string name="historial_event_opened_out">Puerta abierta hacia afuera</string>
+    <string name="historial_event_closed_in">Puerta cerrada hacia adentro</string>
+    <string name="historial_event_closed_out">Puerta cerrada hacia afuera</string>
+
+    <!-- BottomSheet elegir direccion al abrir -->
+    <string name="bs_open_dir_title">¿Hacia dónde se abre?</string>
+    <string name="bs_open_dir_in_title">Hacia adentro</string>
+    <string name="bs_open_dir_in_subtitle">Para que tu mascota entre a casa</string>
+    <string name="bs_open_dir_out_title">Hacia afuera</string>
+    <string name="bs_open_dir_out_subtitle">Para que tu mascota salga al patio</string>
+
+    <!-- Filtros historial avanzados (W13) -->
+    <string name="filtros_title">Filtros</string>
+    <string name="filtros_section_range">Rango de fechas</string>
+    <string name="filtros_pick_range">Seleccionar rango personalizado</string>
+    <string name="filtros_range_summary">Desde %1$s hasta %2$s</string>
+    <string name="filtros_section_options">Otras opciones</string>
+    <string name="filtros_include_sensors">Incluir telemetría de sensores</string>
+    <string name="filtros_include_sensors_subtitle">Por defecto se ocultan para no saturar el listado</string>
+    <string name="filtros_apply">Aplicar filtros</string>
+    <string name="filtros_clear">Limpiar filtros</string>
+    <string name="filtros_summary_active">Filtros activos · %1$d eventos</string>
+
     <!-- Historial -->
     <string name="historial_title">Historial</string>
     <string name="cd_filter">Filtrar</string>
@@ -148,6 +186,73 @@
     <string name="historial_filter_hoy">Hoy</string>
     <string name="historial_filter_ayer">Ayer</string>
     <string name="historial_filter_7d">7d</string>
+    <!-- Default subtitle de la row ESP32 en Ajustes mientras se carga el estado real -->
+    <string name="ajustes_device_esp32_subtitle_default">Tocá para ver detalle</string>
+    <string name="ajustes_device_wifi_subtitle_default">Tocá para ver detalle</string>
+
+    <!-- Fase 19 - Acelerometro shake-to-call -->
+    <string name="ajustes_shake_to_call_title">Llamar al sacudir</string>
+    <string name="ajustes_shake_to_call_subtitle">Sacudí el teléfono y el dispositivo va a llamar a la mascota</string>
+    <string name="shake_to_call_triggered">¡Llamando al dispositivo!</string>
+
+    <!-- Fase 18 - Network / offline UX -->
+    <string name="offline_banner_text">Sin conexión a internet · algunas acciones podrían fallar</string>
+    <string name="generic_network_error">No pudimos conectar. Revisá tu red e intentá de nuevo.</string>
+    <string name="retry_label">Reintentar</string>
+
+    <!-- Auth refresh - sesion expirada irrecuperable -->
+    <string name="session_expired">Tu sesión expiró. Iniciá sesión de nuevo.</string>
+
+    <!-- W14 - Detalle red WiFi -->
+    <string name="wifi_detail_title">Red WiFi</string>
+    <string name="wifi_detail_loading">Cargando…</string>
+    <string name="wifi_detail_status_online">CONECTADA</string>
+    <string name="wifi_detail_status_offline">SIN SEÑAL</string>
+    <string name="wifi_detail_row_ssid">SSID</string>
+    <string name="wifi_detail_row_band">Banda</string>
+    <string name="wifi_detail_row_bssid">BSSID</string>
+    <string name="wifi_detail_row_ip">IP local</string>
+    <string name="wifi_detail_row_gateway">Gateway</string>
+    <string name="wifi_detail_row_security">Seguridad</string>
+    <string name="wifi_detail_row_rssi">Intensidad</string>
+    <string name="wifi_detail_signal_excellent">Excelente</string>
+    <string name="wifi_detail_signal_good">Buena</string>
+    <string name="wifi_detail_signal_fair">Regular</string>
+    <string name="wifi_detail_signal_poor">Pobre</string>
+    <string name="wifi_detail_btn_change">Cambiar red WiFi</string>
+    <string name="wifi_detail_btn_forget">Olvidar red</string>
+    <string name="wifi_provisioning_title">Cambiar red WiFi</string>
+    <string name="wifi_provisioning_subtitle">Ingresá las credenciales de la nueva red. El ESP32 se va a reiniciar y reconectar.</string>
+    <string name="wifi_provisioning_ssid_hint">SSID</string>
+    <string name="wifi_provisioning_password_hint">Contraseña</string>
+    <string name="wifi_provisioning_btn_connect">Conectar</string>
+    <string name="wifi_provisioning_sent">Credenciales enviadas. El dispositivo va a reiniciar para conectarse.</string>
+    <string name="wifi_provisioning_mock_notice">Funcionalidad mock: en esta versión las credenciales no se envían al ESP32 todavía (requiere BLE o AP-mode).</string>
+    <string name="wifi_forget_confirm_title">¿Olvidar esta red?</string>
+    <string name="wifi_forget_confirm_msg">El ESP32 va a quedar sin conexión hasta que cargues una red nueva.</string>
+
+    <!-- W15 - Detalle ESP32 -->
+    <string name="device_detail_title">ESP32</string>
+    <string name="device_detail_loading">Cargando…</string>
+    <string name="device_detail_status_loading">CARGANDO…</string>
+    <string name="device_detail_status_online">CONECTADO · %1$s</string>
+    <string name="device_detail_status_offline">DESCONECTADO</string>
+    <string name="device_detail_row_uptime">Uptime</string>
+    <string name="device_detail_row_cpu">Temperatura CPU</string>
+    <string name="device_detail_row_ram">RAM libre</string>
+    <string name="device_detail_row_flash">Flash usado</string>
+    <string name="device_detail_row_ip">IP</string>
+    <string name="device_detail_row_rssi">Señal WiFi</string>
+    <string name="device_detail_value_unavailable">—</string>
+    <string name="device_detail_btn_ota">Buscar actualización OTA</string>
+    <string name="device_detail_btn_reboot">⏻  Reiniciar dispositivo</string>
+    <string name="device_detail_reboot_confirm_title">¿Reiniciar el dispositivo?</string>
+    <string name="device_detail_reboot_confirm_msg">El ESP32 se va a reiniciar y va a estar offline unos segundos.</string>
+    <string name="device_detail_reboot_confirm_ok">Reiniciar</string>
+    <string name="device_detail_reboot_sent">Reinicio solicitado</string>
+    <string name="device_detail_ota_no_update">Tenés la última versión instalada.</string>
+    <string name="historial_empty_title">Sin actividad para mostrar</string>
+    <string name="historial_empty_subtitle">No hay eventos en este rango. Probá con otro filtro o vení más tarde.</string>
     <string name="historial_event_puerta_abierta">Puerta abierta</string>
     <string name="historial_event_luz_apagada">Luz apagada</string>
     <string name="historial_event_puerta_bloqueada">Puerta bloqueada</string>
@@ -234,6 +339,13 @@
     <string name="notif_wifi">WiFi reconectado</string>
     <string name="notif_nocturno">Horario nocturno activado</string>
     <string name="notif_entro">Tu mascota entró a casa</string>
+    <string name="notif_empty">No tenés notificaciones todavía</string>
+    <string name="notif_empty_unread">No tenés notificaciones sin leer</string>
+    <string name="notif_actor_system">Sistema</string>
+    <string name="notif_actor_you">Vos</string>
+    <string name="notif_actor_by">por %1$s</string>
+    <string name="notif_loading_error">No se pudieron cargar las notificaciones</string>
+    <string name="notif_marked_all_read">%1$d notificaciones marcadas como leídas</string>
 
     <!-- Ajustes -->
     <string name="ajustes_title">Ajustes</string>

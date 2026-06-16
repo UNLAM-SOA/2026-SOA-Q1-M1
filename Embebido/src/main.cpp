@@ -1,24 +1,29 @@
   #include <ESP32Servo.h>
   #include <MFRC522.h>
   #include <WiFi.h>
+  #include <WiFiClientSecure.h>
+  #include <ArduinoJson.h>
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
+  #include "aws_certs.h"
 
-  WiFiClient espClient;
+  // WiFiClient espClient; // Se activa cuando no queremos correr contra AWS IoT Core
+  WiFiClientSecure espClient;
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "ApPoloPB5"
-  #define WIFI_PASSWORD "polo2017"
+  #define WIFI_SSID "SO Avanzados"
+  #define WIFI_PASSWORD "SOA.2019"
 
   enum tipo_broker {
     EMQX,
     HIVEMQ_PUBLIC,
-    MOSQUITTO_LOCAL
+    MOSQUITTO_LOCAL,
+    AWS_IOT_CORE
   };
 
 
   // MQTT
-  #define BROKER HIVEMQ_PUBLIC // Nosotros vamos a usar este, acá lo seteo
+  #define BROKER AWS_IOT_CORE // Nosotros vamos a usar este, acá lo seteo
 
   // Configuración dependiente del broker
   const char* mqtt_server;
@@ -26,12 +31,21 @@
   const char* mqtt_user;
   const char* mqtt_pass;
 
-  // Topics y ClientID
-  #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
-  #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
-  #define MQTT_TOPIC_EVENTO "soa/puerta/evento" // Para enviar eventos de la puerta
+  // Identidad del Firmware
+  #define FIRMWARE_VERSION "1.0.0"
+  #define HARDWARE_MODEL "ESP32-WROOM-32"
+  #define TELEMETRY_INTERVAL_MS 30000
 
-  #define TAM_PAYLOAD_MQTT 32
+  // Topics y ClientID
+  // #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
+  // #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
+  // #define MQTT_TOPIC_EVENT_DOOR "soa/puerta/evento" // Para enviar eventos de la puerta
+  #define MQTT_CLIENT_ID AWS_THING_NAME
+  #define MQTT_TOPIC_CMD_FILTER "pawgate/pawgate-001/cmd/+"
+  #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
+  #define MQTT_TOPIC_EVENT_TELEMETRY "pawgate/pawgate-001/events/telemetry"
+
+  #define TAM_PAYLOAD_MQTT 512
   #define TAM_TOPIC_MQTT   64
   #define TAM_COLA_MQTT    10
 
@@ -68,7 +82,7 @@
   // Sensores
   #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
   #define TIME_OUT_SENSOR_PROXIMIDAD 30000
-  #define PUERTO_SERIAL_WOKWY 9600
+  #define PUERTO_SERIAL_WOKWY 115200
 
   // Tareas
   #define TIME_OUT_CERO 0
@@ -81,6 +95,9 @@
   #define TAM_EV_COLA_PUERTA 10
   #define TAM_ACC_COLA_PUERTA 10
   #define TIEMPO_TIMEOUT_PUERTA 4500
+
+  // Buffer para envío de mensajes en MQTT para AWS IoT Core
+  #define BUFFER_SIZE 1024
 
   // ================================================================
   // TIPOS COMPARTIDOS
@@ -333,6 +350,7 @@
       digitalWrite(BUZZER, HIGH);
       delayMicroseconds(medio_periodo_us);
     }
+    digitalWrite(BUZZER, HIGH);
   }
 
   void leer_sensor_proximidad()
@@ -558,6 +576,17 @@
     }
   }
 
+  void publicar_evento_puerta(const char* tipo, const char* direccion)
+  {
+    char buffer[TAM_PAYLOAD_MQTT];
+    JsonDocument doc;
+    doc["type"] = tipo;
+    if (direccion != nullptr) doc["direction"] = direccion;
+    doc["ts"] = millis();
+    serializeJson(doc, buffer, sizeof(buffer));
+    publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
+  }
+
   void puerta_accion(void *pvParametros)
   {
     while (1)
@@ -571,14 +600,14 @@
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA AFUERA");
+          publicar_evento_puerta("opened", "out");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA ABIERTA ADENTRO");
+          publicar_evento_puerta("opened", "in");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -586,7 +615,7 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_mqtt(MQTT_TOPIC_EVENTO, "PUERTA CERRADA");
+          publicar_evento_puerta("closed", nullptr);
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -594,6 +623,7 @@
           // Sonido descendente grave (600 -> 300 Hz): se bloquea
           buzzer_beep(600, 120);
           buzzer_beep(300, 200);
+          publicar_evento_puerta("blocked", nullptr);
         }
         else if (action_recibido == ACC_DESBLOQUEAR)
         {
@@ -601,6 +631,7 @@
           // Sonido ascendente agudo (600 -> 1200 Hz): se desbloquea
           buzzer_beep(600, 120);
           buzzer_beep(1200, 200);
+          publicar_evento_puerta("unblocked", nullptr);
         }
         else if (action_recibido == ACC_ENCENDER_LUZ)
         {
@@ -620,6 +651,48 @@
       vTaskDelay(pdMS_TO_TICKS(200));
     }
   }
+  
+  // --- Telemetría ---
+  void publicar_telemetry()
+  {
+    char buffer[TAM_PAYLOAD_MQTT];
+    JsonDocument doc;
+    doc["type"] = "telemetry";
+    doc["ts"] = millis();
+    doc["uptime_s"] = millis() / 1000;
+    doc["rssi_dbm"] = WiFi.RSSI(); // Devuelve int. Valor negativo (-30 muy bueno, -90 muy malo)
+    doc["free_heap_kb"] = ESP.getFreeHeap() / 1024; // Pasamos a KB
+    doc["total_heap_kb"] = ESP.getHeapSize() / 1024; // RAM total disponible para heap. ~320KB en ESP32 estándar
+    doc["flash_used_kb"] = ESP.getSketchSize() / 1024; // Bytes ocupados por el firmware en flash
+    doc["flash_total_kb"] = ESP.getFlashChipSize() / 1024; // Tamaño total del chip de flash. Típicamente 4096 KB
+    doc["cpu_temp_c"] = temperatureRead(); // Disponible en ESP32, devuelve float en °C
+    doc["local_ip"] = WiFi.localIP().toString().c_str();
+    doc["firmware_version"] = FIRMWARE_VERSION;
+    doc["hardware_model"] = HARDWARE_MODEL;
+    doc["wifi_ssid"] = WiFi.SSID().c_str();
+    doc["wifi_bssid"] = WiFi.BSSIDstr().c_str(); // MAC address del AP
+    doc["wifi_band"] = "2.4 GHz"; // ESP32 estándar no tiene 5GHz nativo
+    doc["wifi_gateway"] = WiFi.gatewayIP().toString().c_str(); // IP del router
+    doc["wifi_security"] = "WPA2-PSK";
+
+    size_t written = serializeJson(doc, buffer, sizeof(buffer));
+    if (written == 0 || written >= sizeof(buffer)) {
+      Serial.println("[telemetry] buffer chico, payload truncado"); // Verificamos si nos alcanzó el TAM_PAYLOAD_MQTT
+    }
+    publicar_mqtt(MQTT_TOPIC_EVENT_TELEMETRY, buffer);
+  }
+
+  void telemetry_task(void *pvParametros)
+  {
+    // Esperar a que WiFi esté conectado antes del primer publish
+    while (WiFi.status() != WL_CONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    while (1) {
+        publicar_telemetry();
+        vTaskDelay(pdMS_TO_TICKS(TELEMETRY_INTERVAL_MS));
+    }
+  }
 
   // --- Setup ---
   void crear_colas_puerta()
@@ -636,6 +709,7 @@
     xTaskCreate(puerta_controlador, "Puerta controlador", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(puerta_accion,      "Puerta accion",      tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(mqtt_task,          "MQTT task",          tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
+    xTaskCreate(telemetry_task,     "Telemetry task",     tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
   }
 
   void setup_puerta()
@@ -738,8 +812,7 @@
       if (client.connect(MQTT_CLIENT_ID))
       {
         Serial.println("Conexión MQTT OK");
-        client.subscribe(MQTT_TOPIC_CMD);
-        client.subscribe(MQTT_TOPIC_EVENTO);
+        client.subscribe(MQTT_TOPIC_CMD_FILTER);
       }
       else
       {
@@ -776,6 +849,16 @@
         mqtt_user   = NULL;
         mqtt_pass   = NULL;
         break;
+      case AWS_IOT_CORE:
+        mqtt_server = AWS_IOT_ENDPOINT;
+        mqtt_port   = AWS_IOT_PORT;
+        mqtt_user   = NULL;
+        mqtt_pass   = NULL;
+        espClient.setCACert(AWS_ROOT_CA);
+        espClient.setCertificate(AWS_DEVICE_CERT);
+        espClient.setPrivateKey(AWS_PRIVATE_KEY);
+        client.setBufferSize(BUFFER_SIZE);
+        break;
       default:
         Serial.println("Error: Broker mal seleccionado");
         break;
@@ -784,20 +867,63 @@
 
   // Función Callback que recibe los mensajes enviados por los dispositivos
   void callback(char* topico, byte* message, unsigned int length) 
-  {
+  {    
     Serial.print("Se recibió mensaje en el tópico: ");
     Serial.println(topico);
 
+    char* comando = strrchr(topico, '/');
     eventos_puerta ev;
-    if (message[0] == 'B') {
+
+    if(!comando) {
+      Serial.print("El tópico recibido está malformado.");
+      return;
+    } else if(strcmp(comando + 1, "open") == 0) {
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, message, length);
+      if (err) {
+          Serial.print("JSON inválido: ");
+          Serial.println(err.c_str());
+          return;
+      }
+      const char* direction = doc["direction"];
+      if(direction != nullptr) {
+        if(strcmp(direction, "in") == 0) {
+          Serial.println("EV_ANIMAL_DETECTADO_ADENTRO DESDE MQTT");
+          ev = EV_ANIMAL_DETECTADO_ADENTRO;
+        } else if (strcmp(direction, "out") == 0){
+          Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
+          ev = EV_ANIMAL_DETECTADO_AFUERA;
+      } else {
+        Serial.println("ERROR: LA DIRECCION DE APERTURA NO ES CORRECTA");
+        return;
+      }
+    } else {
+      Serial.println("ERROR: FALTA DIRECCION DE APERTURA DE PUERTA");
+      return;
+    }
+    } else if(strcmp(comando + 1, "block") == 0) {
       Serial.println("EV_BLOQUEO_POR_APP DESDE MQTT");
       ev = EV_BLOQUEO_POR_APP;
-    }      
-    else if (message[0] == 'D') {
+    } else if(strcmp(comando + 1, "unblock") == 0) {
       Serial.println("EV_DESBLOQUEO_POR_APP DESDE MQTT");
       ev = EV_DESBLOQUEO_POR_APP;
+    } else if(strcmp(comando + 1, "call") == 0) {
+      Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
+      for (int i = 0; i < 3; i++) {
+        buzzer_beep(1200, 100);
+      }
+      return; // No cambia el estado de la puerta
+    } else if(strcmp(comando + 1, "cancel") == 0) {
+      Serial.println("CANCELAR COMANDO DESDE MQTT");
+      return; // No cambia el estado de la puerta
+    } else if(strcmp(comando + 1, "reboot") == 0) {
+      Serial.println("REINICIO ESP32 DESDE MQTT");
+      delay(100); // Damos tiempo a que se imprima al serial
+      ESP.restart();
+    } else {
+      Serial.println("COMANDO DESCONOCIDO");
+      return;
     }
-    else return;
 
     xQueueSend(queueEventos_puerta, &ev, 0); // no bloqueante
   }

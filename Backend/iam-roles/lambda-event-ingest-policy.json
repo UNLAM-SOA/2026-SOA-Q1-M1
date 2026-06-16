@@ -10,6 +10,33 @@
       "Resource": "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_events"
     },
     {
+      "Sid": "AllowUpdateDeviceState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_device_state"
+    },
+    {
+      "Sid": "AllowReadFcmEndpoints",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Scan",
+        "dynamodb:GetItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:075138626693:table/pawgate_fcm_endpoints"
+    },
+    {
+      "Sid": "AllowSnsPushToFcm",
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish",
+        "sns:DeleteEndpoint"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "AllowCloudWatchLogs",
       "Effect": "Allow",
       "Action": [

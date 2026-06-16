@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -23,6 +24,8 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.unlam.pawgate.api.ApiCallback;
 import com.unlam.pawgate.api.DeviceRepository;
+import com.unlam.pawgate.api.NotificationRepository;
+import com.unlam.pawgate.api.dto.NotificationDtos;
 import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 /**
@@ -60,8 +63,13 @@ public class DashboardActivity extends AppCompatActivity {
     private TextView actionBlockLabel;
     private TextView doorStatusLabel;
     private TextView lastActivityLabel;
+    private TextView openingsCountLabel;
+    private View actionOpen;
+    private View actionCall;
 
     private DeviceRepository deviceRepo;
+    private ShakeDetector shakeDetector;
+    private OfflineBanner offlineBanner;
     private String deviceId;
     private boolean toggleInFlight;
 
@@ -102,6 +110,22 @@ public class DashboardActivity extends AppCompatActivity {
         }
     };
 
+    /**
+     * Recibe el broadcast LOCAL de NotificacionesActivity cuando el user marca
+     * notifs como leidas (tap individual, "Leer todo", o tap del push).
+     *
+     * El refresh se hace con postDelayed(700ms) porque el POST mark-read
+     * de la otra activity es UX optimista — todavia esta en vuelo cuando
+     * llega este broadcast. 700ms es el roundtrip tipico al API Gateway
+     * desde un device. Si fallo, en el proximo onResume se reconcilia.
+     */
+    private final BroadcastReceiver notifsReadChangedReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handler.postDelayed(DashboardActivity.this::refreshUnreadBadge, 700);
+        }
+    };
+
     /** Permiso POST_NOTIFICATIONS (runtime desde Android 13). Si el user niega,
      *  el Service sigue funcionando pero su notification no se muestra. */
     private final ActivityResultLauncher<String> notificationPermissionLauncher =
@@ -114,29 +138,53 @@ public class DashboardActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_dashboard);
 
+        offlineBanner = OfflineBanner.attach(this);
+
+        // Sincronizar el FCM token con el backend. Cubre el caso 'la app ya
+        // estaba instalada cuando agregamos push' donde onNewToken no se
+        // dispara mas porque el token ya existe. Idempotente: si el endpoint
+        // SNS ya esta registrado para este user, hace upsert silencioso.
+        FcmTokenSync.syncIfLoggedIn(this);
+
         actionBlock = findViewById(R.id.action_block);
         actionBlockIcon = findViewById(R.id.action_block_icon);
         actionBlockLabel = findViewById(R.id.action_block_label);
         doorStatusLabel = findViewById(R.id.dashboard_door_status);
         lastActivityLabel = findViewById(R.id.dashboard_last_activity);
+        openingsCountLabel = findViewById(R.id.dashboard_openings_count);
+        actionOpen = findViewById(R.id.action_open);
+        actionCall = findViewById(R.id.action_call);
 
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
 
-        // Greeting
-        String user = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
-        if (user != null) {
+        // Greeting: priorizamos el nombre del user (extraido del JWT al login).
+        // Si todavia no fue persistido (ej. login viejo pre-fix, o auto-login
+        // con token vigente), intentamos extraerlo del idToken almacenado AHORA.
+        String displayName = PrefsHelper.getUserName(this);
+        if (displayName == null || displayName.isEmpty()) {
+            String idToken = PrefsHelper.getIdToken(this);
+            if (idToken != null) {
+                displayName = com.unlam.pawgate.api.JwtUtils.extractName(idToken);
+                if (displayName != null) PrefsHelper.setUserName(this, displayName);
+            }
+        }
+        if (displayName == null || displayName.isEmpty()) {
+            // Ultimo recurso: el email del Intent extra.
+            displayName = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
+        }
+        if (displayName != null) {
             TextView greeting = findViewById(R.id.dashboard_greeting);
-            greeting.setText(getString(R.string.dashboard_greeting_template, user));
+            greeting.setText(getString(R.string.dashboard_greeting_template, displayName));
         }
 
         ensureNotificationPermission();
 
         findViewById(R.id.dashboard_notification).setOnClickListener(
                 v -> startActivity(new Intent(this, NotificacionesActivity.class)));
-        findViewById(R.id.action_open).setOnClickListener(v -> onActionOpenClick());
+        actionOpen.setOnClickListener(v -> onActionOpenClick());
         actionBlock.setOnClickListener(v -> onBlockOrUnblockClick());
-        findViewById(R.id.action_call).setOnClickListener(v -> onActionCallClick());
+        actionCall.setOnClickListener(v -> onActionCallClick());
         findViewById(R.id.action_schedules).setOnClickListener(
                 v -> startActivity(new Intent(this, HorariosActivity.class)));
 
@@ -147,9 +195,9 @@ public class DashboardActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshTickRunnable.run();
-        // Poll directo a /state cada 3s mientras el Dashboard sea visible.
-        // Independiente del PawGatePollingService.
         statePollRunnable.run();
+        loadDailyMetrics();
+        refreshUnreadBadge();
 
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(
@@ -157,6 +205,206 @@ public class DashboardActivity extends AppCompatActivity {
                 eventUpdateReceiver,
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        // LocalBroadcast desde NotificacionesActivity cuando el user marca
+        // notifs como leidas. Usa LocalBroadcastManager para mantener el
+        // broadcast IN-PROCESS (no expuesto a otras apps).
+        androidx.localbroadcastmanager.content.LocalBroadcastManager
+                .getInstance(this)
+                .registerReceiver(notifsReadChangedReceiver,
+                        new IntentFilter(NotificacionesActivity.ACTION_NOTIFS_READ_CHANGED));
+
+        if (offlineBanner != null) offlineBanner.start();
+
+        // Shake-to-call (Fase 19): solo si el user lo activo en Ajustes.
+        // Re-leemos el setting en cada onResume para que si volvio de Ajustes
+        // con el toggle cambiado, tome efecto inmediato.
+        if (PrefsHelper.isShakeToCallEnabled(this)) {
+            if (shakeDetector == null) {
+                shakeDetector = new ShakeDetector(this, this::onShakeDetected);
+            }
+            shakeDetector.start();
+        }
+    }
+
+    /**
+     * Callback del ShakeDetector. Dispara cmd/call y abre ControlActivity para
+     * que el user vea el ciclo de llamada en vivo (countdown 'BUZZER ACTIVO').
+     *
+     * Flow completo:
+     *   1) Vibracion 150ms — feedback haptic instantaneo de que la app
+     *      registro el shake (antes de esperar el network round-trip).
+     *   2) Toast corto ("Llamando a tu mascota") con LENGTH_SHORT.
+     *   3) POST /devices/{id}/cmd/call al backend, que publica al topic MQTT
+     *      cmd/call. El simulator/firmware lo recibe y arranca el buzzer 3s.
+     *   4) Al success del cmd, abrir ControlActivity. ControlActivity tiene
+     *      su propio polling de state y va a renderizar el ciclo
+     *      calling -> call_ending -> idle con countdown visible.
+     */
+    private void onShakeDetected() {
+        android.util.Log.i("DashboardActivity", "shake detected -> sending cmd/call");
+
+        // 1) Feedback haptic instantaneo (antes incluso del network round-trip).
+        vibrateShort();
+
+        // 2) Marcar el ciclo LOCAL como CALL en SharedPrefs. Esto es lo que
+        //    ControlActivity lee para renderizar 'BUZZER ACTIVO · 3s' con
+        //    countdown. Si no lo seteamos antes del Intent, Control abre y
+        //    no sabe que estamos llamando -> queda en idle visual aunque
+        //    el cmd haya llegado al simulator.
+        PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
+
+        // 3) Navegar a Control INMEDIATAMENTE para que el user vea el ciclo
+        //    sin esperar al network round-trip. La UI de Control va a
+        //    arrancar el countdown apenas se abre.
+        startActivity(new android.content.Intent(this, ControlActivity.class));
+
+        // 4) Disparar el cmd al backend en background. Si falla, limpiamos el
+        //    ciclo local y mostramos error. Si exito, el simulator ya esta
+        //    sonando el buzzer en paralelo.
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
+                java.util.Collections.emptyMap(),
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+                    @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                        android.util.Log.i("DashboardActivity", "shake cmd/call OK");
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("DashboardActivity", "shake call error: " + message);
+                        // Revertir el ciclo local para que Control no quede
+                        // mostrando un fake call que nunca llego al device.
+                        PrefsHelper.clearCycle(DashboardActivity.this);
+                        android.widget.Toast.makeText(DashboardActivity.this,
+                                message, android.widget.Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    /** Vibracion corta (150ms). Compatible con API 26+. */
+    private void vibrateShort() {
+        android.os.Vibrator v = (android.os.Vibrator)
+                getSystemService(android.content.Context.VIBRATOR_SERVICE);
+        if (v == null || !v.hasVibrator()) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            v.vibrate(android.os.VibrationEffect.createOneShot(
+                    150, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+        } else {
+            // Path legacy, igual lo dejamos por las dudas
+            v.vibrate(150);
+        }
+    }
+
+    // ============================================================
+    // Metricas del dia (aperturas hoy + ultima actividad)
+    // ============================================================
+
+    /** Fetch a /history con ventana desde el comienzo del dia para:
+     *  - contar eventos opened (aperturas hoy)
+     *  - tomar el evento mas reciente y mostrar "Ultima actividad: hace X". */
+    private void loadDailyMetrics() {
+        // Endpoint dedicado /metrics/today: el backend itera todas las paginas
+        // de DDB y devuelve el conteo de aperturas + el ultimo door event.
+        // Evita el bug previo en que contabamos solo los primeros 50 events de
+        // /history (que solian ser todos sensors, dando opens=0).
+        deviceRepo.metricsToday(deviceId,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse>() {
+            @Override
+            public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse result) {
+                int opens = result != null ? result.openings_today : 0;
+                String lastIso = result != null ? result.last_door_event_at : null;
+                android.util.Log.d("DashboardMetrics",
+                        "metricsToday: opens=" + opens + " lastIso=" + lastIso);
+                if (openingsCountLabel != null) {
+                    openingsCountLabel.setText(String.valueOf(opens));
+                }
+                if (lastActivityLabel != null) {
+                    if (lastIso != null) {
+                        String rel = HistorialMapper.relativeTimeFor(lastIso, System.currentTimeMillis());
+                        lastActivityLabel.setText(getString(
+                                R.string.dashboard_last_activity_template, rel));
+                    } else {
+                        lastActivityLabel.setText(R.string.dashboard_no_recent_activity);
+                    }
+                }
+            }
+            @Override public void onError(String message) {
+                android.util.Log.w("DashboardMetrics", "metricsToday error: " + message);
+            }
+        });
+    }
+
+    /**
+     * Refresca el badge rojo encima del bell con el conteo de notifs no leidas.
+     *
+     * Se llama en onResume(): cubre el caso comun de "vine de Notificaciones,
+     * marque varias como leidas, vuelvo al Dashboard, el badge tiene que
+     * actualizarse". Tambien cubre push notifications que llegan mientras la
+     * app esta en background — al volver a foreground se ve el badge nuevo.
+     *
+     * Reglas de visibilidad:
+     *   count == 0 -> GONE
+     *   count <= 9 -> texto = count
+     *   count >  9 -> texto = "9+"  (evita overflow en el badge chiquito)
+     *
+     * Errores son silenciosos: el badge simplemente no se actualiza. No
+     * vale interrumpir al user con un toast por algo de UX.
+     */
+    /** Ventana de validez del override local (ver PrefsHelper.setUnreadOverride). */
+    private static final long UNREAD_OVERRIDE_TTL_MS = 30_000L;
+
+    private void refreshUnreadBadge() {
+        TextView badge = findViewById(R.id.dashboard_notification_badge);
+        if (badge == null) return;
+        new NotificationRepository(this).unreadCount(
+                new ApiCallback<NotificationDtos.UnreadCountResponse>() {
+            @Override public void onSuccess(NotificationDtos.UnreadCountResponse result) {
+                int serverCount = result != null ? result.unread : 0;
+                int finalCount = applyLocalOverride(serverCount);
+                renderBadge(badge, finalCount);
+            }
+            @Override public void onError(String message) {
+                android.util.Log.w("DashboardBadge", "unreadCount error: " + message);
+            }
+        });
+    }
+
+    /**
+     * Aplica el override local de NotificacionesActivity. Cubre el caso
+     * donde el user acaba de marcar como leida y el POST aun no impactó:
+     *
+     *   serverCount=3 (no proceso), override=2 (local), -> MIN = 2
+     *   serverCount=5 (llegaron push nuevos), override=2 (stale), -> MIN = 2
+     *     hasta que pasen 30s y se confie en server (5 unread).
+     *   serverCount=2 (proceso), override=2 -> los limpiamos.
+     *   override no existe / expiro -> serverCount tal cual.
+     */
+    private int applyLocalOverride(int serverCount) {
+        long overrideAt = PrefsHelper.getUnreadOverrideAt(this);
+        if (overrideAt == 0L) return serverCount;
+        long age = System.currentTimeMillis() - overrideAt;
+        if (age > UNREAD_OVERRIDE_TTL_MS) {
+            PrefsHelper.clearUnreadOverride(this);
+            return serverCount;
+        }
+        int override = PrefsHelper.getUnreadOverride(this);
+        if (override < 0) return serverCount;
+        if (serverCount <= override) {
+            // server ya proceso (o estamos en sync): limpiar override y confiar.
+            PrefsHelper.clearUnreadOverride(this);
+            return serverCount;
+        }
+        // server tiene un count mayor: o no proceso aun, o llegaron push nuevos.
+        // En cualquiera de los dos casos preferimos mostrar el override (al
+        // user no le gusta ver el badge volver a subir).
+        return override;
+    }
+
+    private void renderBadge(TextView badge, int n) {
+        if (n <= 0) {
+            badge.setVisibility(View.GONE);
+            return;
+        }
+        badge.setVisibility(View.VISIBLE);
+        badge.setText(n > 9 ? "9+" : String.valueOf(n));
     }
 
     @Override
@@ -168,6 +416,13 @@ public class DashboardActivity extends AppCompatActivity {
         } catch (IllegalArgumentException ignored) {
             // defensivo: race conditions en lifecycle
         }
+        try {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager
+                    .getInstance(this)
+                    .unregisterReceiver(notifsReadChangedReceiver);
+        } catch (IllegalArgumentException ignored) { /* defensivo */ }
+        if (shakeDetector != null) shakeDetector.stop();
+        if (offlineBanner != null) offlineBanner.stop();
         super.onPause();
     }
 
@@ -197,8 +452,15 @@ public class DashboardActivity extends AppCompatActivity {
             String rel = HistorialMapper.relativeTimeFor(createdAtIso, System.currentTimeMillis());
             lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
         }
-        // El Service ya escribio el flag BLOQUEADO en SharedPreferences si correspondia.
         renderDoorState();
+        // Refrescar el contador de "Aperturas hoy" cuando hay un evento nuevo,
+        // asi se actualiza en vivo (la mayoria de los broadcasts del Service son
+        // de events no-door, pero cualquier door event nuevo podria ser un opened).
+        loadDailyMetrics();
+        // Si el broadcast es por un evento nuevo, lo mas probable es que el
+        // backend tambien acabe de persistir una notif en pawgate_notifications,
+        // asi que refrescamos el badge tambien.
+        refreshUnreadBadge();
     }
 
     // ============================================================
@@ -251,6 +513,27 @@ public class DashboardActivity extends AppCompatActivity {
             actionBlockLabel.setText(R.string.action_block);
             actionBlockLabel.setTextColor(ContextCompat.getColor(this, R.color.accent_block));
         }
+
+        // Bloquear acciones Abrir/Llamar cuando hay un ciclo activo (cualquier
+        // estado distinto de IDLE/BLOCKED). Asi el user no puede encadenar
+        // 'Llamar -> Abrir' rapido y dejar la puerta en estado inconsistente.
+        boolean busy = state != DoorStateMachine.DoorState.IDLE
+                && state != DoorStateMachine.DoorState.BLOCKED;
+        setQuickActionsBusy(busy);
+    }
+
+    /** Aplica un visual + funcional disabled a las cards Abrir y Llamar
+     *  mientras la puerta este en un ciclo (opening/open/closing/calling/etc). */
+    private void setQuickActionsBusy(boolean busy) {
+        float alpha = busy ? 0.5f : 1.0f;
+        if (actionOpen != null) {
+            actionOpen.setAlpha(alpha);
+            actionOpen.setClickable(!busy);
+        }
+        if (actionCall != null) {
+            actionCall.setAlpha(alpha);
+            actionCall.setClickable(!busy);
+        }
     }
 
     // ============================================================
@@ -258,26 +541,34 @@ public class DashboardActivity extends AppCompatActivity {
     // ============================================================
 
     private void onActionOpenClick() {
+        if (isBusyCycle()) return;
         if (PrefsHelper.isDoorBlocked(this)) {
-            // Bloqueada: NO iniciamos el ciclo, solo redirigimos a Control
-            // (donde el user vera el estado BLOQUEADO y puede desbloquear).
-            openControl();
+            openControl(null);
             return;
         }
-        // No bloqueada: arrancar ciclo de apertura y redirigir a Control.
-        PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
-        openControl();
+        OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
+            PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+            openControl(direction);
+        });
     }
 
     private void onActionCallClick() {
-        // Por requerimiento de UX: la llamada se ejecuta directo y redirige a Control,
-        // independiente del estado actual de la puerta.
+        if (isBusyCycle()) return;
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
-        openControl();
+        openControl(null);
     }
 
-    private void openControl() {
-        startActivity(new Intent(this, ControlActivity.class));
+    /** Hay un ciclo de puerta o llamada en curso? */
+    private boolean isBusyCycle() {
+        DoorStateMachine.DoorState s = DoorStateMachine.currentState(this);
+        return s != DoorStateMachine.DoorState.IDLE
+                && s != DoorStateMachine.DoorState.BLOCKED;
+    }
+
+    private void openControl(String direction) {
+        Intent i = new Intent(this, ControlActivity.class);
+        if (direction != null) i.putExtra(ControlActivity.EXTRA_OPEN_DIRECTION, direction);
+        startActivity(i);
     }
 
     // ============================================================

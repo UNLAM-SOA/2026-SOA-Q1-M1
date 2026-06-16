@@ -77,8 +77,25 @@ CLOSING_DURATION_S = 2.0
 CALLING_DURATION_S = 3.0
 CALL_ENDING_DURATION_S = 1.0
 
-TELEMETRY_INTERVAL_S = 60.0
+TELEMETRY_INTERVAL_S = 30.0   # cada 30s para que la pantalla Detalle ESP32 se sienta 'fresca'
 SENSOR_EMIT_INTERVAL_S = 5.0
+
+# Firmware del simulator (string que muestra la app en la pantalla Detalle ESP32).
+# Cuando flasheemos el ESP32 real (Fase 14), el firmware embebido va a publicar
+# su propio firmware_version.
+FIRMWARE_VERSION = "sim-1.0.3"
+HARDWARE_MODEL = "ESP32-SIM (Python)"
+FLASH_TOTAL_KB = 4096
+HEAP_TOTAL_KB = 320
+
+# Datos de red simulados (los publicamos en telemetry para que la pantalla
+# W14 muestre la red a la que dice estar conectado el simulator). El ESP32
+# real va a usar WiFi.SSID(), WiFi.BSSIDstr(), WiFi.gatewayIP(), etc.
+WIFI_SSID = "PawGate_5G"
+WIFI_BSSID = "A8:42:E3:14:7F:2B"
+WIFI_BAND = "5 GHz"
+WIFI_GATEWAY = "192.168.1.1"
+WIFI_SECURITY = "WPA2-PSK"
 
 
 # ============================================================
@@ -116,6 +133,15 @@ class DeviceSimulator:
         self.boot_time = time.time()
         self._state_lock = threading.RLock()
         self._pending_timers: list[threading.Timer] = []
+
+        # Direccion de apertura. La puerta real tiene 2 triggers:
+        #   - RFID afuera (patio)  -> abre hacia "in"   (el perro entra)
+        #   - Ultrasonido adentro  -> abre hacia "out"  (el perro sale)
+        # Como el simulator no tiene sensores reales, alternamos entre ciclos
+        # para demostrar el feature. El firmware real va a setear direction
+        # segun cual sensor disparo.
+        self._open_count = 0
+        self._current_direction = "in"  # se recalcula al iniciar cada ciclo
 
         # MQTT client. Usamos CallbackAPIVersion.VERSION2 (paho-mqtt 2.x) para
         # evitar el DeprecationWarning del API antiguo. Las firmas de los
@@ -209,7 +235,9 @@ class DeviceSimulator:
         cmd = topic.split("/")[-1]
 
         if cmd == "open":
-            self._handle_open()
+            # Si el payload trae direction, lo respetamos. Sino el device decide
+            # (firmware real: segun sensor que disparo; simulator: alterna).
+            self._handle_open(direction_override=payload.get("direction"))
         elif cmd == "block":
             self._handle_block()
         elif cmd == "unblock":
@@ -218,14 +246,26 @@ class DeviceSimulator:
             self._handle_call()
         elif cmd == "cancel":
             self._handle_cancel()
+        elif cmd == "reboot":
+            self._handle_reboot()
         else:
             log.warning("Comando desconocido: %s", cmd)
 
-    def _handle_open(self):
+    def _handle_open(self, direction_override=None):
         with self._state_lock:
             if self.state in (DoorState.BLOCKED, DoorState.OPENING, DoorState.OPEN, DoorState.CLOSING):
                 log.info("Open ignorado (estado actual: %s)", self.state.value)
                 return
+            # Direction:
+            #  - Si el payload del cmd trajo direction explicita -> respetamos.
+            #  - Sino alternamos (simula firmware con 2 sensores: RFID afuera
+            #    abre hacia "in", ultrasonido adentro abre hacia "out").
+            self._open_count += 1
+            if direction_override in ("in", "out"):
+                self._current_direction = direction_override
+            else:
+                self._current_direction = "in" if (self._open_count % 2 == 1) else "out"
+            log.info("🚪 Apertura #%d, direction=%s", self._open_count, self._current_direction)
             self._cancel_pending_timers()
             self._transition_to(DoorState.OPENING)
             # Cadena: OPENING -> OPEN -> CLOSING -> IDLE
@@ -267,6 +307,52 @@ class DeviceSimulator:
             self._transition_to(DoorState.IDLE)
             self._publish_event("door", {"type": "cancelled"})
 
+    def _handle_reboot(self):
+        """
+        Simula un reboot del firmware: resetea boot_time + state machine.
+        En el ESP32 real seria ESP.restart() (lo cual desconecta MQTT y vuelve
+        a hacer handshake al reconectar). Aca no salimos del proceso porque
+        perderiamos la conexion mTLS; solo reseteamos el contador de uptime y
+        republicamos status. La app va a ver el uptime caer a ~0.
+        """
+        log.info("⚡ REBOOT recibido — reseteando boot_time y state machine")
+        with self._state_lock:
+            self._cancel_pending_timers()
+            self.boot_time = time.time()
+            self._open_count = 0
+            self._transition_to(DoorState.IDLE)
+        # Publicar telemetria inmediatamente para que la app vea uptime=0.
+        # (El loop normal espera 30s para el proximo tick).
+        threading.Thread(target=self._publish_one_telemetry, daemon=True).start()
+
+    def _publish_one_telemetry(self):
+        """Publica un snapshot de telemetry inmediato (usado tras reboot)."""
+        uptime_s = int(time.time() - self.boot_time)
+        local_ip = f"192.168.{random.randint(1, 4)}.{random.randint(10, 99)}"
+        self._publish(
+            f"{self.topic_prefix}/events/telemetry",
+            {
+                "type":              "telemetry",
+                "ts":                int(time.time() * 1000),
+                "uptime_s":          uptime_s,
+                "rssi_dbm":          random.randint(-65, -35),
+                "free_heap_kb":      random.randint(140, 180),
+                "total_heap_kb":     HEAP_TOTAL_KB,
+                "flash_used_kb":     random.randint(1100, 1300),
+                "flash_total_kb":    FLASH_TOTAL_KB,
+                "cpu_temp_c":        round(random.uniform(38.0, 48.0), 1),
+                "local_ip":          local_ip,
+                "firmware_version":  FIRMWARE_VERSION,
+                "hardware_model":    HARDWARE_MODEL,
+                "wifi_ssid":         WIFI_SSID,
+                "wifi_bssid":        WIFI_BSSID,
+                "wifi_band":         WIFI_BAND,
+                "wifi_gateway":      WIFI_GATEWAY,
+                "wifi_security":     WIFI_SECURITY,
+            },
+            qos=0,
+        )
+
     # ============================================================
     # STATE MACHINE
     # ============================================================
@@ -279,9 +365,15 @@ class DeviceSimulator:
             self._publish_status()
             # Eventos derivados de transiciones
             if old_state == DoorState.OPENING and new_state == DoorState.OPEN:
-                self._publish_event("door", {"type": "opened"})
+                self._publish_event("door", {
+                    "type": "opened",
+                    "direction": self._current_direction,
+                })
             elif old_state == DoorState.CLOSING and new_state == DoorState.IDLE:
-                self._publish_event("door", {"type": "closed"})
+                self._publish_event("door", {
+                    "type": "closed",
+                    "direction": self._current_direction,
+                })
 
     def _schedule(self, delay_s: float, fn, *args):
         """Programa una transicion futura. Se guarda para poder cancelarla."""
@@ -323,17 +415,38 @@ class DeviceSimulator:
     # ============================================================
 
     def _telemetry_loop(self):
+        # Una IP local 'fake' que el simulator pretende tener. Random pero
+        # estable durante la vida del proceso. El ESP32 real publica
+        # WiFi.localIP().toString().
+        local_ip = f"192.168.{random.randint(1, 4)}.{random.randint(10, 99)}"
         while True:
             time.sleep(TELEMETRY_INTERVAL_S)
             uptime_s = int(time.time() - self.boot_time)
+            # Topic = events/telemetry para que matchee el IoT Rule existente
+            # (pawgate/+/events/+). eventIngest tiene branch especial: si
+            # event_kind=='telemetry' lo guarda en pawgate_device_state como
+            # ultimo snapshot (no en pawgate_events para no inundar el historial).
             self._publish(
-                f"{self.topic_prefix}/telemetry",
+                f"{self.topic_prefix}/events/telemetry",
                 {
-                    "uptime_s": uptime_s,
-                    "rssi_dbm": random.randint(-65, -35),
-                    "free_heap_kb": random.randint(140, 180),
-                    "cpu_temp_c": round(random.uniform(38.0, 48.0), 1),
-                    "ts": int(time.time() * 1000),
+                    "type":              "telemetry",
+                    "ts":                int(time.time() * 1000),
+                    "uptime_s":          uptime_s,
+                    "rssi_dbm":          random.randint(-65, -35),
+                    "free_heap_kb":      random.randint(140, 180),
+                    "total_heap_kb":     HEAP_TOTAL_KB,
+                    "flash_used_kb":     random.randint(1100, 1300),
+                    "flash_total_kb":    FLASH_TOTAL_KB,
+                    "cpu_temp_c":        round(random.uniform(38.0, 48.0), 1),
+                    "local_ip":          local_ip,
+                    "firmware_version":  FIRMWARE_VERSION,
+                    "hardware_model":    HARDWARE_MODEL,
+                    # WiFi info (W14)
+                    "wifi_ssid":         WIFI_SSID,
+                    "wifi_bssid":        WIFI_BSSID,
+                    "wifi_band":         WIFI_BAND,
+                    "wifi_gateway":      WIFI_GATEWAY,
+                    "wifi_security":     WIFI_SECURITY,
                 },
                 qos=0,
             )

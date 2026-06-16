@@ -78,6 +78,14 @@ if [ -z "$DEVICES_ID_RESOURCE" ] || [ "$DEVICES_ID_RESOURCE" = "None" ]; then
 fi
 echo "   /devices/{id} resource ID: $DEVICES_ID_RESOURCE"
 
+ROOT_RES=$(get_resource_id "/")
+echo "   / (root) resource ID: $ROOT_RES"
+
+# /auth ya existe (creado en setup-15c). El sub-resource /auth/refresh se
+# crea mas abajo, DESPUES de que ensure_resource este definida.
+AUTH_RES=$(get_resource_id "/auth")
+echo "   /auth resource ID: $AUTH_RES"
+
 # ============================================================
 # 2) Crear sub-resources nuevos (idempotente)
 # ============================================================
@@ -107,11 +115,30 @@ ensure_resource() {
   echo "$new_id"
 }
 
+# /auth/refresh (token renewal). Aca SI funciona porque ensure_resource ya
+# esta definida arriba. (Originalmente estaba mas arriba y rompia silenciosamente.)
+AUTH_REFRESH_RES=$(ensure_resource "$AUTH_RES" "refresh" "/auth/refresh" | tail -1)
+
 SCHEDULES_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "schedules" "/devices/{id}/schedules" | tail -1)
 SCHEDULE_ID_RES=$(ensure_resource "$SCHEDULES_RES" "{schedule_id}" "/devices/{id}/schedules/{schedule_id}" | tail -1)
 STATE_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "state" "/devices/{id}/state" | tail -1)
 OVERRIDE_UNBLOCK_RES=$(ensure_resource "$STATE_RES" "override-unblock" "/devices/{id}/state/override-unblock" | tail -1)
 OVERRIDE_BLOCK_RES=$(ensure_resource "$STATE_RES" "override-block" "/devices/{id}/state/override-block" | tail -1)
+METRICS_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "metrics" "/devices/{id}/metrics" | tail -1)
+METRICS_TODAY_RES=$(ensure_resource "$METRICS_RES" "today" "/devices/{id}/metrics/today" | tail -1)
+INFO_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "info" "/devices/{id}/info" | tail -1)
+
+# FCM token endpoint (Fase 20)
+USERS_RES=$(ensure_resource "$ROOT_RES" "users" "/users" | tail -1)
+USERS_ME_RES=$(ensure_resource "$USERS_RES" "me" "/users/me" | tail -1)
+FCM_TOKEN_RES=$(ensure_resource "$USERS_ME_RES" "fcm-token" "/users/me/fcm-token" | tail -1)
+
+# Notificaciones persistidas (Sub-fase B+C)
+NOTIFS_RES=$(ensure_resource "$USERS_ME_RES" "notifications" "/users/me/notifications" | tail -1)
+NOTIFS_UNREAD_RES=$(ensure_resource "$NOTIFS_RES" "unread-count" "/users/me/notifications/unread-count" | tail -1)
+NOTIFS_READ_RES=$(ensure_resource "$NOTIFS_RES" "read" "/users/me/notifications/read" | tail -1)
+NOTIF_ID_RES=$(ensure_resource "$NOTIFS_RES" "{notif_id}" "/users/me/notifications/{notif_id}" | tail -1)
+NOTIF_ID_READ_RES=$(ensure_resource "$NOTIF_ID_RES" "read" "/users/me/notifications/{notif_id}/read" | tail -1)
 
 # ============================================================
 # 3) Crear methods con Cognito Authorizer + Lambda proxy (idempotente)
@@ -159,6 +186,36 @@ ensure_method() {
     --region $REGION >/dev/null
 
   echo "   + $label (creado)"
+}
+
+# Variante para metodos publicos (sin Cognito Authorizer). Usado por /auth/*.
+ensure_method_public() {
+  local resource_id="$1"
+  local http_method="$2"
+  local label="$3"
+
+  if method_exists $resource_id $http_method; then
+    echo "   = $label (ya existe)"
+    return
+  fi
+
+  aws apigateway put-method \
+    --rest-api-id $REST_API_ID \
+    --resource-id $resource_id \
+    --http-method $http_method \
+    --authorization-type NONE \
+    --region $REGION >/dev/null
+
+  aws apigateway put-integration \
+    --rest-api-id $REST_API_ID \
+    --resource-id $resource_id \
+    --http-method $http_method \
+    --type AWS_PROXY \
+    --integration-http-method POST \
+    --uri $LAMBDA_INVOKE_URI \
+    --region $REGION >/dev/null
+
+  echo "   + $label (creado, public)"
 }
 
 # CORS preflight (OPTIONS sin auth).
@@ -241,6 +298,33 @@ ensure_cors   $OVERRIDE_UNBLOCK_RES      "       /devices/{id}/state/override-un
 ensure_method $OVERRIDE_BLOCK_RES POST "POST   /devices/{id}/state/override-block"
 ensure_cors   $OVERRIDE_BLOCK_RES      "       /devices/{id}/state/override-block"
 
+# /devices/{id}/metrics/today            GET
+ensure_method $METRICS_TODAY_RES GET "GET    /devices/{id}/metrics/today"
+ensure_cors   $METRICS_TODAY_RES     "       /devices/{id}/metrics/today"
+
+# /devices/{id}/info                     GET
+ensure_method $INFO_RES GET "GET    /devices/{id}/info"
+ensure_cors   $INFO_RES     "       /devices/{id}/info"
+
+# /users/me/fcm-token                    POST + DELETE
+ensure_method $FCM_TOKEN_RES POST   "POST   /users/me/fcm-token"
+ensure_method $FCM_TOKEN_RES DELETE "DELETE /users/me/fcm-token"
+ensure_cors   $FCM_TOKEN_RES        "       /users/me/fcm-token"
+
+# /users/me/notifications
+ensure_method $NOTIFS_RES GET           "GET    /users/me/notifications"
+ensure_cors   $NOTIFS_RES               "       /users/me/notifications"
+ensure_method $NOTIFS_UNREAD_RES GET    "GET    /users/me/notifications/unread-count"
+ensure_cors   $NOTIFS_UNREAD_RES        "       /users/me/notifications/unread-count"
+ensure_method $NOTIFS_READ_RES POST     "POST   /users/me/notifications/read"
+ensure_cors   $NOTIFS_READ_RES          "       /users/me/notifications/read"
+ensure_method $NOTIF_ID_READ_RES POST   "POST   /users/me/notifications/{notif_id}/read"
+ensure_cors   $NOTIF_ID_READ_RES        "       /users/me/notifications/{notif_id}/read"
+
+# /auth/refresh                          POST (public, sin Cognito Authorizer)
+ensure_method_public $AUTH_REFRESH_RES POST "POST   /auth/refresh"
+ensure_cors          $AUTH_REFRESH_RES      "       /auth/refresh"
+
 # ============================================================
 # 4) Lambda permission para que API GW pueda invocar el handler
 # ============================================================
@@ -284,6 +368,7 @@ echo "  DELETE /devices/{id}/schedules/{schedule_id}"
 echo "  GET    /devices/{id}/state"
 echo "  POST   /devices/{id}/state/override-unblock"
 echo "  POST   /devices/{id}/state/override-block"
+echo "  GET    /devices/{id}/metrics/today"
 echo ""
 echo "Base URL: https://$REST_API_ID.execute-api.$REGION.amazonaws.com/$STAGE/"
 echo ""

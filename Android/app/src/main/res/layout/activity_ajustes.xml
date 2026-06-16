@@ -60,14 +60,16 @@
                 <FrameLayout
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:background="@drawable/bg_avatar_circle">
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_user"
-                        app:tint="@color/text_muted"
-                        android:contentDescription="@string/ajustes_user_name_fallback" />
+                    android:background="@drawable/bg_circle_avatar">
+                    <TextView
+                        android:id="@+id/perfil_avatar_initial"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="F"
+                        android:textColor="@color/bg_card"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
                 </FrameLayout>
                 <LinearLayout
                     android:layout_width="0dp"
@@ -109,22 +111,38 @@
 
             <LinearLayout style="@style/AjustesSectionCard">
 
-                <LinearLayout style="@style/AjustesRow">
+                <LinearLayout
+                    android:id="@+id/ajustes_row_device_esp32"
+                    style="@style/AjustesRow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_cpu" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_esp32" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="Conectado · v1.0.3" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_esp32_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_device_esp32_subtitle_default" />
                     </LinearLayout>
                     <ImageView style="@style/AjustesRowChevron" />
                 </LinearLayout>
 
                 <View style="@style/AjustesRowDivider" />
 
-                <LinearLayout style="@style/AjustesRow">
+                <LinearLayout
+                    android:id="@+id/ajustes_row_device_wifi"
+                    style="@style/AjustesRow"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_wifi" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_wifi" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="PawGate_5G · -42 dBm" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_wifi_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_device_wifi_subtitle_default" />
                     </LinearLayout>
                     <ImageView style="@style/AjustesRowChevron" />
                 </LinearLayout>
@@ -243,6 +261,34 @@
                         android:focusable="true">
                         <View
                             android:id="@+id/ajustes_push_knob"
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:background="@drawable/bg_toggle_knob" />
+                    </FrameLayout>
+                </LinearLayout>
+
+                <View style="@style/AjustesRowDivider" />
+
+                <!-- Shake-to-call (Fase 19): toggle que habilita disparar
+                     cmd/call cuando el user sacude el telefono desde
+                     Dashboard. Default OFF para no sorprender. -->
+                <LinearLayout style="@style/AjustesRow">
+                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_phone_call" />
+                    <LinearLayout style="@style/AjustesRowTexts">
+                        <TextView style="@style/AjustesRowTitle"
+                            android:text="@string/ajustes_shake_to_call_title" />
+                        <TextView style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_shake_to_call_subtitle" />
+                    </LinearLayout>
+                    <FrameLayout
+                        android:id="@+id/ajustes_shake_toggle"
+                        android:layout_width="40dp"
+                        android:layout_height="22dp"
+                        android:layout_marginStart="12dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <View
+                            android:id="@+id/ajustes_shake_knob"
                             android:layout_width="16dp"
                             android:layout_height="16dp"
                             android:background="@drawable/bg_toggle_knob" />

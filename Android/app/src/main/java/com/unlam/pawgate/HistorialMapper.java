@@ -1,16 +1,11 @@
 package com.unlam.pawgate;
 
-import android.text.format.DateUtils;
-
 import com.unlam.pawgate.api.dto.DeviceDtos;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
-import java.util.TimeZone;
 
 /**
  * Mapper: DeviceDtos.Event (DTO del backend) -> HistorialAdapter.Evento (modelo del adapter).
@@ -28,13 +23,11 @@ public final class HistorialMapper {
 
     private HistorialMapper() {}
 
-    // Formato ISO 8601 con milisegundos y Z (UTC). El backend usa este formato
-    // exacto en created_at. Si en el futuro cambia el formato, hay que ajustarlo aca.
-    private static final SimpleDateFormat ISO_FORMAT;
-    static {
-        ISO_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
-        ISO_FORMAT.setTimeZone(TimeZone.getTimeZone("UTC"));
-    }
+    // Parser ISO 8601 robusto. El backend Python emite con microsegundos
+    // (.123456) y offset numerico (+00:00), formato que SimpleDateFormat no
+    // matchea bien. OffsetDateTime de java.time si lo parsea sin problemas
+    // (cualquier precision de fraccion segundos + offset).
+    // Requiere API 26+ (minSdk de la app).
 
     public static List<HistorialAdapter.Evento> mapAll(List<DeviceDtos.Event> events) {
         List<HistorialAdapter.Evento> out = new ArrayList<>(events.size());
@@ -46,10 +39,47 @@ public final class HistorialMapper {
     }
 
     private static HistorialAdapter.Evento map(DeviceDtos.Event e, long nowMs) {
-        int icon = iconFor(e.event_type);
-        String titulo = titleFor(e.event_type);
+        int icon = iconFor(e);
+        String titulo = titleFor(e);
         String subtitulo = formatRelativeTime(e.created_at, nowMs);
         return new HistorialAdapter.Evento(icon, titulo, subtitulo);
+    }
+
+    private static int iconFor(DeviceDtos.Event e) {
+        if ("sensor".equals(e.type)) return R.drawable.ic_funnel;
+        return iconFor(e.event_type);
+    }
+
+    /** Titulo combinando event_type + direction (door) o payload (sensor). */
+    private static String titleFor(DeviceDtos.Event e) {
+        if ("sensor".equals(e.type)) {
+            return sensorTitle(e);
+        }
+        return titleFor(e.event_type, e.direction);
+    }
+
+    /** Para events type=sensor, extraemos la distancia del payload y armamos
+     *  un titulo legible como "Ultrasonido: 35 cm". Si el payload no tiene
+     *  distance_cm caemos a "Lectura de sensor". */
+    private static String sensorTitle(DeviceDtos.Event e) {
+        if (e.payload != null) {
+            Object dist = e.payload.get("distance_cm");
+            if (dist != null) {
+                int cm;
+                if (dist instanceof Number) cm = ((Number) dist).intValue();
+                else {
+                    try { cm = (int) Double.parseDouble(dist.toString()); }
+                    catch (NumberFormatException ex) { return "Lectura de sensor"; }
+                }
+                String detail = "Ultrasonido: " + cm + " cm";
+                Object occupied = e.payload.get("occupied");
+                if (occupied instanceof Boolean && (Boolean) occupied) {
+                    detail += " · ocupado";
+                }
+                return detail;
+            }
+        }
+        return "Lectura de sensor";
     }
 
     // ============================================================
@@ -73,13 +103,20 @@ public final class HistorialMapper {
     }
 
     // ============================================================
-    // Titulo human-readable por tipo de evento
+    // Titulo human-readable por tipo de evento (y direccion si aplica)
     // ============================================================
-    private static String titleFor(String eventType) {
+    private static String titleFor(String eventType, String direction) {
         if (eventType == null) return "Evento";
         switch (eventType) {
-            case "opened":           return "Puerta abierta";
-            case "closed":           return "Puerta cerrada";
+            case "opened":
+                if ("in".equals(direction))  return "Puerta abierta hacia adentro";
+                if ("out".equals(direction)) return "Puerta abierta hacia afuera";
+                return "Puerta abierta";
+            case "closed":
+                if ("in".equals(direction))  return "Puerta cerrada hacia adentro";
+                if ("out".equals(direction)) return "Puerta cerrada hacia afuera";
+                return "Puerta cerrada";
+            case "cancelled":        return "Apertura cancelada";
             case "blocked":          return "Puerta bloqueada";
             case "unblocked":        return "Puerta desbloqueada";
             case "calling":          return "Llamando a la mascota";
@@ -94,18 +131,12 @@ public final class HistorialMapper {
 
     /**
      * Parsea una fecha ISO 8601 del backend a epoch ms. Devuelve -1 si no parsea.
-     * Util para los call-sites que necesitan el timestamp crudo (ej: Dashboard
-     * para decidir si el evento es "reciente" o no).
      */
     public static long parseIsoToMs(String createdAtIso) {
         if (createdAtIso == null || createdAtIso.isEmpty()) return -1L;
         try {
-            Date d;
-            synchronized (ISO_FORMAT) {
-                d = ISO_FORMAT.parse(createdAtIso);
-            }
-            return d != null ? d.getTime() : -1L;
-        } catch (ParseException ex) {
+            return OffsetDateTime.parse(createdAtIso).toInstant().toEpochMilli();
+        } catch (DateTimeParseException ex) {
             return -1L;
         }
     }
@@ -116,27 +147,32 @@ public final class HistorialMapper {
     }
 
     // ============================================================
-    // Subtitulo: "hace 2m" / "ayer 21:14" / etc.
+    // Subtitulo: "hace 2 min" / "hace 1 hora" / etc.
     // ============================================================
+    /**
+     * Custom formatter en castellano. No usamos DateUtils.getRelativeTimeSpanString
+     * porque adapta los strings al locale del device, y si el device esta en
+     * ingles muestra '1 min. ago' aunque la UI este en castellano.
+     */
     private static String formatRelativeTime(String createdAtIso, long nowMs) {
         if (createdAtIso == null || createdAtIso.isEmpty()) return "";
-        try {
-            Date eventDate;
-            synchronized (ISO_FORMAT) { // SimpleDateFormat NO es thread-safe
-                eventDate = ISO_FORMAT.parse(createdAtIso);
-            }
-            if (eventDate == null) return createdAtIso;
-
-            long eventMs = eventDate.getTime();
-            CharSequence rel = DateUtils.getRelativeTimeSpanString(
-                    eventMs,
-                    nowMs,
-                    DateUtils.MINUTE_IN_MILLIS,
-                    DateUtils.FORMAT_ABBREV_RELATIVE);
-            return rel.toString();
-        } catch (ParseException ex) {
-            // Si el formato cambio, fallback al string raw
-            return createdAtIso;
-        }
+        long eventMs = parseIsoToMs(createdAtIso);
+        if (eventMs < 0) return createdAtIso;
+        long diffMs = nowMs - eventMs;
+        if (diffMs < 0) return "ahora";
+        long secs = diffMs / 1000;
+        if (secs < 60) return "hace unos segundos";
+        long mins = secs / 60;
+        if (mins == 1) return "hace 1 min";
+        if (mins < 60) return "hace " + mins + " min";
+        long hours = mins / 60;
+        if (hours == 1) return "hace 1 hora";
+        if (hours < 24) return "hace " + hours + " horas";
+        long days = hours / 24;
+        if (days == 1) return "ayer";
+        if (days < 7) return "hace " + days + " días";
+        long weeks = days / 7;
+        if (weeks == 1) return "hace 1 semana";
+        return "hace " + weeks + " semanas";
     }
 }

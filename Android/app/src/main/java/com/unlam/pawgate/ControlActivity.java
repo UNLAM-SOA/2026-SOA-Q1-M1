@@ -67,6 +67,10 @@ public class ControlActivity extends AppCompatActivity {
     /** Si el Dashboard lanza Control con este extra=true, fuerza estado BLOCKED al arrancar. */
     public static final String EXTRA_START_BLOCKED = "start_blocked";
 
+    /** Si el Dashboard ya pregunto la direccion ("in"|"out"), la pasa aca para
+     *  que dispatchemos el cmd/open con body inmediatamente sin re-preguntar. */
+    public static final String EXTRA_OPEN_DIRECTION = "open_direction";
+
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     /** Tick que re-renderiza el estado actual cada 1s.
@@ -123,6 +127,7 @@ public class ControlActivity extends AppCompatActivity {
     // ===== Backend =====
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private OfflineBanner offlineBanner;
 
     // ===== Views cacheadas =====
     private TextView title;
@@ -149,6 +154,8 @@ public class ControlActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_control);
 
+        offlineBanner = OfflineBanner.attach(this);
+
         bindViews();
 
         // Backend hookup
@@ -169,6 +176,15 @@ public class ControlActivity extends AppCompatActivity {
             PrefsHelper.setDoorBlocked(this, true);
             PrefsHelper.clearCycle(this);
         }
+
+        // Si el Dashboard ya pregunto la direccion, el ciclo local ya esta arrancado.
+        // Solo nos queda disparar el cmd/open con body.direction. Lo hacemos UNA vez
+        // (consumimos el extra para que no se re-dispare en config changes).
+        String direction = getIntent().getStringExtra(EXTRA_OPEN_DIRECTION);
+        if (direction != null && savedInstanceState == null) {
+            dispatchOpen(direction);
+            getIntent().removeExtra(EXTRA_OPEN_DIRECTION);
+        }
     }
 
     @Override
@@ -182,6 +198,8 @@ public class ControlActivity extends AppCompatActivity {
         IntentFilter filter = new IntentFilter(PawGatePollingService.ACTION_EVENT_UPDATE);
         ContextCompat.registerReceiver(this, eventUpdateReceiver, filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        if (offlineBanner != null) offlineBanner.start();
     }
 
     @Override
@@ -193,6 +211,7 @@ public class ControlActivity extends AppCompatActivity {
         } catch (IllegalArgumentException ignored) {
             // defensivo
         }
+        if (offlineBanner != null) offlineBanner.stop();
         super.onPause();
     }
 
@@ -232,17 +251,32 @@ public class ControlActivity extends AppCompatActivity {
     private void onBigBtnClick() {
         DoorStateMachine.DoorState s = currentState();
         if (s == DoorStateMachine.DoorState.IDLE) {
-            // 1) Feedback inmediato: arrancamos ciclo local (UI optimista)
-            PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
-            refreshTickRunnable.run();
-            // 2) Disparamos el POST real al backend en paralelo
-            dispatchCommand(DeviceRepository.CMD_OPEN);
+            // Preguntar al user hacia donde abrir, despues disparar el ciclo.
+            OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
+                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+                refreshTickRunnable.run();
+                dispatchOpen(direction);
+            });
         } else if (s == DoorStateMachine.DoorState.OPENING) {
             // Cancelar el ciclo en curso (solo local - el backend no tiene "cancelar")
             PrefsHelper.clearCycle(this);
             refreshTickRunnable.run();
         }
         // En OPEN, CLOSING, BLOCKED, CALLING, CALL_ENDING -> no hace nada
+    }
+
+    /** Despacha cmd/open con direction en el body. */
+    private void dispatchOpen(String direction) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        if (direction != null) body.put("direction", direction);
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_OPEN, body,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {}
+            @Override public void onError(String message) {
+                Toast.makeText(ControlActivity.this,
+                        "Error al abrir: " + message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void onBlockCardClick() {
@@ -335,11 +369,11 @@ public class ControlActivity extends AppCompatActivity {
             case OPENING:
             case CALLING:
             case CALL_ENDING:
-                // Cancelacion local. El backend no tiene "cancelar" - el device
-                // termina su ciclo igual. En una version siguiente podriamos
-                // mandar un cmd "stop" si el contrato MQTT lo soporta.
+                // Cancelacion: limpiamos el ciclo local + mandamos cmd/cancel al
+                // device para que tambien cancele su ciclo fisico.
                 PrefsHelper.clearCycle(this);
                 refreshTickRunnable.run();
+                dispatchCommand(DeviceRepository.CMD_CANCEL);
                 break;
             default:
                 // No deberia llegar (el boton solo es visible en los anteriores)
@@ -605,20 +639,24 @@ public class ControlActivity extends AppCompatActivity {
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_stop_call);
 
-        setActionCardsEnabled(true);
+        // Cards disabled mientras hay llamada en curso (no se puede llamar de
+        // nuevo ni bloquear). La card de Llamar se ve highlighted como activa.
+        setActionCardsEnabled(false);
         setCardsArrowsVisible(true);
         renderCardBlockInactive();
 
         cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
         cardCallSubtitle.setText(R.string.control_card_active);
         cardCallSubtitle.setTextColor(color(R.color.accent_cyan));
+        // El highlight visual de "Activo" en la card Call lo dejamos vivo
+        // (no aplicamos alpha 0.5 a esa card especifica) para que el user vea
+        // claramente que la llamada esta en curso.
+        cardCall.setAlpha(1.0f);
 
-        // Info strip propio de la llamada
         infoIcon.setImageResource(R.drawable.ic_bell);
         infoIcon.setColorFilter(color(R.color.accent_cyan));
         infoTitle.setText(R.string.control_info_calling_title);
 
-        // Countdown (3..1)
         int remaining = DoorStateMachine.secondsRemainingInCountdown(this);
         statusText.setText(getString(R.string.control_status_calling, remaining));
         hint.setText(getString(R.string.control_hint_calling, remaining));
@@ -643,11 +681,12 @@ public class ControlActivity extends AppCompatActivity {
         hint.setVisibility(View.GONE);
         btnSecondary.setVisibility(View.GONE);
 
-        setActionCardsEnabled(true);
+        setActionCardsEnabled(false);
         setCardsArrowsVisible(true);
         renderCardBlockInactive();
 
         cardCall.setBackgroundResource(R.drawable.bg_card_active_info);
+        cardCall.setAlpha(1.0f); // la card activa se mantiene visible nitida
         cardCallSubtitle.setText(R.string.control_card_active);
         cardCallSubtitle.setTextColor(color(R.color.accent_cyan));
 

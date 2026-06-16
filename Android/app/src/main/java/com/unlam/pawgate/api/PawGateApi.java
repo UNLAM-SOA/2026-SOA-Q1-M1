@@ -2,6 +2,7 @@ package com.unlam.pawgate.api;
 
 import com.unlam.pawgate.api.dto.AuthDtos;
 import com.unlam.pawgate.api.dto.DeviceDtos;
+import com.unlam.pawgate.api.dto.NotificationDtos;
 import com.unlam.pawgate.api.dto.ScheduleDtos;
 
 import java.util.Map;
@@ -38,19 +39,56 @@ public interface PawGateApi {
     @POST("auth/login")
     Call<AuthDtos.LoginResponse> login(@Body AuthDtos.LoginRequest body);
 
+    @POST("auth/refresh")
+    Call<AuthDtos.RefreshTokenResponse> refresh(@Body AuthDtos.RefreshTokenRequest body);
+
     // ===== Device events + cmds (requieren JWT) =====
 
     @GET("devices/{id}/history")
     Call<DeviceDtos.HistoryResponse> getHistory(
             @Path("id") String deviceId,
             @Query("from") Long fromMs,
-            @Query("to") Long toMs);
+            @Query("to") Long toMs,
+            @Query("include_sensors") Boolean includeSensors,
+            @Query("cursor") String cursor);
 
     @POST("devices/{id}/cmd/{cmd}")
     Call<DeviceDtos.CommandResponse> sendCommand(
             @Path("id") String deviceId,
             @Path("cmd") String cmd,
             @Body Map<String, Object> body);
+
+    @GET("devices/{id}/metrics/today")
+    Call<DeviceDtos.MetricsTodayResponse> getMetricsToday(@Path("id") String deviceId);
+
+    @GET("devices/{id}/info")
+    Call<DeviceDtos.DeviceInfoResponse> getDeviceInfo(@Path("id") String deviceId);
+
+    // ===== FCM token (Fase 20) =====
+
+    @POST("users/me/fcm-token")
+    Call<DeviceDtos.RegisterFcmTokenResponse> registerFcmToken(
+            @Body DeviceDtos.RegisterFcmTokenRequest body);
+
+    @DELETE("users/me/fcm-token")
+    Call<Void> unregisterFcmToken();
+
+    // ===== Notifications (bandeja persistente) =====
+
+    @GET("users/me/notifications")
+    Call<NotificationDtos.ListResponse> getNotifications(
+            @Query("limit") Integer limit,
+            @Query("onlyUnread") Boolean onlyUnread);
+
+    @GET("users/me/notifications/unread-count")
+    Call<NotificationDtos.UnreadCountResponse> getUnreadCount();
+
+    @POST("users/me/notifications/read")
+    Call<NotificationDtos.MarkReadResponse> markAllNotificationsRead();
+
+    @POST("users/me/notifications/{notif_id}/read")
+    Call<NotificationDtos.MarkReadResponse> markNotificationRead(
+            @Path("notif_id") String notifId);
 
     // ===== Schedules CRUD =====
 

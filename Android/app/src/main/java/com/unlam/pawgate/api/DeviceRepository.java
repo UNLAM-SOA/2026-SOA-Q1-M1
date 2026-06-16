@@ -39,6 +39,7 @@ public class DeviceRepository {
     public static final String CMD_BLOCK = "block";
     public static final String CMD_UNBLOCK = "unblock";
     public static final String CMD_CALL = "call";
+    public static final String CMD_CANCEL = "cancel";
 
     private final Context appContext;
     private final PawGateApi api;
@@ -57,16 +58,26 @@ public class DeviceRepository {
      * usar el overload con fromMs/toMs.
      */
     public void history(String deviceId, ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        history(deviceId, null, null, cb);
+        history(deviceId, null, null, null, null, cb);
+    }
+
+    public void history(String deviceId, Long fromMs, Long toMs,
+                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        history(deviceId, fromMs, toMs, null, null, cb);
+    }
+
+    public void history(String deviceId, Long fromMs, Long toMs, Boolean includeSensors,
+                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        history(deviceId, fromMs, toMs, includeSensors, null, cb);
     }
 
     /**
-     * Trae el historial con rango opcional. Pasar null en from/to si no aplica.
-     * El backend interpreta from/to como epoch ms.
+     * Trae el historial con rango, filtro de sensores y cursor de paginacion
+     * opcionales. Si la respuesta trae next_cursor, hay mas paginas.
      */
-    public void history(String deviceId, Long fromMs, Long toMs,
-                        ApiCallback<DeviceDtos.HistoryResponse> cb) {
-        api.getHistory(deviceId, fromMs, toMs).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
+    public void history(String deviceId, Long fromMs, Long toMs, Boolean includeSensors,
+                        String cursor, ApiCallback<DeviceDtos.HistoryResponse> cb) {
+        api.getHistory(deviceId, fromMs, toMs, includeSensors, cursor).enqueue(new Callback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onResponse(Call<DeviceDtos.HistoryResponse> call,
                                    Response<DeviceDtos.HistoryResponse> response) {
@@ -98,8 +109,13 @@ public class DeviceRepository {
      */
     public void sendCommand(String deviceId, String cmd,
                             ApiCallback<DeviceDtos.CommandResponse> cb) {
-        // Body vacio - el backend solo mira el path por ahora
-        Map<String, Object> body = Collections.emptyMap();
+        sendCommand(deviceId, cmd, Collections.emptyMap(), cb);
+    }
+
+    /** Variante con body parametrizado. Usado por ej. para cmd=open con
+     *  {"direction": "in"|"out"}. */
+    public void sendCommand(String deviceId, String cmd, Map<String, Object> body,
+                            ApiCallback<DeviceDtos.CommandResponse> cb) {
         api.sendCommand(deviceId, cmd, body).enqueue(new Callback<DeviceDtos.CommandResponse>() {
             @Override
             public void onResponse(Call<DeviceDtos.CommandResponse> call,
@@ -114,6 +130,73 @@ public class DeviceRepository {
             @Override
             public void onFailure(Call<DeviceDtos.CommandResponse> call, Throwable t) {
                 Log.e(TAG, "sendCommand network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    // ============================================================
+    // METRICS
+    // ============================================================
+
+    public void metricsToday(String deviceId,
+                              ApiCallback<DeviceDtos.MetricsTodayResponse> cb) {
+        api.getMetricsToday(deviceId).enqueue(new Callback<DeviceDtos.MetricsTodayResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.MetricsTodayResponse> call,
+                                             Response<DeviceDtos.MetricsTodayResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(), "No se pudieron cargar las metricas"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.MetricsTodayResponse> call, Throwable t) {
+                Log.e(TAG, "metricsToday network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    /** POST /users/me/fcm-token — registra el FCM token en SNS Platform App. */
+    public void registerFcmToken(String token,
+                                  ApiCallback<DeviceDtos.RegisterFcmTokenResponse> cb) {
+        api.registerFcmToken(new DeviceDtos.RegisterFcmTokenRequest(token))
+                .enqueue(new Callback<DeviceDtos.RegisterFcmTokenResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.RegisterFcmTokenResponse> call,
+                                             Response<DeviceDtos.RegisterFcmTokenResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(),
+                        "No se pudo registrar el token de notificaciones"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.RegisterFcmTokenResponse> call, Throwable t) {
+                Log.e(TAG, "registerFcmToken network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    /** DELETE /users/me/fcm-token — borra el endpoint en SNS (logout). */
+    public void unregisterFcmToken(ApiCallback<Void> cb) {
+        api.unregisterFcmToken().enqueue(new Callback<Void>() {
+            @Override public void onResponse(Call<Void> call, Response<Void> response) {
+                if (response.isSuccessful()) cb.onSuccess(null);
+                else cb.onError(parseError(response.errorBody(), "No se pudo desregistrar"));
+            }
+            @Override public void onFailure(Call<Void> call, Throwable t) {
+                Log.e(TAG, "unregisterFcmToken network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
+    /** GET /devices/{id}/info — telemetria del ESP32 (uptime, RAM, IP, etc). */
+    public void deviceInfo(String deviceId, ApiCallback<DeviceDtos.DeviceInfoResponse> cb) {
+        api.getDeviceInfo(deviceId).enqueue(new Callback<DeviceDtos.DeviceInfoResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.DeviceInfoResponse> call,
+                                             Response<DeviceDtos.DeviceInfoResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(),
+                        "No se pudo cargar la informacion del dispositivo"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.DeviceInfoResponse> call, Throwable t) {
+                Log.e(TAG, "deviceInfo network error", t);
                 cb.onError(networkErrorMessage(t));
             }
         });

@@ -1,5 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
+    // Plugin del Google Services. Lee Android/app/google-services.json y
+    // genera los res/values/strings.xml de Firebase en build time. Es lo que
+    // permite que firebase-messaging tome la config del proyecto automatico.
+    id 'com.google.gms.google-services'
 }
 
 android {
@@ -33,6 +37,7 @@ dependencies {
     implementation libs.appcompat
     implementation libs.constraintlayout
     implementation libs.material
+    implementation libs.local.broadcast.manager
     implementation 'androidx.core:core-splashscreen:1.2.0'
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
 
@@ -40,6 +45,13 @@ dependencies {
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+
+    // FCM (Fase 20): BoM 33.x (estable, junio 2026). Solo necesitamos
+    // firebase-messaging — el push channel a nivel sistema lo provee
+    // Google Play Services. La autenticacion contra FCM la hace el
+    // BACKEND (via AWS SNS Platform Application), no la app.
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-messaging'
 
     testImplementation libs.junit
     androidTestImplementation libs.espresso.core

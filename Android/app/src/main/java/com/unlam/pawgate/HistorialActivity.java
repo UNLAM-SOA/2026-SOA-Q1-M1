@@ -42,11 +42,24 @@ public class HistorialActivity extends AppCompatActivity {
     private HistorialAdapter adapter;
     private DeviceRepository deviceRepo;
     private String deviceId;
+    private RecyclerView listView;
+    private View emptyView;
+    private OfflineBanner offlineBanner;
 
     // Filtro temporal seleccionado actualmente (null = "todas")
     private Long currentFromMs = null;
     private Long currentToMs = null;
-    // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d.
+
+    // Paginacion (infinite scroll)
+    private String nextCursor = null;
+    private boolean isLoading = false;
+    /** Cuando el ultimo item visible esta a <= esta distancia del final, pedimos pag. */
+    private static final int LOAD_MORE_THRESHOLD = 5;
+    /** Counter que invalida callbacks viejos cuando cambia el filtro. Cada
+     *  loadHistory() lo incrementa; los callbacks comparan su version local
+     *  y descartan la respuesta si difiere (filtro ya cambio). */
+    private int loadVersion = 0;
+    // Indice del chip activo: 0=todas, 1=hoy, 2=ayer, 3=7d, -1=custom (filtros avanzados).
     private int activeChipIndex = 0;
 
     // Keys del Bundle (sobreviven rotacion y process death)
@@ -54,26 +67,72 @@ public class HistorialActivity extends AppCompatActivity {
     private static final String STATE_TO_MS = "filter_to_ms";
     private static final String STATE_CHIP_INDEX = "filter_chip_index";
 
+    /** Bump este string cada vez que tocamos el archivo. Confirma en logcat
+     *  que el APK efectivamente instalado es el del ultimo build. */
+    private static final String BUILD_TAG = "v2026-06-08-r6-no-sensors";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_historial);
+        android.util.Log.d("HistorialActivity",
+                "onCreate build=" + BUILD_TAG);
+
+        offlineBanner = OfflineBanner.attach(this);
 
         this.deviceRepo = new DeviceRepository(this);
         this.deviceId = getString(R.string.default_device_id);
 
         findViewById(R.id.historial_back).setOnClickListener(v -> finish());
-        findViewById(R.id.historial_filter).setOnClickListener(
-                v -> showToast(R.string.toast_coming_soon));
+        findViewById(R.id.historial_filter).setOnClickListener(v -> openFiltrosAvanzados());
 
         wireChips();
 
         // RecyclerView arranca vacio. Lo llenamos en onResume() con la respuesta del backend.
-        RecyclerView list = findViewById(R.id.event_list);
-        list.setLayoutManager(new LinearLayoutManager(this));
+        listView = findViewById(R.id.event_list);
+        emptyView = findViewById(R.id.historial_empty);
+        final LinearLayoutManager lm = new LinearLayoutManager(this);
+        listView.setLayoutManager(lm);
         this.adapter = new HistorialAdapter(Collections.emptyList());
-        list.setAdapter(adapter);
-        list.addItemDecoration(new InsetDividerDecoration(this));
+        listView.setAdapter(adapter);
+        listView.addItemDecoration(new InsetDividerDecoration(this));
+
+        // Infinite scroll: cuando el user se acerca al final, pedimos la
+        // proxima pagina (si el backend dio next_cursor en la respuesta previa).
+        // Log cuando se attacha el listener para confirmar que el codigo nuevo
+        // se esta corriendo (con el BUILD_TAG arriba).
+        android.util.Log.d("HistorialActivity", "attaching OnScrollListener");
+        listView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            private boolean firstScrollLogged = false;
+
+            @Override
+            public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                if (!firstScrollLogged) {
+                    android.util.Log.d("HistorialActivity",
+                            "onScrolled fired (first) dx=" + dx + " dy=" + dy);
+                    firstScrollLogged = true;
+                }
+                if (dy <= 0) return; // solo cuando scrollea hacia abajo
+                int lastVisible = lm.findLastVisibleItemPosition();
+                int total = lm.getItemCount();
+                // Log cada vez que el user scrollea cerca del final.
+                if (lastVisible >= total - LOAD_MORE_THRESHOLD - 2) {
+                    android.util.Log.d("HistorialActivity",
+                            "onScrolled near end lastVisible=" + lastVisible
+                                    + " total=" + total
+                                    + " isLoading=" + isLoading
+                                    + " cursor=" + (nextCursor != null ? "yes" : "no"));
+                }
+                if (isLoading) return;
+                if (nextCursor == null) return; // backend dijo "no hay mas"
+                if (lastVisible >= total - LOAD_MORE_THRESHOLD) {
+                    android.util.Log.d("HistorialActivity",
+                            "trigger loadMore lastVisible=" + lastVisible
+                                    + " total=" + total);
+                    loadMoreHistory();
+                }
+            }
+        });
 
         // Restauracion del filtro post rotacion.
         if (savedInstanceState != null) {
@@ -92,6 +151,26 @@ public class HistorialActivity extends AppCompatActivity {
         BottomNavHelper.bind(this, R.id.nav_historial);
     }
 
+    /** Abre el BottomSheet de filtros avanzados (W13). Al aplicar, refresca la lista. */
+    private void openFiltrosAvanzados() {
+        HistorialFiltrosBottomSheet.Filtros current =
+                new HistorialFiltrosBottomSheet.Filtros(currentFromMs, currentToMs);
+        HistorialFiltrosBottomSheet.show(getSupportFragmentManager(), current, filtros -> {
+            currentFromMs = filtros.fromMs;
+            currentToMs = filtros.toMs;
+            if (filtros.hasCustomRange()) {
+                // Si el user puso rango custom, ningun chip queda destacado.
+                activeChipIndex = -1;
+                highlightChipByIndex(-1);
+            } else {
+                // Filtros limpiados -> volvemos a "Todas".
+                activeChipIndex = 0;
+                highlightChipByIndex(0);
+            }
+            loadHistory();
+        });
+    }
+
     @Override
     protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -108,25 +187,158 @@ public class HistorialActivity extends AppCompatActivity {
         // (Si queremos refresh "vivo" mientras esta en pantalla, agregamos polling
         // como en ControlActivity. Por ahora un refresh por entrada alcanza.)
         loadHistory();
+        if (offlineBanner != null) offlineBanner.start();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (offlineBanner != null) offlineBanner.stop();
     }
 
     // ============================================================
     // BACKEND CALL
     // ============================================================
 
+    /** Primera pagina: invalida callbacks pendientes, resetea cursor, reemplaza data. */
     private void loadHistory() {
-        deviceRepo.history(deviceId, currentFromMs, currentToMs,
+        loadVersion++;          // invalida callbacks viejos
+        nextCursor = null;
+        isLoading = true;
+        autoLoadChainCount = 0; // reset cadena al empezar filtro nuevo
+        // Ocultar empty mientras carga - sino parpadea al cambiar de filtro
+        if (emptyView != null) emptyView.setVisibility(View.GONE);
+        if (listView != null) listView.setVisibility(View.VISIBLE);
+        final int myVersion = loadVersion;
+        android.util.Log.d("HistorialActivity",
+                "loadHistory v=" + myVersion + " from=" + currentFromMs
+                        + " to=" + currentToMs);
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, false, null,
                 new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
-                List<DeviceDtos.Event> events = result.events != null
-                        ? result.events
-                        : new ArrayList<>();
+                if (myVersion != loadVersion) {
+                    android.util.Log.d("HistorialActivity",
+                            "loadHistory v=" + myVersion + " stale, ignoring");
+                    return;
+                }
+                isLoading = false;
+                List<DeviceDtos.Event> events = result != null && result.events != null
+                        ? result.events : new ArrayList<>();
                 adapter.setData(HistorialMapper.mapAll(events));
+                nextCursor = result != null ? result.next_cursor : null;
+                android.util.Log.d("HistorialActivity",
+                        "loadHistory v=" + myVersion + " ok, count=" + events.size()
+                                + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
+                updateEmptyState();
+                // Si la primera pagina no llena la pantalla pero hay cursor,
+                // no podemos esperar al OnScrollListener (no hay scroll posible).
+                // Auto-disparamos loadMore hasta llenar pantalla o agotar cursor.
+                maybeAutoLoadMore();
             }
             @Override
             public void onError(String message) {
+                if (myVersion != loadVersion) return;
+                isLoading = false;
                 Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /**
+     * Empty state: muestra el placeholder cuando el adapter quedo sin items
+     * Y el backend dijo 'no hay mas' (next_cursor=null). Si todavia hay
+     * cursor, aunque count=0, la auto-paginacion va a traer mas, asi que
+     * NO mostramos vacio aun.
+     */
+    private void updateEmptyState() {
+        if (emptyView == null || listView == null) return;
+        boolean noItems = adapter.getItemCount() == 0;
+        boolean noMore = nextCursor == null;
+        boolean showEmpty = noItems && noMore && !isLoading;
+        emptyView.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+        listView.setVisibility(showEmpty ? View.GONE : View.VISIBLE);
+    }
+
+    /**
+     * Si tenemos cursor pero la lista no llena la pantalla (no hay scroll
+     * posible), encadenamos otra pagina. Sin esto, cuando el backend devuelve
+     * count=4 + next_cursor (porque filtra muchos sensors), el user ve 4 items
+     * y el OnScrollListener nunca dispara porque no hay nada para scrollear.
+     *
+     * Hay un cap de 5 cadenas para evitar loops infinitos si el backend
+     * patologico siempre devuelve poco.
+     */
+    private static final int AUTO_LOAD_CHAIN_MAX = 5;
+    private int autoLoadChainCount = 0;
+
+    private void maybeAutoLoadMore() {
+        if (nextCursor == null || isLoading) {
+            autoLoadChainCount = 0;
+            return;
+        }
+        if (autoLoadChainCount >= AUTO_LOAD_CHAIN_MAX) {
+            android.util.Log.d("HistorialActivity",
+                    "autoLoadMore cap reached, parando cadena");
+            autoLoadChainCount = 0;
+            return;
+        }
+        // post() para que el RecyclerView termine de renderizar antes de medir.
+        listView.post(() -> {
+            if (nextCursor == null || isLoading) return;
+            LinearLayoutManager lm = (LinearLayoutManager) listView.getLayoutManager();
+            if (lm == null) return;
+            int lastVisible = lm.findLastVisibleItemPosition();
+            int total = lm.getItemCount();
+            // Si todo lo que tenemos cabe en pantalla, no hay scroll -> auto.
+            // Comparamos con total-1 (el indice del ultimo item es total-1).
+            if (lastVisible >= total - 1 && total > 0) {
+                autoLoadChainCount++;
+                android.util.Log.d("HistorialActivity",
+                        "autoLoadMore chain=" + autoLoadChainCount
+                                + " lastVisible=" + lastVisible + " total=" + total);
+                loadMoreHistory();
+            } else {
+                // Ya hay scroll posible -> el OnScrollListener se encarga.
+                autoLoadChainCount = 0;
+            }
+        });
+    }
+
+    /** Pagina siguiente: usa nextCursor, appendea data al adapter. */
+    private void loadMoreHistory() {
+        if (isLoading || nextCursor == null) return;
+        isLoading = true;
+        final String cursor = nextCursor;
+        final int myVersion = loadVersion;
+        android.util.Log.d("HistorialActivity",
+                "loadMore v=" + myVersion + " cursor=" + cursor.substring(0, Math.min(20, cursor.length())) + "...");
+        deviceRepo.history(deviceId, currentFromMs, currentToMs, false, cursor,
+                new ApiCallback<DeviceDtos.HistoryResponse>() {
+            @Override
+            public void onSuccess(DeviceDtos.HistoryResponse result) {
+                if (myVersion != loadVersion) {
+                    android.util.Log.d("HistorialActivity",
+                            "loadMore v=" + myVersion + " stale, ignoring");
+                    return;
+                }
+                isLoading = false;
+                if (result == null) { nextCursor = null; return; }
+                List<DeviceDtos.Event> events = result.events != null
+                        ? result.events : new ArrayList<>();
+                adapter.appendData(HistorialMapper.mapAll(events));
+                nextCursor = result.next_cursor;
+                android.util.Log.d("HistorialActivity",
+                        "loadMore v=" + myVersion + " appended=" + events.size()
+                                + " next_cursor=" + (nextCursor != null ? "yes" : "no"));
+                // Si seguimos sin llenar pantalla, encadenar otra pagina.
+                maybeAutoLoadMore();
+            }
+            @Override
+            public void onError(String message) {
+                if (myVersion != loadVersion) return;
+                isLoading = false;
+                Toast.makeText(HistorialActivity.this, message, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -183,18 +395,25 @@ public class HistorialActivity extends AppCompatActivity {
         }
     }
 
-    /** Epoch ms del 00:00:00 de hoy en la timezone del device. */
+    /**
+     * Epoch ms del 00:00:00 de hoy en timezone ART (UNLaM).
+     *
+     * Hardcodeamos ART porque el emulador suele venir en UTC; si dependieramos
+     * de Calendar.getInstance() (default = timezone del device), el chip 'Hoy'
+     * mostraria un rango shifted 3h respecto a lo que el user piensa en ART.
+     * Ej con device en UTC y user en ART: 'Ayer' filtraba un rango que
+     * incluia parte del 'hoy' mental del user.
+     */
+    private static final java.util.TimeZone ART_TZ =
+            java.util.TimeZone.getTimeZone("America/Argentina/Buenos_Aires");
+
     private long startOfTodayMs() {
-        java.util.Calendar cal = java.util.Calendar.getInstance();
+        java.util.Calendar cal = java.util.Calendar.getInstance(ART_TZ);
         cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
         cal.set(java.util.Calendar.MINUTE, 0);
         cal.set(java.util.Calendar.SECOND, 0);
         cal.set(java.util.Calendar.MILLISECOND, 0);
         return cal.getTimeInMillis();
-    }
-
-    private void showToast(int messageRes) {
-        Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int value) {
