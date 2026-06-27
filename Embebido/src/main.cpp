@@ -11,8 +11,8 @@
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "SO Avanzados"
-  #define WIFI_PASSWORD "SOA.2019"
+  #define WIFI_SSID "Moriste en madrid 2.4ghz"
+  #define WIFI_PASSWORD "tobichester"
 
   enum tipo_broker {
     EMQX,
@@ -325,8 +325,10 @@
   void apagar_luz()
   {
     // Emitir la acción a la cola de acciones
-    Serial.print("Transición iniciada: Luz apagada\n");
-    emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
+    //Serial.print("Transición iniciada: Luz apagada\n");
+    //emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
+    emitir_accion_puerta(ACC_APAGAR_LUZ, "");
+
     return;
   }
 
@@ -445,8 +447,8 @@
       // Emitir evento correspondiente a la cola de eventos
       sensor_luz.valor_actual = analogRead(sensor_luz.pin);
 
-      Serial.print("[luz_deteccion] ADC=");
-      Serial.print(sensor_luz.valor_actual);
+      //Serial.print("[luz_deteccion] ADC=");
+      //Serial.print(sensor_luz.valor_actual);
 
       if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
       {
@@ -587,6 +589,11 @@
     publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
   }
 
+  // Direction de la ultima apertura, para incluirla en el evento "closed".
+  // Asi la app puede saber HACIA DONDE se cerro la puerta (in/out) y matchear
+  // el ciclo visual abrir->cerrar de manera consistente.
+  static const char* ultima_direction_apertura = nullptr;
+
   void puerta_accion(void *pvParametros)
   {
     while (1)
@@ -597,17 +604,23 @@
         Serial.print("[puerta_accion] Accion recibida=");
         if (action_recibido == ACC_ABRIR_DESDE_AFUERA)
         {
+          // ABRIR_DESDE_AFUERA = el animal viene de afuera y entra a casa.
+          // La puerta se abre HACIA ADENTRO -> direction = "in".
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_evento_puerta("opened", "out");
+          ultima_direction_apertura = "in";
+          publicar_evento_puerta("opened", "in");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
+          // ABRIR_DESDE_ADENTRO = el animal sale al patio.
+          // La puerta se abre HACIA AFUERA -> direction = "out".
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_evento_puerta("opened", "in");
+          ultima_direction_apertura = "out";
+          publicar_evento_puerta("opened", "out");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -615,7 +628,10 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_evento_puerta("closed", nullptr);
+          // Pasamos la misma direction que el opened previo, asi la app
+          // matchea el ciclo (abriendo->abierta->cerrando hacia la misma X).
+          publicar_evento_puerta("closed", ultima_direction_apertura);
+          ultima_direction_apertura = nullptr;
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -887,12 +903,16 @@
       }
       const char* direction = doc["direction"];
       if(direction != nullptr) {
+        // direction "in" = puerta HACIA ADENTRO => animal viene de afuera
+        //                  => EV_ANIMAL_DETECTADO_AFUERA (afuera_entrando)
+        // direction "out"= puerta HACIA AFUERA  => animal sale desde adentro
+        //                  => EV_ANIMAL_DETECTADO_ADENTRO (adentro_saliendo)
         if(strcmp(direction, "in") == 0) {
-          Serial.println("EV_ANIMAL_DETECTADO_ADENTRO DESDE MQTT");
-          ev = EV_ANIMAL_DETECTADO_ADENTRO;
-        } else if (strcmp(direction, "out") == 0){
-          Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
+          Serial.println("cmd open direction=in -> EV_ANIMAL_DETECTADO_AFUERA");
           ev = EV_ANIMAL_DETECTADO_AFUERA;
+        } else if (strcmp(direction, "out") == 0){
+          Serial.println("cmd open direction=out -> EV_ANIMAL_DETECTADO_ADENTRO");
+          ev = EV_ANIMAL_DETECTADO_ADENTRO;
       } else {
         Serial.println("ERROR: LA DIRECCION DE APERTURA NO ES CORRECTA");
         return;
