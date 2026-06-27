@@ -865,6 +865,23 @@
 
     Serial.printf("\n[mqtt] target=%s:%d clientId=%s\n",
                   mqtt_server, mqtt_port, MQTT_CLIENT_ID);
+
+    // Smoke test TCP crudo (sin TLS) — descarta firewall / ISP bloqueando
+    // el puerto 8883 outgoing. Si esto NO completa, el TLS handshake nunca
+    // tendra chance — el bug es de red, no de certs.
+    {
+      WiFiClient tcpTest;
+      Serial.printf("[debug] TCP raw test %s:%d ... ", mqtt_server, mqtt_port);
+      unsigned long t0 = millis();
+      int tcpOk = tcpTest.connect(mqtt_server, mqtt_port, 5000); // 5s timeout
+      unsigned long dt = millis() - t0;
+      Serial.printf("result=%d took=%lums\n", tcpOk, dt);
+      tcpTest.stop();
+      if (!tcpOk) {
+        Serial.println("[debug] TCP raw FAILED — verificar firewall/ISP en pto 8883");
+      }
+    }
+
     Serial.print("Intentando conexión MQTT...");
     while (!client.connected() && intentos < 5)
     {
