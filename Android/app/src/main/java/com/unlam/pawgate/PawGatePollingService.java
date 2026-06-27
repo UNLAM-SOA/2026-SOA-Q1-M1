@@ -59,13 +59,16 @@ public class PawGatePollingService extends Service {
     private static final String CHANNEL_ID = "pawgate_polling_channel";
     private static final int NOTIFICATION_ID = 1001;
 
-    /** Polling rapido cuando hay actividad reciente o un ciclo activo.
-     *  Permite que la app vea el opened→closed del firmware en tiempo real.
-     *  Funciona como BACKUP del push FCM (PawGateFcmService llama
-     *  DoorStateMachine.onExternalDoorEvent en cuanto llega el push, que es
-     *  ~500ms desde el firmware). El polling cubre cuando no hay push
-     *  (red caida, push deshabilitado en Ajustes, etc). */
-    private static final long FAST_POLL_INTERVAL_MS = 800L;
+    /** Polling ULTRA-rapido cuando hay un ciclo OPEN_DOOR vivo. El user esta
+     *  mirando la pantalla esperando que algo cambie — minimizamos latencia.
+     *  300ms es el limite practico donde el delay deja de ser perceptible.
+     *  Costo: hasta 30 req/min/user pero solo mientras dure el ciclo (~5s). */
+    private static final long ULTRA_FAST_POLL_INTERVAL_MS = 300L;
+    /** Polling rapido cuando hay actividad reciente. Funciona como BACKUP del
+     *  push FCM (PawGateFcmService llama DoorStateMachine.onExternalDoorEvent
+     *  en cuanto llega el push, ~500ms desde el firmware). El polling cubre
+     *  cuando no hay push (red caida, push deshabilitado en Ajustes, etc). */
+    private static final long FAST_POLL_INTERVAL_MS = 500L;
     /** Polling normal cuando todo esta quieto. Baja consumo de bateria y
      *  costo de API Gateway. */
     private static final long NORMAL_POLL_INTERVAL_MS = 3_000L;
@@ -89,18 +92,20 @@ public class PawGatePollingService extends Service {
     };
 
     private long nextPollInterval() {
-        // 1) Ciclo de la puerta vivo -> fast (el user esta mirando el ciclo).
+        // 1) Ciclo de la puerta vivo -> ULTRA fast (300ms). El user esta
+        //    mirando una animacion en vivo, cualquier delay es perceptible.
         String cycle = PrefsHelper.getCycleType(this);
         if (PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)) {
             long elapsed = android.os.SystemClock.elapsedRealtime()
                     - PrefsHelper.getCycleStartMs(this);
             if (elapsed < DoorStateMachine.OPENING_MS + DoorStateMachine.OPEN_MS
                             + DoorStateMachine.CLOSING_MS) {
-                return FAST_POLL_INTERVAL_MS;
+                return ULTRA_FAST_POLL_INTERVAL_MS;
             }
         }
         // 2) Door event reciente -> fast (esperamos closed que viene 4.5s
-        // despues del opened).
+        // despues del opened). Aca no estamos en animacion activa, 500ms es
+        // suficiente para cubrir el evento siguiente.
         long lastDoorMs = PrefsHelper.getLastDoorEventAt(this);
         if (lastDoorMs > 0
                 && System.currentTimeMillis() - lastDoorMs < FAST_POLL_GRACE_MS) {

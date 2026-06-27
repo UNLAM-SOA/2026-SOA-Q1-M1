@@ -40,11 +40,15 @@ public final class DoorStateMachine {
         IDLE, OPENING, OPEN, CLOSING, BLOCKED, CALLING, CALL_ENDING
     }
 
-    // Duraciones de cada subestado (ms). Si cambia algo aca, todos los Activities
-    // que usen el helper ven el cambio (sin tocar codigo en cada uno).
-    public static final long OPENING_MS = 2_000L;
-    public static final long OPEN_MS = 5_000L;
-    public static final long CLOSING_MS = 2_000L;
+    // Duraciones de cada subestado (ms). Se ajustaron para coincidir mejor
+    // con el ciclo del firmware (opened -> 4500ms -> closed). La UI muestra
+    // OPENING como animacion corta para feedback inmediato, OPEN como el
+    // grueso del ciclo esperando el closed real, y CLOSING como animacion
+    // corta cuando llega el evento closed (que tambien hace "saltar" el
+    // ciclo a CLOSING via DoorStateMachine.handleClosedEvent).
+    public static final long OPENING_MS = 1_000L;
+    public static final long OPEN_MS = 3_500L;
+    public static final long CLOSING_MS = 1_000L;
     public static final long CALLING_MS = 3_000L;
     public static final long CALL_ENDING_MS = 1_000L;
 
