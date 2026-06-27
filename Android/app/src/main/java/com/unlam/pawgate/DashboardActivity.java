@@ -380,26 +380,32 @@ public class DashboardActivity extends AppCompatActivity {
      * pero los eventos light_on/light_off del firmware tambien actualizan el
      * badge via DoorStateMachine + broadcast.
      */
+    /**
+     * Renderiza el icono de lampara al lado del minutaje:
+     *   - encendida: ic_lamp_on con tinte amarillo + bg_lamp_glow (sombra
+     *     radial dorada que sugiere "luz emitida")
+     *   - apagada:   ic_lamp_off (contorno solamente) con tinte gris claro
+     *
+     * Minimalista, sin texto ni pill. El semantico contentDescription cambia
+     * para accesibilidad (TalkBack).
+     */
     private void renderLightBadge(String lightState) {
-        TextView badge = findViewById(R.id.dashboard_light_badge);
-        if (badge == null) return;
+        android.widget.ImageView lamp = findViewById(R.id.dashboard_light_badge);
+        if (lamp == null) return;
         boolean isOn = "on".equals(lightState);
-        int colorRes = isOn ? R.color.accent_neon : R.color.text_secondary;
-        // Pequeño truco: ic_sun nativo es 24x24dp; con texto 9sp se ve grande.
-        // Reducimos el drawableStart a 11dp programaticamente y aplicamos tint.
-        android.graphics.drawable.Drawable icon =
-                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_sun);
-        if (icon != null) {
-            int px = Math.round(11 * getResources().getDisplayMetrics().density);
-            icon.setBounds(0, 0, px, px);
-            icon.setTint(getResources().getColor(colorRes, getTheme()));
+        if (isOn) {
+            lamp.setImageResource(R.drawable.ic_lamp_on);
+            // Tinte ambar / amarillo "warm" (Material amber 600)
+            lamp.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFB300));
+            lamp.setBackgroundResource(R.drawable.bg_lamp_glow);
+            lamp.setContentDescription(getString(R.string.dashboard_light_on));
+        } else {
+            lamp.setImageResource(R.drawable.ic_lamp_off);
+            lamp.setImageTintList(android.content.res.ColorStateList.valueOf(
+                    getResources().getColor(R.color.text_secondary, getTheme())));
+            lamp.setBackground(null);
+            lamp.setContentDescription(getString(R.string.dashboard_light_off));
         }
-        badge.setCompoundDrawables(icon, null, null, null);
-        badge.setBackgroundResource(isOn ? R.drawable.bg_pill_status
-                                          : R.drawable.bg_pill_warning);
-        badge.setTextColor(getResources().getColor(colorRes, getTheme()));
-        badge.setText(isOn ? R.string.dashboard_light_on
-                            : R.string.dashboard_light_off);
     }
 
     /**
