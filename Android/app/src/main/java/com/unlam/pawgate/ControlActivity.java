@@ -106,9 +106,40 @@ public class ControlActivity extends AppCompatActivity {
         }
     };
 
+    /** Polling separado para /info: necesitamos saber si el ESP32 esta online
+     *  (campo info.online del response) para colorear el dot del header.
+     *  Telemetry del ESP32 sube cada 30s, asi que poll cada 10s es suficiente. */
+    private static final long INFO_POLL_INTERVAL_MS = 10_000L;
+    private final Runnable infoPollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceInfo();
+            handler.postDelayed(this, INFO_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceInfo() {
+        deviceRepo.deviceInfo(deviceId,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.DeviceInfoResponse>() {
+            @Override public void onSuccess(
+                    com.unlam.pawgate.api.dto.DeviceDtos.DeviceInfoResponse r) {
+                boolean newOnline = r != null && r.online;
+                if (newOnline != esp32Online) {
+                    esp32Online = newOnline;
+                    refreshTickRunnable.run(); // refresca el dot del header
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
     /** ISO 8601 del ultimo cambio de lock_state (state.updated_at). Se
      *  usa en renderBlocked para mostrar 'Activado HH:MM · hace Xh'. */
     private String lockStateUpdatedAtIso;
+
+    /** True si el ESP32 publico telemetry en los ultimos 2 min. Lo refresca
+     *  pollDeviceInfo cada 10s. Determina si el dot del header se ve verde
+     *  (online) o gris (offline). */
+    private boolean esp32Online = false;
 
     private void pollDeviceState() {
         deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
@@ -202,6 +233,7 @@ public class ControlActivity extends AppCompatActivity {
         super.onResume();
         refreshTickRunnable.run();
         statePollRunnable.run();
+        infoPollRunnable.run();
 
         // Receiver para que el broadcast del Service nos despierte el render
         // sin tener que esperar al tick local.
@@ -216,6 +248,7 @@ public class ControlActivity extends AppCompatActivity {
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
         handler.removeCallbacks(statePollRunnable);
+        handler.removeCallbacks(infoPollRunnable);
         try {
             unregisterReceiver(eventUpdateReceiver);
         } catch (IllegalArgumentException ignored) {
@@ -502,9 +535,17 @@ public class ControlActivity extends AppCompatActivity {
         title.setText(R.string.control_title);
 
         statusPill.setBackground(null);
-        tintDot(R.color.text_muted);
-        statusText.setText(R.string.control_status_live);
-        statusText.setTextColor(color(R.color.text_muted));
+        // Dot: verde si el ESP32 esta online (publico telemetry en ultimos 2 min),
+        // gris si offline. Texto verde / 'desconectado' segun el caso.
+        if (esp32Online) {
+            tintDot(R.color.accent_success);
+            statusText.setText(R.string.control_status_live);
+            statusText.setTextColor(color(R.color.text_secondary));
+        } else {
+            tintDot(R.color.text_muted);
+            statusText.setText(R.string.control_status_offline);
+            statusText.setTextColor(color(R.color.text_muted));
+        }
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_primary);
         bigBtn.setClickable(true);
