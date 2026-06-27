@@ -58,8 +58,14 @@
     <string name="dashboard_door_closed">Puerta · Cerrada</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
     <string name="dashboard_door_opening">Puerta · Abriendo…</string>
+    <string name="dashboard_door_opening_in">Puerta · Abriendo hacia adentro…</string>
+    <string name="dashboard_door_opening_out">Puerta · Abriendo hacia afuera…</string>
     <string name="dashboard_door_open_countdown">Puerta · Abierta · %1$ds</string>
+    <string name="dashboard_door_open_in_countdown">Puerta · Abierta hacia adentro · %1$ds</string>
+    <string name="dashboard_door_open_out_countdown">Puerta · Abierta hacia afuera · %1$ds</string>
     <string name="dashboard_door_closing">Puerta · Cerrando…</string>
+    <string name="dashboard_door_closing_in">Puerta · Cerrando (estaba hacia adentro)…</string>
+    <string name="dashboard_door_closing_out">Puerta · Cerrando (estaba hacia afuera)…</string>
     <string name="dashboard_door_calling_countdown">Puerta · Llamando · %1$ds</string>
     <string name="dashboard_door_ending_call">Puerta · Finalizando llamada…</string>
     <string name="dashboard_last_activity_template">Última actividad: %1$s</string>

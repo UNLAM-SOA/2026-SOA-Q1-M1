@@ -469,18 +469,38 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void renderDoorState() {
         DoorStateMachine.DoorState state = DoorStateMachine.currentState(this);
+        String direction = PrefsHelper.getCycleDirection(this);
 
         String doorLabel;
         switch (state) {
             case OPENING:
-                doorLabel = getString(R.string.dashboard_door_opening);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_opening_in);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_opening_out);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_opening);
+                }
                 break;
-            case OPEN:
-                doorLabel = getString(R.string.dashboard_door_open_countdown,
-                        DoorStateMachine.secondsRemainingInCountdown(this));
+            case OPEN: {
+                int sec = DoorStateMachine.secondsRemainingInCountdown(this);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_open_in_countdown, sec);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_open_out_countdown, sec);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_open_countdown, sec);
+                }
                 break;
+            }
             case CLOSING:
-                doorLabel = getString(R.string.dashboard_door_closing);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_closing_in);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_closing_out);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_closing);
+                }
                 break;
             case BLOCKED:
                 doorLabel = getString(R.string.dashboard_door_locked);

@@ -202,12 +202,38 @@ public class PawGatePollingService extends Service {
     }
 
     private void broadcastEvent(DeviceDtos.Event e) {
+        // Sincronizar el state machine local de la puerta con eventos del
+        // firmware. Solo procesamos eventos NUEVOS (created_at posterior al
+        // ultimo door event procesado) — evita rearrancar el ciclo en cada
+        // polling cuando el mismo evento sigue siendo "el mas reciente".
+        if (e.event_type != null && isDoorEvent(e.event_type)) {
+            long eventMs = HistorialMapper.parseIsoToMs(e.created_at);
+            long lastMs = PrefsHelper.getLastDoorEventAt(this);
+            if (eventMs > lastMs) {
+                boolean changed = DoorStateMachine.onExternalDoorEvent(
+                        this, e.event_type, e.direction);
+                PrefsHelper.setLastDoorEventAt(this, eventMs);
+                if (changed) {
+                    Log.d(TAG, "DoorStateMachine sync: " + e.event_type
+                            + " direction=" + e.direction);
+                }
+            }
+        }
+
         Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
         broadcast.setPackage(getPackageName()); // restringir solo a nuestra app
         broadcast.putExtra(EXTRA_EVENT_TYPE, e.event_type);
         broadcast.putExtra(EXTRA_CREATED_AT_ISO, e.created_at);
         broadcast.putExtra(EXTRA_CREATED_AT_MS, HistorialMapper.parseIsoToMs(e.created_at));
         sendBroadcast(broadcast);
+    }
+
+    /** Eventos del firmware que afectan el estado de la puerta. */
+    private static boolean isDoorEvent(String eventType) {
+        return "opened".equals(eventType)
+                || "closed".equals(eventType)
+                || "blocked".equals(eventType)
+                || "unblocked".equals(eventType);
     }
 
     // ============================================================

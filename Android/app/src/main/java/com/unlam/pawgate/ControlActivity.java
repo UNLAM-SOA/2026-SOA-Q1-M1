@@ -253,7 +253,10 @@ public class ControlActivity extends AppCompatActivity {
         if (s == DoorStateMachine.DoorState.IDLE) {
             // Preguntar al user hacia donde abrir, despues disparar el ciclo.
             OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
-                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+                // Pasamos la direction al ciclo para que la UI muestre
+                // 'Abriendo hacia adentro/afuera' coherente con lo que va a
+                // hacer el firmware fisicamente.
+                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR, direction);
                 refreshTickRunnable.run();
                 dispatchOpen(direction);
             });

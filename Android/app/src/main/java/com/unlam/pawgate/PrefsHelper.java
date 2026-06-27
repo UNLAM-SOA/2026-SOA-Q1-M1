@@ -25,6 +25,15 @@ public final class PrefsHelper {
     private static final String KEY_USER_NAME = "user_name";
     private static final String KEY_CYCLE_TYPE = "cycle_type";
     private static final String KEY_CYCLE_START = "cycle_start_ms";
+    /** Direction de la apertura actual: "in" / "out" / null. Se setea cuando
+     *  arranca un ciclo OPEN_DOOR (sea por cmd del user o por evento del
+     *  firmware como respuesta a la mascota). Se usa para mostrar el label
+     *  "Abriendo HACIA ADENTRO/AFUERA" en Dashboard y Control. */
+    private static final String KEY_CYCLE_DIRECTION = "cycle_direction";
+    /** created_at (epoch ms) del ultimo door event procesado por el sync con
+     *  DoorStateMachine. Evita rearrancar el ciclo en cada polling cuando el
+     *  mismo evento sigue siendo el mas reciente. */
+    private static final String KEY_LAST_DOOR_EVENT_AT = "last_door_event_at_ms";
 
     // Tokens JWT de Cognito (vienen del endpoint POST /auth/login)
     // Override local del unread-count, usado por el badge del Dashboard
@@ -181,10 +190,37 @@ public final class PrefsHelper {
      *  System.currentTimeMillis() para que cambios de hora del usuario
      *  no afecten la medicion de la duracion del ciclo. */
     public static void startCycle(Context ctx, String type) {
+        startCycle(ctx, type, null);
+    }
+
+    /** Arranca un ciclo con direction asociada (in/out). Usado en ciclos
+     *  OPEN_DOOR para que la UI muestre 'Abriendo hacia X'. */
+    public static void startCycle(Context ctx, String type, String direction) {
         prefs(ctx).edit()
                 .putString(KEY_CYCLE_TYPE, type)
                 .putLong(KEY_CYCLE_START, SystemClock.elapsedRealtime())
+                .putString(KEY_CYCLE_DIRECTION, direction)
                 .apply();
+    }
+
+    /** Ajusta el inicio del ciclo a un valor especifico (millis monotonic).
+     *  Usado para "saltar" a un sub-estado: si llega un evento closed del
+     *  firmware y queremos forzar el estado CLOSING ahora mismo, calculamos
+     *  el offset que pone elapsed justo al borde de CLOSING y lo seteamos. */
+    public static void setCycleStartMs(Context ctx, long startMs) {
+        prefs(ctx).edit().putLong(KEY_CYCLE_START, startMs).apply();
+    }
+
+    public static String getCycleDirection(Context ctx) {
+        return prefs(ctx).getString(KEY_CYCLE_DIRECTION, null);
+    }
+
+    public static long getLastDoorEventAt(Context ctx) {
+        return prefs(ctx).getLong(KEY_LAST_DOOR_EVENT_AT, 0L);
+    }
+
+    public static void setLastDoorEventAt(Context ctx, long ms) {
+        prefs(ctx).edit().putLong(KEY_LAST_DOOR_EVENT_AT, ms).apply();
     }
 
     /** Cancela el ciclo actual (cycleType = NONE). */
@@ -192,6 +228,7 @@ public final class PrefsHelper {
         prefs(ctx).edit()
                 .putString(KEY_CYCLE_TYPE, CYCLE_NONE)
                 .putLong(KEY_CYCLE_START, 0L)
+                .remove(KEY_CYCLE_DIRECTION)
                 .apply();
     }
 
