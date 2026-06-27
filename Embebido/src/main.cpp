@@ -78,7 +78,6 @@
   // Buzzer, Servo y botón de la app
   #define BUZZER 4
   #define SERVO 12
-  #define BUTTON_APP 14 // Pulsador de bloqueo/desbloqueo (toggle), pull-down externo en diagram.json
 
   // Sensores
   #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
@@ -125,7 +124,7 @@
     int tiempo_transcurrido_ms;
     const float velocidad_sonido = 0.0343;
     const float distancia_minima_cm = 30;
-    const float distancia_base_cm = 5;
+    const float distancia_base_cm = 1;
   };
 
   struct stSensorRFID
@@ -185,6 +184,11 @@
   QueueHandle_t queueEventos_puerta;
   QueueHandle_t queueAcciones_puerta;
   QueueHandle_t queueMqttOut;
+  /** Protege sensor_proximidad.estado y sensor_rfid.estado, que son
+   *  escritos por la tarea puerta_accion (al abrir/cerrar) y leidos por
+   *  puerta_deteccion en paralelo. Sin mutex hay race conditions raras
+   *  (eventos repetidos, detecciones fantasma al desbloquear, etc). */
+  SemaphoreHandle_t mutex_sensores;
 
   MFRC522 rfid(RFID_SS, RFID_RST); // RFID (crea el objeto que ocupa el lector)
 
@@ -217,7 +221,9 @@
   void configuracion_sensores_puerta();
   void configuracion_sensores_luz();
   void configuracion_estado_inicial_puerta();
+  void crear_mutex_sensores();
   void puerta_deteccion(void *pvParametros);
+  void luz_deteccion(void *pvParametros);
   void puerta_controlador(void *pvParametros);
   void puerta_accion(void *pvParametros);
   void crear_colas_puerta();
@@ -292,12 +298,25 @@
   void abrir_desde_adentro()
   {
     estado_actual_puerta = ST_ABIERTA_DESDE_ADENTRO;
+    // Deshabilitar sensores mientras la puerta esta abierta para evitar
+    // detecciones repetidas del mismo animal mientras pasa. Mutex para
+    // proteger contra reads concurrentes de puerta_deteccion.
+    if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
+      sensor_proximidad.estado = ESTADO_DESHABILITADO;
+      sensor_rfid.estado       = ESTADO_DESHABILITADO;
+      xSemaphoreGive(mutex_sensores);
+    }
     emitir_accion_puerta(ACC_ABRIR_DESDE_ADENTRO, ">> Acción emitida: ACC_ABRIR_DESDE_ADENTRO");
   }
 
   void abrir_desde_afuera()
   {
     estado_actual_puerta = ST_ABIERTA_DESDE_AFUERA;
+    if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
+      sensor_proximidad.estado = ESTADO_DESHABILITADO;
+      sensor_rfid.estado       = ESTADO_DESHABILITADO;
+      xSemaphoreGive(mutex_sensores);
+    }
     emitir_accion_puerta(ACC_ABRIR_DESDE_AFUERA, ">> Acción emitida: ACC_ABRIR_DESDE_AFUERA");
   }
 
@@ -305,6 +324,12 @@
   void cerrar_puerta()
   {
     estado_actual_puerta = ST_CERRADA_NO_BLOQUEADA;
+    // Rehabilitar sensores cuando la puerta vuelve a estar cerrada.
+    if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
+      sensor_proximidad.estado = ESTADO_HABILITADO;
+      sensor_rfid.estado       = ESTADO_HABILITADO;
+      xSemaphoreGive(mutex_sensores);
+    }
     emitir_accion_puerta(ACC_CERRAR, ">> Acción emitida: ACC_CERRAR");
   }
 
@@ -372,21 +397,29 @@
 
   bool sensor_proximidad_detectar_animal()
   {
-    if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
-        sensor_proximidad.distancia_actual_cm > sensor_proximidad.distancia_base_cm &&
-        sensor_proximidad.estado == ESTADO_HABILITADO &&
-        estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
-    {
-      Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
-      Serial.println(sensor_proximidad.distancia_actual_cm);
-      return true;
+    // Mutex protege la lectura de sensor_proximidad.estado, que puede ser
+    // modificado por abrir_*/cerrar_puerta desde la tarea de control.
+    // Sacamos la pregunta por estado_actual_puerta: si el animal aparece
+    // pero la puerta esta abierta o bloqueada, el evento se emite igual y
+    // la FSM lo descarta con none() en la tabla de transiciones.
+    bool resultado = false;
+    if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
+      if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
+          sensor_proximidad.distancia_actual_cm > sensor_proximidad.distancia_base_cm &&
+          sensor_proximidad.estado == ESTADO_HABILITADO)
+      {
+        Serial.println("[sensor_proximidad_detectar_animal] Animal detectado desde adentro");
+        Serial.println(sensor_proximidad.distancia_actual_cm);
+        resultado = true;
+      }
+      else
+      {
+        // Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
+        Serial.println(sensor_proximidad.distancia_actual_cm);
+      }
+      xSemaphoreGive(mutex_sensores);
     }
-    else
-    {
-      // Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
-      Serial.println(sensor_proximidad.distancia_actual_cm);
-      return false;
-    }
+    return resultado;
   }
 
   void leer_sensor_rfid()
@@ -409,36 +442,36 @@
 
   bool sensor_rfid_detectar_animal()
   {
-    if (sensor_rfid.acceso_permitido &&
-        sensor_rfid.estado == ESTADO_HABILITADO &&
-        estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
-    {
-      Serial.println("[sensor_rfid_detectar_animal] Animal detectado desde afuera");
-      sensor_rfid.acceso_permitido = false;
-      return true;
+    bool resultado = false;
+    if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
+      if (sensor_rfid.acceso_permitido &&
+          sensor_rfid.estado == ESTADO_HABILITADO)
+      {
+        Serial.println("[sensor_rfid_detectar_animal] Animal detectado desde afuera");
+        sensor_rfid.acceso_permitido = false;
+        resultado = true;
+      }
+      xSemaphoreGive(mutex_sensores);
     }
-    else
-    {
-      // Serial.println("[sensor_rfid_detectar_animal] Animal no detectado desde afuera");
-      return false;
-    }
+    return resultado;
   }
 
   void detectar_animales_en_puerta()
   {
+    // No deshabilitamos los sensores aca: lo hacen las funciones de
+    // transicion (abrir_*/cerrar_*) con mutex. Si la puerta esta abierta o
+    // bloqueada y se detecta un animal, el evento se emite igual y la FSM
+    // lo descarta con none() en la tabla. Asi evitamos la race condition
+    // donde la tarea de deteccion leia un estado viejo y perdia eventos.
     leer_sensor_proximidad();
     if (sensor_proximidad_detectar_animal())
     {
       emitir_evento_puerta(EV_ANIMAL_DETECTADO_ADENTRO, "[puerta_deteccion]");
-      sensor_rfid.estado       = ESTADO_DESHABILITADO;
-      sensor_proximidad.estado = ESTADO_DESHABILITADO;
     }
     leer_sensor_rfid();
     if (sensor_rfid_detectar_animal())
     {
       emitir_evento_puerta(EV_ANIMAL_DETECTADO_AFUERA, "[puerta_deteccion]");
-      sensor_proximidad.estado = ESTADO_DESHABILITADO;
-      sensor_rfid.estado       = ESTADO_DESHABILITADO;
     }
   }
 
@@ -522,39 +555,34 @@
 
     while (1)
     {
-      // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
-      //int btn_actual = digitalRead(BUTTON_APP);
-      int btn_actual = 0;
-      //Serial.println("--- BOTON: ");
-      //Serial.print(btn_actual);
-      if (btn_actual == HIGH && btn_estado_previo == LOW)
+      // Bloqueo/desbloqueo por serial: emitimos el evento SIEMPRE; si el
+      // estado actual no admite la transicion la FSM la descarta (none()).
+      char bloqueo = leer_serial_puerta();
+      if (bloqueo == 'B')
       {
-        app_supuesto_bloqueado = !app_supuesto_bloqueado;
-        eventos_puerta evento = app_supuesto_bloqueado ? EV_BLOQUEO_POR_APP : EV_DESBLOQUEO_POR_APP;
-        if (xQueueSend(queueEventos_puerta, &evento, 0) == pdPASS)
-        {
-          Serial.print(">> Evento puerta (boton): ");
-          Serial.println(app_supuesto_bloqueado ? "EV_BLOQUEO_POR_APP" : "EV_DESBLOQUEO_POR_APP");
-        }
+        emitir_evento_puerta(EV_BLOQUEO_POR_APP, "[puerta_deteccion]");
       }
-      btn_estado_previo = btn_actual;
-
-      if (estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
+      else if (bloqueo == 'D')
       {
-        char bloqueo = leer_serial_puerta();
-        if (bloqueo == 'B')
-        {
-          emitir_evento_puerta(EV_BLOQUEO_POR_APP, "[puerta_deteccion]");
-        }
-        else if (bloqueo == 'D')
-        {
-          emitir_evento_puerta(EV_DESBLOQUEO_POR_APP, "[puerta_deteccion]");
-        }
+        emitir_evento_puerta(EV_DESBLOQUEO_POR_APP, "[puerta_deteccion]");
       }
       detectar_animales_en_puerta();
-      detectar_cambios_luz();
 
       vTaskDelay(pdMS_TO_TICKS(200));
+    }
+  }
+
+  /**
+   * Tarea separada para luz. Antes corria dentro de puerta_deteccion cada
+   * 200ms, pero leer fotoresistor es relativamente lento y no necesita la
+   * misma frecuencia que la deteccion de animales. Cada 2s es suficiente.
+   */
+  void luz_deteccion(void *pvParametros)
+  {
+    while (1)
+    {
+      detectar_cambios_luz();
+      vTaskDelay(pdMS_TO_TICKS(2000));
     }
   }
 
@@ -633,8 +661,8 @@
         {
           Serial.println("ACC_CERRAR");
           servo.write(90);
-          sensor_proximidad.estado = ESTADO_HABILITADO;
-          sensor_rfid.estado       = ESTADO_HABILITADO;
+          // El rehabilitado de sensores ya lo hace cerrar_puerta() con
+          // mutex. Aca solo movemos el servo y publicamos el evento.
           // Pasamos la misma direction que el opened previo, asi la app
           // matchea el ciclo (abriendo->abierta->cerrando hacia la misma X).
           publicar_evento_puerta("closed", ultima_direction_apertura);
@@ -741,10 +769,20 @@
   {
     int tam_stack_bytes = TAM_STACK_TAREAS;
     xTaskCreate(puerta_deteccion,   "Puerta detección",   tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
+    xTaskCreate(luz_deteccion,      "Luz detección",      tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(puerta_controlador, "Puerta controlador", tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(puerta_accion,      "Puerta accion",      tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(mqtt_task,          "MQTT task",          tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
     xTaskCreate(telemetry_task,     "Telemetry task",     tam_stack_bytes, NULL, PRECEDENCIA_POR_DEFECTO, NULL);
+  }
+
+  void crear_mutex_sensores()
+  {
+    mutex_sensores = xSemaphoreCreateMutex();
+    if (mutex_sensores == NULL)
+    {
+      Serial.println("[crear_mutex_sensores] No se pudo crear mutex_sensores");
+    }
   }
 
   void setup_puerta()
@@ -753,6 +791,7 @@
     configuracion_sensores_puerta();
     configuracion_sensores_luz();
     configuracion_estado_inicial_puerta();
+    crear_mutex_sensores();
     timer_puerta = xTimerCreate("Timer_Puerta", pdMS_TO_TICKS(TIEMPO_TIMEOUT_PUERTA), pdFALSE, NULL, timer_callback_puerta);
     crear_tareas_puerta();
   }
@@ -776,7 +815,6 @@
     servo.attach(SERVO);
     pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
     pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
-    // pinMode(BUTTON_APP, INPUT);
   }
 
   void setup()
