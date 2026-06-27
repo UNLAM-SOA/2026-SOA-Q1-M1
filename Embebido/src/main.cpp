@@ -596,6 +596,11 @@
   // el ciclo visual abrir->cerrar de manera consistente.
   static const char* ultima_direction_apertura = nullptr;
 
+  // Ultimo estado de la luz que PUBLICAMOS al backend. La maquina dispara
+  // ACC_ENCENDER_LUZ continuamente mientras detecta oscuridad — solo
+  // publicamos en la TRANSICION para no inundar el backend.
+  static bool estado_luz_publicado = false;
+
   void puerta_accion(void *pvParametros)
   {
     while (1)
@@ -653,13 +658,24 @@
         }
         else if (action_recibido == ACC_ENCENDER_LUZ)
         {
-          // Serial.println("ACC ENCENDER LUZ RECIBIDA");
           digitalWrite(LED, HIGH);
+          // Dedup: la maquina dispara ACC_ENCENDER_LUZ con cada lectura del
+          // sensor de luz (si esta oscuro), no solo cuando cambia. Publicamos
+          // light_on solo en la TRANSICION off -> on para no inundar el
+          // backend. estado_luz_publicado se inicializa en false al boot.
+          if (!estado_luz_publicado) {
+            publicar_evento_puerta("light_on", nullptr);
+            estado_luz_publicado = true;
+          }
         }
         else if (action_recibido == ACC_APAGAR_LUZ)
         {
-          // Serial.println("ACC APAGAR LUZ RECIBIDA");
           digitalWrite(LED, LOW);
+          // Mismo dedup: publicar solo on -> off.
+          if (estado_luz_publicado) {
+            publicar_evento_puerta("light_off", nullptr);
+            estado_luz_publicado = false;
+          }
         }
         else
         {
