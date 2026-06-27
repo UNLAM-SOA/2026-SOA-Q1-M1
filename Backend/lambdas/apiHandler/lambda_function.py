@@ -1352,8 +1352,9 @@ def _put_audit_notification(user_email, device_id, notif_type,
     """Inserta UNA fila en pawgate_notifications. Mismo schema que
        eventIngest._persist_notification (Sub-fase B)."""
     ts_ms = int(now.timestamp() * 1000)
+    # Separador '_' (NO '#'). Ver _persist_notification en eventIngest.
     ts_inverted = 9_999_999_999_999 - ts_ms
-    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+    notif_id = f"{ts_inverted:013d}_{uuid.uuid4().hex[:8]}"
 
     item = {
         "user_email":  user_email,

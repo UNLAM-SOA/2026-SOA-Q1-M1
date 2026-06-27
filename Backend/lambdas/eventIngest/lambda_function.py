@@ -150,16 +150,18 @@ def lambda_handler(event, context):
 
 def _notify_owners(device_id, event_type, direction, payload):
     """
-    Manda push notification via SNS Platform Application a todos los users
-    registrados en pawgate_fcm_endpoints. Es 'broadcast' porque para este
-    proyecto familia/equipo todos los users registrados son owners del unico
-    device pawgate-001. Si en el futuro hay multi-device, agregar una tabla
-    pawgate_device_owners y filtrar.
+    Para cada event_type 'notifiable':
+      1) PERSISTE 1 fila por user en pawgate_notifications (para la bandeja
+         de la app). ESTO SIEMPRE SUCEDE, independiente del FCM ARN. Asi
+         aunque las push notifications esten deshabilitadas (o todavia no
+         configuradas), las notifs aparecen en la pantalla al abrir la app.
+      2) MANDA PUSH via SNS Platform App solo si FCM_PLATFORM_APP_ARN
+         esta configurado. Best-effort: si falla, ya tenemos persistencia.
 
-    Si la Platform Application ARN no esta configurada, skipea sin error.
+    Es 'broadcast' a todos los users registrados en pawgate_fcm_endpoints
+    (el proyecto tiene 1 device unico). Si en el futuro hay multi-device,
+    agregar una tabla pawgate_device_owners y filtrar.
     """
-    if not FCM_PLATFORM_APP_ARN:
-        return
     if event_type not in NOTIFIABLE_EVENT_TYPES:
         return
 
@@ -177,10 +179,10 @@ def _notify_owners(device_id, event_type, direction, payload):
 
     endpoints = resp.get("Items", [])
     if not endpoints:
-        logger.info("No FCM endpoints registered, skipping push")
-        # Igual persistimos la notif para que aparezca en la pantalla cuando
-        # el user abra la app, aunque no llegue push. Pero como no sabemos
-        # a quien pertenece, salimos sin persistir.
+        logger.info("No FCM endpoints registered; skipping persist + push")
+        # Sin endpoints registrados no sabemos a que user_email pertenece la
+        # notif, asi que no podemos persistir nada. Es esperable solo en el
+        # bootstrap inicial cuando ningun device todavia se registro.
         return
 
     # ====== Persistencia 1-fila-por-user en pawgate_notifications ======
@@ -188,6 +190,10 @@ def _notify_owners(device_id, event_type, direction, payload):
     # registrado (asi cada user ve la notif al abrir la pantalla). El dedupe
     # de SNS es solo para evitar push duplicado al mismo device, no para
     # evitar persistir N notifs (eso sería bug).
+    #
+    # IMPORTANTE: esta persistencia SIEMPRE sucede aunque no haya FCM ARN
+    # configurado. Asi un evento del firmware (perro abre puerta) aparece en
+    # la bandeja de la app aunque el push no llegue.
     #
     # Trackeamos {user_email -> notif_id} para despues incluir el notif_id
     # CORRECTO en el push de cada endpoint. Asi cuando el user tap el push,
@@ -200,6 +206,11 @@ def _notify_owners(device_id, event_type, direction, payload):
                                          direction, title, body, payload)
             if nid:
                 user_to_notif_id[user_email] = nid
+
+    # ====== A partir de aca: PUSH via SNS. Solo si hay ARN configurado. ======
+    if not FCM_PLATFORM_APP_ARN:
+        logger.info("FCM_PLATFORM_APP_ARN not set, persisted but no push")
+        return
 
     # Deduplicar por endpoint_arn: si 2 user_emails distintos apuntan al
     # mismo device (ej: 2 cuentas logueadas en el mismo celular -> SNS
@@ -328,9 +339,14 @@ def _persist_notification(user_email, device_id, event_type, direction,
     import uuid
     now = datetime.now(timezone.utc)
     ts_ms = int(now.timestamp() * 1000)
-    # Sort key invertido para que descending order = ASC sort
+    # Sort key invertido para que descending order = ASC sort.
+    # Separador '_' (NO '#') porque '#' en el path de un URL es interpretado
+    # como fragment-identifier. Aunque Retrofit lo URL-encodea a %23, API
+    # Gateway tiene problemas conocidos decodificando %23 en path params:
+    # el endpoint recibe el id truncado y devuelve 404 silencioso. Underscore
+    # es 100% safe en URL paths.
     ts_inverted = 9_999_999_999_999 - ts_ms
-    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+    notif_id = f"{ts_inverted:013d}_{uuid.uuid4().hex[:8]}"
 
     item = {
         "user_email":  user_email,
