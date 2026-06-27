@@ -157,9 +157,11 @@
                             tools:text="12h 34m" />
                         <ImageView
                             android:id="@+id/dashboard_light_badge"
-                            android:layout_width="22dp"
-                            android:layout_height="22dp"
-                            android:layout_marginStart="8dp"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="10dp"
+                            android:padding="4dp"
+                            android:scaleType="fitCenter"
                             android:contentDescription="@string/dashboard_light_off"
                             android:src="@drawable/ic_lamp_off"
                             app:tint="@color/text_secondary" />

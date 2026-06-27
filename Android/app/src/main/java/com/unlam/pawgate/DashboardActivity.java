@@ -654,8 +654,38 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void onActionCallClick() {
         if (isBusyCycle()) return;
+
+        // 1) UX optimista: arrancar el ciclo local YA para feedback inmediato.
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
+
+        // 2) Abrir ControlActivity (sigue mostrando el countdown del CALLING).
         openControl(null);
+
+        // 3) Disparar el cmd al backend que publica al topic MQTT cmd/call.
+        //    El firmware lo recibe y activa el buzzer 3s. Sin este sendCommand
+        //    el ciclo local corria pero la mascota nunca era llamada — el
+        //    bug que viste tocando "Llamar" desde el dashboard.
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
+                java.util.Collections.emptyMap(),
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+                    @Override public void onSuccess(
+                            com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                        android.util.Log.i("DashboardActivity",
+                                "cmd/call OK from dashboard button");
+                        // Poll inmediato para que la confirmacion del firmware
+                        // (eventos relacionados) lleguen rapido.
+                        PawGatePollingService.requestPollNow(DashboardActivity.this);
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("DashboardActivity",
+                                "cmd/call error: " + message);
+                        // Revertir el ciclo local para no mostrar un fake call
+                        // que el device nunca recibio.
+                        PrefsHelper.clearCycle(DashboardActivity.this);
+                        Toast.makeText(DashboardActivity.this, message,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     /** Hay un ciclo de puerta o llamada en curso? */
