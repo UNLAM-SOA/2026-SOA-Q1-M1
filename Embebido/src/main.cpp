@@ -78,7 +78,6 @@
   // Buzzer, Servo y botón de la app
   #define BUZZER 4
   #define SERVO 12
-  #define BUTTON_APP 14 // Pulsador de bloqueo/desbloqueo (toggle), pull-down externo en diagram.json
 
   // Sensores
   #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
@@ -125,7 +124,7 @@
     int tiempo_transcurrido_ms;
     const float velocidad_sonido = 0.0343;
     const float distancia_minima_cm = 30;
-    const float distancia_base_cm = 5;
+    const float distancia_base_cm = 1;
   };
 
   struct stSensorRFID
@@ -556,23 +555,6 @@
 
     while (1)
     {
-      // Pulsador de la app (D14): toggle bloqueo/desbloqueo. Funciona en cualquier estado.
-      //int btn_actual = digitalRead(BUTTON_APP);
-      int btn_actual = 0;
-      //Serial.println("--- BOTON: ");
-      //Serial.print(btn_actual);
-      if (btn_actual == HIGH && btn_estado_previo == LOW)
-      {
-        app_supuesto_bloqueado = !app_supuesto_bloqueado;
-        eventos_puerta evento = app_supuesto_bloqueado ? EV_BLOQUEO_POR_APP : EV_DESBLOQUEO_POR_APP;
-        if (xQueueSend(queueEventos_puerta, &evento, 0) == pdPASS)
-        {
-          Serial.print(">> Evento puerta (boton): ");
-          Serial.println(app_supuesto_bloqueado ? "EV_BLOQUEO_POR_APP" : "EV_DESBLOQUEO_POR_APP");
-        }
-      }
-      btn_estado_previo = btn_actual;
-
       // Bloqueo/desbloqueo por serial: emitimos el evento SIEMPRE; si el
       // estado actual no admite la transicion la FSM la descarta (none()).
       char bloqueo = leer_serial_puerta();
@@ -833,7 +815,6 @@
     servo.attach(SERVO);
     pinMode(SENSOR_PROXIMIDAD_ECHO, INPUT);
     pinMode(SENSOR_PROXIMIDAD_TRIGGER, OUTPUT);
-    // pinMode(BUTTON_APP, INPUT);
   }
 
   void setup()
