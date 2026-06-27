@@ -1,0 +1,13 @@
+<!--
+    Glow amarillo radial detras del icono de lampara encendida.
+    Da sensacion de "luz emitida". Solo se aplica al ImageView cuando ON.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="20dp"
+        android:startColor="#66FFB300"
+        android:centerColor="#33FFB300"
+        android:endColor="#00FFB300" />
+</shape>

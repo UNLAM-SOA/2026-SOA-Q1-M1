@@ -845,6 +845,7 @@ def handle_get_info(device_id):
         "flash_total_kb":   int(info.get("flash_total_kb", 0) or 0),
         "cpu_temp_c":       str(info.get("cpu_temp_c", "") or ""),
         "local_ip":         str(info.get("local_ip", "") or ""),
+        "device_mac":       str(info.get("device_mac", "") or ""),
         "firmware_version": str(info.get("firmware_version", "") or ""),
         "hardware_model":   str(info.get("hardware_model", "") or ""),
         # WiFi info (W14)
@@ -859,12 +860,17 @@ def handle_get_info(device_id):
 def handle_metrics_today(device_id):
     """GET /devices/{id}/metrics/today
 
-    Cuenta SERVER-SIDE las aperturas (event_type=opened) del dia y devuelve
-    info del ultimo evento door. Paginamos internamente con LastEvaluatedKey
-    para no perder eventos si el dia tiene muchos sensors mezclados.
+    Calcula SERVER-SIDE las metricas del dia:
+      - openings_today        cantidad de aperturas (event_type=opened)
+      - last_door_event_*     info del ultimo evento door
+      - light_minutes_today   minutos totales que la luz estuvo encendida
+      - light_state           "on" / "off" — estado actual de la luz
+      - light_state_at        timestamp del ultimo cambio de luz
 
-    El cliente solo recibe el numero final ya calculado, no tiene que iterar
-    paginas ni filtrar localmente.
+    Iteramos TODOS los events del dia (door + light_on/off) y los agrupamos
+    en pasada unica. light_minutes calcula la suma de duraciones entre cada
+    par (light_on -> light_off). Si la luz quedo encendida cuando empezo el
+    dia (ultimo evento de ayer fue light_on), se cuenta desde 00:00.
     """
     if not device_id:
         return _bad_request("device_id requerido")
@@ -882,6 +888,9 @@ def handle_metrics_today(device_id):
 
     openings_count = 0
     last_door_event = None  # primer item iterado (mas reciente por ScanIndexForward=False)
+    # Para light: coleccionamos todos los light_on/off del dia ORDENADOS por
+    # ts_event ascendente, y al final calculamos durations.
+    light_events = []  # list of (ts_ms, "on" | "off", created_at_iso)
     pagination_key = None
     safety_pages = 0
 
@@ -889,6 +898,10 @@ def handle_metrics_today(device_id):
         kwargs = {
             "KeyConditionExpression":
                 "device_id = :dev AND ts_event BETWEEN :from_sk AND :to_sk",
+            # Aceptamos type=door (que incluye opened/closed/blocked/unblocked
+            # Y light_on/light_off — el firmware los publica todos al mismo
+            # topic events/door, asi que el event_kind queda en 'door' para
+            # todos). El sensor crudo (type=sensor) lo descartamos.
             "FilterExpression": "#t = :door",
             "ExpressionAttributeNames": {"#t": "type"},
             "ExpressionAttributeValues": {
@@ -911,9 +924,21 @@ def handle_metrics_today(device_id):
 
         items = result.get("Items", [])
         for item in items:
+            etype = item.get("event_type")
+            if etype in ("light_on", "light_off"):
+                # ts_event = "{epoch_ms_13}#{kind}#{event_type}" — extraer ts.
+                try:
+                    ts_ms = int(item["ts_event"].split("#", 1)[0])
+                except (KeyError, ValueError):
+                    continue
+                state_short = "on" if etype == "light_on" else "off"
+                light_events.append((ts_ms, state_short, item.get("created_at")))
+                continue
+            # Door events (opened/closed/blocked/unblocked): tomar el ultimo
+            # para el resumen y contar opens.
             if last_door_event is None:
                 last_door_event = item
-            if item.get("event_type") == "opened":
+            if etype == "opened":
                 openings_count += 1
 
         pagination_key = result.get("LastEvaluatedKey")
@@ -924,11 +949,17 @@ def handle_metrics_today(device_id):
             logger.warning("metrics_today hit page limit, count may be partial")
             break
 
+    light_minutes, light_state, light_state_at = _compute_light_metrics(
+        light_events, from_ms, now_ms)
+
     response = {
-        "device_id": device_id,
-        "from_ms": from_ms,
-        "to_ms": now_ms,
-        "openings_today": openings_count,
+        "device_id":           device_id,
+        "from_ms":             from_ms,
+        "to_ms":               now_ms,
+        "openings_today":      openings_count,
+        "light_minutes_today": light_minutes,
+        "light_state":         light_state,
+        "light_state_at":      light_state_at,
     }
     if last_door_event:
         response["last_door_event_at"] = last_door_event.get("created_at")
@@ -937,6 +968,44 @@ def handle_metrics_today(device_id):
             response["last_door_event_direction"] = last_door_event["direction"]
 
     return _ok(response)
+
+
+def _compute_light_metrics(light_events, from_ms, now_ms):
+    """
+    A partir de la lista [(ts_ms, "on"|"off", iso)] del dia, devuelve:
+      (minutos_encendida, estado_actual_str, timestamp_iso_del_ultimo_cambio)
+
+    Algoritmo:
+      Ordena por ts ASC.
+      Recorre tracking 'last_on_ts': cuando aparece 'on', guarda ts.
+      Cuando aparece 'off' y hay last_on_ts, suma (off_ts - last_on_ts) al total.
+      Si al final del recorrido sigue encendida (last_on_ts != None y no
+      vino off), suma (now_ms - last_on_ts).
+
+    Estado actual: el state del ULTIMO evento (mas reciente).
+    """
+    if not light_events:
+        return 0, "off", None
+    # Ordenar ASC por timestamp (vienen de DDB en DESC).
+    light_events.sort(key=lambda x: x[0])
+
+    total_on_ms = 0
+    last_on_ts = None
+    for ts_ms, state, _iso in light_events:
+        if state == "on" and last_on_ts is None:
+            last_on_ts = ts_ms
+        elif state == "off" and last_on_ts is not None:
+            total_on_ms += (ts_ms - last_on_ts)
+            last_on_ts = None
+    # Si quedo encendida al final, sumar hasta ahora.
+    if last_on_ts is not None:
+        total_on_ms += (now_ms - last_on_ts)
+
+    # Estado actual = el del ultimo evento por ts (que es el ultimo de la list
+    # ordenada ASC, o sea el final).
+    last_ts, last_state, last_iso = light_events[-1]
+
+    return total_on_ms // 60_000, last_state, last_iso
 
 
 def handle_override_unblock(device_id, actor=None):
@@ -1352,8 +1421,9 @@ def _put_audit_notification(user_email, device_id, notif_type,
     """Inserta UNA fila en pawgate_notifications. Mismo schema que
        eventIngest._persist_notification (Sub-fase B)."""
     ts_ms = int(now.timestamp() * 1000)
+    # Separador '_' (NO '#'). Ver _persist_notification en eventIngest.
     ts_inverted = 9_999_999_999_999 - ts_ms
-    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+    notif_id = f"{ts_inverted:013d}_{uuid.uuid4().hex[:8]}"
 
     item = {
         "user_email":  user_email,

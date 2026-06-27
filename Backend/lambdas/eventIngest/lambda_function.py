@@ -71,6 +71,20 @@ NOTIFIABLE_EVENT_TYPES = {
     "light_off",
 }
 
+# Cuando el user dispara un cmd desde la app, el apiHandler ya persiste una
+# notif tipo cmd_X con el actor. Luego el ESP32 ejecuta y publica el evento
+# de confirmacion (opened/blocked/unblocked). Para no duplicar, eventIngest
+# verifica si el mismo user tiene una notif cmd_X reciente (correspondiente
+# al evento) y skipea la persistencia + push.
+EVENT_TO_CMD_TYPE = {
+    "opened":    "cmd_open",
+    "blocked":   "cmd_block",
+    "unblocked": "cmd_unblock",
+}
+# Ventana de tiempo para considerar el cmd como "padre" del evento. El ESP32
+# tipicamente responde en <5s, asi que 10s tiene margen.
+DEDUP_WINDOW_SECONDS = 10
+
 
 def lambda_handler(event, context):
     """Entry point para AWS Lambda. event es el payload del IoT Rule SELECT."""
@@ -99,10 +113,26 @@ def lambda_handler(event, context):
         _update_device_info(device_id, event)
         return {"statusCode": 200, "device_id": device_id, "kind": "telemetry"}
 
-    # 2) Construir sort key. Timestamp del DEVICE (no del server) para que el
-    #    orden refleje cuando paso el evento fisicamente, no cuando AWS lo recibio.
-    #    Padded a 13 digitos para que el ordenamiento lexicografico = cronologico.
-    ts_device = int(event.get("ts", event.get("server_ts", 0)))
+    # 2) Construir sort key. Preferimos server_ts (epoch_ms inyectado por la
+    #    IoT Rule via timestamp()) porque es UNIVERSAL: no depende de que el
+    #    device tenga reloj sincronizado.
+    #
+    #    Algunos devices mandan `ts` con un valor que NO es epoch — el ESP32
+    #    manda millis() desde boot (numero chico, p.ej. 8236), el simulador
+    #    Python manda epoch_ms (numero grande). Si usamos ese `ts` como sort
+    #    key, los eventos del ESP32 quedan ordenados al inicio (millis < 1e10)
+    #    y los del simulador al final, mezclados sin sentido cronologico.
+    #
+    #    Heuristica: si `ts` se ve como epoch_ms valido (> 1.5e12 = 2017+),
+    #    lo usamos. Sino, server_ts. Fallback final: time.time() * 1000.
+    payload_ts = int(event.get("ts", 0))
+    server_ts  = int(event.get("server_ts", 0))
+    if payload_ts > 1_500_000_000_000:
+        ts_device = payload_ts
+    elif server_ts > 0:
+        ts_device = server_ts
+    else:
+        ts_device = int(datetime.now(timezone.utc).timestamp() * 1000)
     # event_type: tomar "type" del payload del device; si no vino, usar el kind
     # del topic como fallback (mas legible que "unknown" cuando luego se filtra).
     event_type = event.get("type") or event_kind
@@ -150,16 +180,18 @@ def lambda_handler(event, context):
 
 def _notify_owners(device_id, event_type, direction, payload):
     """
-    Manda push notification via SNS Platform Application a todos los users
-    registrados en pawgate_fcm_endpoints. Es 'broadcast' porque para este
-    proyecto familia/equipo todos los users registrados son owners del unico
-    device pawgate-001. Si en el futuro hay multi-device, agregar una tabla
-    pawgate_device_owners y filtrar.
+    Para cada event_type 'notifiable':
+      1) PERSISTE 1 fila por user en pawgate_notifications (para la bandeja
+         de la app). ESTO SIEMPRE SUCEDE, independiente del FCM ARN. Asi
+         aunque las push notifications esten deshabilitadas (o todavia no
+         configuradas), las notifs aparecen en la pantalla al abrir la app.
+      2) MANDA PUSH via SNS Platform App solo si FCM_PLATFORM_APP_ARN
+         esta configurado. Best-effort: si falla, ya tenemos persistencia.
 
-    Si la Platform Application ARN no esta configurada, skipea sin error.
+    Es 'broadcast' a todos los users registrados en pawgate_fcm_endpoints
+    (el proyecto tiene 1 device unico). Si en el futuro hay multi-device,
+    agregar una tabla pawgate_device_owners y filtrar.
     """
-    if not FCM_PLATFORM_APP_ARN:
-        return
     if event_type not in NOTIFIABLE_EVENT_TYPES:
         return
 
@@ -177,10 +209,10 @@ def _notify_owners(device_id, event_type, direction, payload):
 
     endpoints = resp.get("Items", [])
     if not endpoints:
-        logger.info("No FCM endpoints registered, skipping push")
-        # Igual persistimos la notif para que aparezca en la pantalla cuando
-        # el user abra la app, aunque no llegue push. Pero como no sabemos
-        # a quien pertenece, salimos sin persistir.
+        logger.info("No FCM endpoints registered; skipping persist + push")
+        # Sin endpoints registrados no sabemos a que user_email pertenece la
+        # notif, asi que no podemos persistir nada. Es esperable solo en el
+        # bootstrap inicial cuando ningun device todavia se registro.
         return
 
     # ====== Persistencia 1-fila-por-user en pawgate_notifications ======
@@ -189,17 +221,39 @@ def _notify_owners(device_id, event_type, direction, payload):
     # de SNS es solo para evitar push duplicado al mismo device, no para
     # evitar persistir N notifs (eso sería bug).
     #
+    # IMPORTANTE: esta persistencia SIEMPRE sucede aunque no haya FCM ARN
+    # configurado. Asi un evento del firmware (perro abre puerta) aparece en
+    # la bandeja de la app aunque el push no llegue.
+    #
+    # DEDUP cmd ↔ evento: si el user disparo un cmd_X reciente, este evento
+    # del firmware es su confirmacion. apiHandler ya persistio la notif con
+    # actor; no queremos persistir otra copia 'Por el dispositivo'. Si TODOS
+    # los users tienen cmd_X reciente, terminamos la funcion aca (ni
+    # persistencia ni push).
+    #
     # Trackeamos {user_email -> notif_id} para despues incluir el notif_id
     # CORRECTO en el push de cada endpoint. Asi cuando el user tap el push,
     # la app sabe que notif marcar como leida.
     user_to_notif_id = {}
+    skipped_users = set()
     for ep in endpoints:
         user_email = ep.get("user_email")
-        if user_email:
-            nid = _persist_notification(user_email, device_id, event_type,
-                                         direction, title, body, payload)
-            if nid:
-                user_to_notif_id[user_email] = nid
+        if not user_email:
+            continue
+        if _has_recent_user_cmd_for(user_email, event_type):
+            logger.info("dedup: skip event=%s user=%s (recent cmd in <%ds)",
+                        event_type, user_email, DEDUP_WINDOW_SECONDS)
+            skipped_users.add(user_email)
+            continue
+        nid = _persist_notification(user_email, device_id, event_type,
+                                     direction, title, body, payload)
+        if nid:
+            user_to_notif_id[user_email] = nid
+
+    # ====== A partir de aca: PUSH via SNS. Solo si hay ARN configurado. ======
+    if not FCM_PLATFORM_APP_ARN:
+        logger.info("FCM_PLATFORM_APP_ARN not set, persisted but no push")
+        return
 
     # Deduplicar por endpoint_arn: si 2 user_emails distintos apuntan al
     # mismo device (ej: 2 cuentas logueadas en el mismo celular -> SNS
@@ -228,6 +282,10 @@ def _notify_owners(device_id, event_type, direction, payload):
         if not arn:
             continue
         user_email = ep.get("user_email")
+        # Si dedup skipeo a este user (porque tiene un cmd reciente),
+        # tampoco le mandamos push — el cmd ya lo informo en pantalla.
+        if user_email in skipped_users:
+            continue
         notif_id = user_to_notif_id.get(user_email, "") if user_email else ""
 
         gcm_payload = json.dumps({
@@ -303,6 +361,49 @@ def _format_notification(event_type, direction):
     return "Evento de la puerta", event_type or "evento"
 
 
+def _has_recent_user_cmd_for(user_email, event_type):
+    """
+    True si el user_email tiene una notif tipo cmd_X reciente (< DEDUP_WINDOW)
+    correspondiente al event_type del firmware. Usado para evitar duplicar
+    'Puerta bloqueada · Por el dispositivo' + 'Puerta bloqueada · Por NAME'
+    cuando el user ejecuto el cmd desde la app.
+
+    Mapeo:
+      opened    -> cmd_open
+      blocked   -> cmd_block
+      unblocked -> cmd_unblock
+
+    Si event_type no esta en el mapeo (light_on/off por ej.), devuelve False
+    porque esos eventos del firmware NO tienen contraparte de cmd.
+    """
+    cmd_type = EVENT_TO_CMD_TYPE.get(event_type)
+    if not cmd_type:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=DEDUP_WINDOW_SECONDS)
+    cutoff_iso = cutoff.isoformat()
+    try:
+        # Como el SK esta invertido por ts (mas reciente = SK menor), default
+        # Query devuelve los items mas recientes primero. Con Limit=20 cubrimos
+        # el caso de varios eventos entre el cmd y la confirmacion.
+        resp = notifications_table.query(
+            KeyConditionExpression="user_email = :u",
+            FilterExpression="#t = :type AND created_at > :since",
+            ExpressionAttributeNames={"#t": "type"},
+            ExpressionAttributeValues={
+                ":u":     user_email,
+                ":type":  cmd_type,
+                ":since": cutoff_iso,
+            },
+            Limit=20,
+        )
+        return resp.get("Count", 0) > 0
+    except Exception as e:
+        # En caso de error, asumimos NO hay cmd reciente (mejor duplicar que
+        # perder una notif legitima del firmware).
+        logger.warning("dedup query failed (assume no recent cmd): %s", e)
+        return False
+
+
 def _persist_notification(user_email, device_id, event_type, direction,
                            title, body, payload):
     """
@@ -328,9 +429,14 @@ def _persist_notification(user_email, device_id, event_type, direction,
     import uuid
     now = datetime.now(timezone.utc)
     ts_ms = int(now.timestamp() * 1000)
-    # Sort key invertido para que descending order = ASC sort
+    # Sort key invertido para que descending order = ASC sort.
+    # Separador '_' (NO '#') porque '#' en el path de un URL es interpretado
+    # como fragment-identifier. Aunque Retrofit lo URL-encodea a %23, API
+    # Gateway tiene problemas conocidos decodificando %23 en path params:
+    # el endpoint recibe el id truncado y devuelve 404 silencioso. Underscore
+    # es 100% safe en URL paths.
     ts_inverted = 9_999_999_999_999 - ts_ms
-    notif_id = f"{ts_inverted:013d}#{uuid.uuid4().hex[:8]}"
+    notif_id = f"{ts_inverted:013d}_{uuid.uuid4().hex[:8]}"
 
     item = {
         "user_email":  user_email,

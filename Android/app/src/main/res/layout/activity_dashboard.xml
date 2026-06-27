@@ -137,15 +137,35 @@
                         android:text="@string/dashboard_metric_light_label"
                         android:textSize="13sp"
                         android:textColor="@color/text_secondary" />
-                    <TextView android:layout_width="wrap_content"
+                    <!-- Numero + icono de lampara al lado. ImageView se hace
+                         GONE cuando no hay info aun. Tinte amarillo (encendida)
+                         o gris (apagada) se aplica desde renderLightBadge(). -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:id="@+id/dashboard_light_time"
-                        android:text="—"
-                        tools:text="12h 34m"
-                        android:textSize="26sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:id="@+id/dashboard_light_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—"
+                            android:textColor="@color/text_primary"
+                            android:textSize="26sp"
+                            android:textStyle="bold"
+                            tools:text="12h 34m" />
+                        <ImageView
+                            android:id="@+id/dashboard_light_badge"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="10dp"
+                            android:padding="4dp"
+                            android:scaleType="fitCenter"
+                            android:contentDescription="@string/dashboard_light_off"
+                            android:src="@drawable/ic_lamp_off"
+                            app:tint="@color/text_secondary" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
             <TextView android:layout_width="wrap_content"

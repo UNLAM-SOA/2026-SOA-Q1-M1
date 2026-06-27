@@ -3,6 +3,7 @@
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
   #include <ArduinoJson.h>
+  #include <time.h>          // configTime() + time() para sync NTP previo a TLS
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
   #include "aws_certs.h"
 
@@ -11,8 +12,8 @@
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "SO Avanzados"
-  #define WIFI_PASSWORD "SOA.2019"
+  #define WIFI_SSID "Moriste en madrid 2.4ghz"
+  #define WIFI_PASSWORD "tobichester"
 
   enum tipo_broker {
     EMQX,
@@ -230,6 +231,7 @@
   void conectar_mqtt();
   void setup_wifi_mqtt();
   void wifiConnect();
+  void sincronizar_hora_ntp();
   void publicar_mqtt(const char* topico, const char* payload);
 
   // --- Tabla de estados ---
@@ -325,8 +327,10 @@
   void apagar_luz()
   {
     // Emitir la acción a la cola de acciones
-    Serial.print("Transición iniciada: Luz apagada\n");
-    emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
+    //Serial.print("Transición iniciada: Luz apagada\n");
+    //emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
+    emitir_accion_puerta(ACC_APAGAR_LUZ, "");
+
     return;
   }
 
@@ -445,8 +449,8 @@
       // Emitir evento correspondiente a la cola de eventos
       sensor_luz.valor_actual = analogRead(sensor_luz.pin);
 
-      Serial.print("[luz_deteccion] ADC=");
-      Serial.print(sensor_luz.valor_actual);
+      //Serial.print("[luz_deteccion] ADC=");
+      //Serial.print(sensor_luz.valor_actual);
 
       if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
       {
@@ -587,6 +591,16 @@
     publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
   }
 
+  // Direction de la ultima apertura, para incluirla en el evento "closed".
+  // Asi la app puede saber HACIA DONDE se cerro la puerta (in/out) y matchear
+  // el ciclo visual abrir->cerrar de manera consistente.
+  static const char* ultima_direction_apertura = nullptr;
+
+  // Ultimo estado de la luz que PUBLICAMOS al backend. La maquina dispara
+  // ACC_ENCENDER_LUZ continuamente mientras detecta oscuridad — solo
+  // publicamos en la TRANSICION para no inundar el backend.
+  static bool estado_luz_publicado = false;
+
   void puerta_accion(void *pvParametros)
   {
     while (1)
@@ -597,17 +611,23 @@
         Serial.print("[puerta_accion] Accion recibida=");
         if (action_recibido == ACC_ABRIR_DESDE_AFUERA)
         {
+          // ABRIR_DESDE_AFUERA = el animal viene de afuera y entra a casa.
+          // La puerta se abre HACIA ADENTRO -> direction = "in".
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
-          publicar_evento_puerta("opened", "out");
+          ultima_direction_apertura = "in";
+          publicar_evento_puerta("opened", "in");
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
+          // ABRIR_DESDE_ADENTRO = el animal sale al patio.
+          // La puerta se abre HACIA AFUERA -> direction = "out".
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
-          publicar_evento_puerta("opened", "in");
+          ultima_direction_apertura = "out";
+          publicar_evento_puerta("opened", "out");
         }
         else if (action_recibido == ACC_CERRAR)
         {
@@ -615,7 +635,10 @@
           servo.write(90);
           sensor_proximidad.estado = ESTADO_HABILITADO;
           sensor_rfid.estado       = ESTADO_HABILITADO;
-          publicar_evento_puerta("closed", nullptr);
+          // Pasamos la misma direction que el opened previo, asi la app
+          // matchea el ciclo (abriendo->abierta->cerrando hacia la misma X).
+          publicar_evento_puerta("closed", ultima_direction_apertura);
+          ultima_direction_apertura = nullptr;
         }
         else if (action_recibido == ACC_BLOQUEAR)
         {
@@ -635,13 +658,24 @@
         }
         else if (action_recibido == ACC_ENCENDER_LUZ)
         {
-          // Serial.println("ACC ENCENDER LUZ RECIBIDA");
           digitalWrite(LED, HIGH);
+          // Dedup: la maquina dispara ACC_ENCENDER_LUZ con cada lectura del
+          // sensor de luz (si esta oscuro), no solo cuando cambia. Publicamos
+          // light_on solo en la TRANSICION off -> on para no inundar el
+          // backend. estado_luz_publicado se inicializa en false al boot.
+          if (!estado_luz_publicado) {
+            publicar_evento_puerta("light_on", nullptr);
+            estado_luz_publicado = true;
+          }
         }
         else if (action_recibido == ACC_APAGAR_LUZ)
         {
-          // Serial.println("ACC APAGAR LUZ RECIBIDA");
           digitalWrite(LED, LOW);
+          // Mismo dedup: publicar solo on -> off.
+          if (estado_luz_publicado) {
+            publicar_evento_puerta("light_off", nullptr);
+            estado_luz_publicado = false;
+          }
         }
         else
         {
@@ -667,6 +701,7 @@
     doc["flash_total_kb"] = ESP.getFlashChipSize() / 1024; // Tamaño total del chip de flash. Típicamente 4096 KB
     doc["cpu_temp_c"] = temperatureRead(); // Disponible en ESP32, devuelve float en °C
     doc["local_ip"] = WiFi.localIP().toString().c_str();
+    doc["device_mac"] = WiFi.macAddress().c_str(); // MAC propia del ESP32 (no la del AP)
     doc["firmware_version"] = FIRMWARE_VERSION;
     doc["hardware_model"] = HARDWARE_MODEL;
     doc["wifi_ssid"] = WiFi.SSID().c_str();
@@ -760,6 +795,7 @@
   //funcion genérica para mandar a MQTT desde cualquier parte del código a cualquier tópico
   void publicar_mqtt(const char* topico, const char* payload)
   {
+    Serial.printf("\n[mqtt] queueing topic=%s payload=%s\n", topico, payload);
     stMensajeMqtt msg;
     strncpy(msg.topico,   topico,   TAM_TOPIC_MQTT   - 1);
     strncpy(msg.payload, payload, TAM_PAYLOAD_MQTT - 1);
@@ -769,6 +805,8 @@
     if (xQueueSend(queueMqttOut, &msg, TIME_OUT_CERO) != pdPASS)
     {
       Serial.println("[mqtt] Cola de salida LLENA");
+    } else {
+      Serial.println("[mqtt] queued OK");
     }
   }
 
@@ -779,6 +817,12 @@
     Serial.println(WIFI_SSID);
 
     wifiConnect();
+
+    // SNTP sync ANTES de definir broker. Critico para TLS contra AWS IoT:
+    // mTLS valida notBefore/notAfter del cert y para eso necesita la hora
+    // actual. Sin esto, el ESP32 arranca en 1970 y client.connect() se
+    // cuelga en el handshake TLS sin nunca devolver error visible.
+    sincronizar_hora_ntp();
     definir_broker();
 
     Serial.println("\nWiFi Conectado");
@@ -788,14 +832,42 @@
     Serial.println(WiFi.macAddress());
   }
 
-  void wifiConnect()  
+  void wifiConnect()
   {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) 
+    while (WiFi.status() != WL_CONNECTED)
     {
       delay(500);
       Serial.print(".");
     }
+  }
+
+  void sincronizar_hora_ntp()
+  {
+    // configTime arranca el sntp client interno del ESP32. Argumentos:
+    //   gmtOffset_sec = 0   -> UTC (TLS necesita UTC, no la timezone local)
+    //   daylightOffset_sec = 0
+    //   servers NTP        -> redundancia con 2 servers publicos
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Sincronizando hora via NTP");
+    time_t now = 0;
+    int intentos = 0;
+    // Esperamos hasta que time(NULL) devuelva un valor > 2024-01-01
+    // (segundo 1700000000 ~= mediados 2023). Antes de eso el RTC sigue
+    // sin sincronizar y TLS va a fallar.
+    while (now < 1700000000 && intentos < 30)
+    {
+      delay(500);
+      Serial.print(".");
+      now = time(nullptr);
+      intentos++;
+    }
+    if (now < 1700000000) {
+      Serial.println("\n[ntp] WARN: hora no sincronizada, TLS puede fallar");
+      return;
+    }
+    Serial.print("\n[ntp] hora UTC: ");
+    Serial.println(ctime(&now));
   }
 
   void conectar_mqtt()
@@ -803,20 +875,55 @@
     int intentos = 0;
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback); // Esto es necesario para recibir mensajes del broker
-    
+
+    // Timeouts explicitos para no quedarnos colgados eternamente en el TLS
+    // handshake. Si supera 15s, espClient.connect() devuelve false y
+    // PubSubClient hace return -> entramos al else y vemos rc=N.
+    espClient.setHandshakeTimeout(15);   // segundos para TLS handshake
+    espClient.setTimeout(15);            // segundos para read/write TCP
+    client.setSocketTimeout(15);         // segundos para MQTT-level
+
+    Serial.printf("\n[mqtt] target=%s:%d clientId=%s\n",
+                  mqtt_server, mqtt_port, MQTT_CLIENT_ID);
+
+    // Smoke test TCP crudo (sin TLS) — descarta firewall / ISP bloqueando
+    // el puerto 8883 outgoing. Si esto NO completa, el TLS handshake nunca
+    // tendra chance — el bug es de red, no de certs.
+    {
+      WiFiClient tcpTest;
+      Serial.printf("[debug] TCP raw test %s:%d ... ", mqtt_server, mqtt_port);
+      unsigned long t0 = millis();
+      int tcpOk = tcpTest.connect(mqtt_server, mqtt_port, 5000); // 5s timeout
+      unsigned long dt = millis() - t0;
+      Serial.printf("result=%d took=%lums\n", tcpOk, dt);
+      tcpTest.stop();
+      if (!tcpOk) {
+        Serial.println("[debug] TCP raw FAILED — verificar firewall/ISP en pto 8883");
+      }
+    }
+
     Serial.print("Intentando conexión MQTT...");
     while (!client.connected() && intentos < 5)
     {
       intentos++;
-      Serial.print("[mqtt] Conectando...");
-      if (client.connect(MQTT_CLIENT_ID))
+      Serial.printf("\n[mqtt] intento %d Conectando...", intentos);
+      unsigned long t0 = millis();
+      bool ok = client.connect(MQTT_CLIENT_ID);
+      unsigned long dt = millis() - t0;
+      Serial.printf(" took=%lums ", dt);
+      if (ok)
       {
-        Serial.println("Conexión MQTT OK");
+        Serial.println("OK");
         client.subscribe(MQTT_TOPIC_CMD_FILTER);
+        Serial.printf("[mqtt] subscribed to %s\n", MQTT_TOPIC_CMD_FILTER);
       }
       else
       {
-        Serial.printf(" rc=%d, retry 2s\n", client.state());
+        // PubSubClient state codes:
+        //   -4 timeout, -3 connection lost, -2 connect failed (TLS),
+        //   -1 disconnected, 0 connected, 1-5 wrong proto / id / cred
+        int state = client.state();
+        Serial.printf("FALLO rc=%d, retry 5s\n", state);
         vTaskDelay(pdMS_TO_TICKS(5000));
       }
     }
@@ -887,12 +994,16 @@
       }
       const char* direction = doc["direction"];
       if(direction != nullptr) {
+        // direction "in" = puerta HACIA ADENTRO => animal viene de afuera
+        //                  => EV_ANIMAL_DETECTADO_AFUERA (afuera_entrando)
+        // direction "out"= puerta HACIA AFUERA  => animal sale desde adentro
+        //                  => EV_ANIMAL_DETECTADO_ADENTRO (adentro_saliendo)
         if(strcmp(direction, "in") == 0) {
-          Serial.println("EV_ANIMAL_DETECTADO_ADENTRO DESDE MQTT");
-          ev = EV_ANIMAL_DETECTADO_ADENTRO;
-        } else if (strcmp(direction, "out") == 0){
-          Serial.println("EV_ANIMAL_DETECTADO_AFUERA DESDE MQTT");
+          Serial.println("cmd open direction=in -> EV_ANIMAL_DETECTADO_AFUERA");
           ev = EV_ANIMAL_DETECTADO_AFUERA;
+        } else if (strcmp(direction, "out") == 0){
+          Serial.println("cmd open direction=out -> EV_ANIMAL_DETECTADO_ADENTRO");
+          ev = EV_ANIMAL_DETECTADO_ADENTRO;
       } else {
         Serial.println("ERROR: LA DIRECCION DE APERTURA NO ES CORRECTA");
         return;
@@ -909,8 +1020,16 @@
       ev = EV_DESBLOQUEO_POR_APP;
     } else if(strcmp(comando + 1, "call") == 0) {
       Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
-      for (int i = 0; i < 3; i++) {
-        buzzer_beep(1200, 100);
+      // Beep prolongado y reconocible: alternar agudo/grave durante ~2.5s.
+      // Coincide con CALLING_MS=2500 en la app, asi el countdown
+      // "Llamando 3..2..1" termina al mismo tiempo que el sonido real.
+      // 5 iteraciones * (150ms beep agudo + 100ms gap + 150ms grave + 100ms gap)
+      // = 5 * 500ms = 2500ms.
+      for (int i = 0; i < 5; i++) {
+        buzzer_beep(1200, 150);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        buzzer_beep(800, 150);
+        vTaskDelay(pdMS_TO_TICKS(100));
       }
       return; // No cambia el estado de la puerta
     } else if(strcmp(comando + 1, "cancel") == 0) {
@@ -944,9 +1063,14 @@
         stMensajeMqtt msg;
         while (xQueueReceive(queueMqttOut, &msg, 0) == pdPASS)
         {
-          if (!client.publish(msg.topico, msg.payload, true))
+          Serial.printf("\n[mqtt] publishing topic=%s payload=%s\n",
+                        msg.topico, msg.payload);
+          bool ok = client.publish(msg.topico, msg.payload, true);
+          if (!ok)
           {
-            Serial.println("[mqtt] publish FALLÓ");
+            Serial.printf("[mqtt] publish FALLO state=%d\n", client.state());
+          } else {
+            Serial.println("[mqtt] publish OK");
           }
         }
       }

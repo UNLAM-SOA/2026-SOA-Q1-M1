@@ -1,0 +1,6 @@
+<!-- La activity entrante viene desde la izquierda (el user se mueve hacia
+     el tab MAS A LA IZQUIERDA en el bottom nav). -->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="220"
+    android:fromXDelta="-100%p"
+    android:toXDelta="0%p" />

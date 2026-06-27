@@ -196,6 +196,10 @@ public class DashboardActivity extends AppCompatActivity {
         super.onResume();
         refreshTickRunnable.run();
         statePollRunnable.run();
+        // Render INICIAL del badge de luz con el ultimo estado conocido
+        // (isLightOn esta persistido en prefs por el state machine). Despues
+        // loadDailyMetrics() lo actualiza con el snapshot del server.
+        renderLightBadge(PrefsHelper.isLightOn(this) ? "on" : "off");
         loadDailyMetrics();
         refreshUnreadBadge();
 
@@ -267,6 +271,7 @@ public class DashboardActivity extends AppCompatActivity {
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
                     @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
                         android.util.Log.i("DashboardActivity", "shake cmd/call OK");
+                        PawGatePollingService.requestPollNow(DashboardActivity.this);
                     }
                     @Override public void onError(String message) {
                         android.util.Log.w("DashboardActivity", "shake call error: " + message);
@@ -302,20 +307,41 @@ public class DashboardActivity extends AppCompatActivity {
      *  - tomar el evento mas reciente y mostrar "Ultima actividad: hace X". */
     private void loadDailyMetrics() {
         // Endpoint dedicado /metrics/today: el backend itera todas las paginas
-        // de DDB y devuelve el conteo de aperturas + el ultimo door event.
-        // Evita el bug previo en que contabamos solo los primeros 50 events de
-        // /history (que solian ser todos sensors, dando opens=0).
+        // de DDB y devuelve el conteo de aperturas + el ultimo door event +
+        // tiempo de luz encendida hoy + estado actual de luz.
         deviceRepo.metricsToday(deviceId,
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse>() {
             @Override
             public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.MetricsTodayResponse result) {
-                int opens = result != null ? result.openings_today : 0;
-                String lastIso = result != null ? result.last_door_event_at : null;
+                if (result == null) return;
+                int opens = result.openings_today;
+                String lastIso = result.last_door_event_at;
+                int lightMin = result.light_minutes_today;
+                String lightState = result.light_state;
                 android.util.Log.d("DashboardMetrics",
-                        "metricsToday: opens=" + opens + " lastIso=" + lastIso);
+                        "metricsToday: opens=" + opens + " lightMin=" + lightMin
+                        + " lightState=" + lightState);
+
                 if (openingsCountLabel != null) {
                     openingsCountLabel.setText(String.valueOf(opens));
                 }
+                renderLightTime(lightMin);
+                // NO renderizamos el badge desde el server aca para evitar
+                // flicker. El server puede ir 200-500ms atras del estado real
+                // (el push light_on llego pero el server todavia no lo
+                // proceso). El badge se renderiza UNICAMENTE desde
+                // PrefsHelper.isLightOn — que el state machine actualiza al
+                // instante cuando llega el push o el polling trae el event.
+                // Aca solo SEMBRAMOS el estado local si nunca tuvimos info:
+                // si server dice 'on' y nuestro local nunca se seteo, lo
+                // tomamos como inicial. Despues los events ganan.
+                if (lightState != null
+                        && PrefsHelper.getLastDoorEventAt(DashboardActivity.this) == 0L) {
+                    PrefsHelper.setLightOn(DashboardActivity.this,
+                            "on".equals(lightState));
+                    renderLightBadge(lightState);
+                }
+
                 if (lastActivityLabel != null) {
                     if (lastIso != null) {
                         String rel = HistorialMapper.relativeTimeFor(lastIso, System.currentTimeMillis());
@@ -330,6 +356,56 @@ public class DashboardActivity extends AppCompatActivity {
                 android.util.Log.w("DashboardMetrics", "metricsToday error: " + message);
             }
         });
+    }
+
+    /** Renderiza minutos de luz en el formato "X min" o "Xh Ym" segun magnitud. */
+    private void renderLightTime(int totalMinutes) {
+        TextView lightTimeLabel = findViewById(R.id.dashboard_light_time);
+        if (lightTimeLabel == null) return;
+        if (totalMinutes < 60) {
+            lightTimeLabel.setText(getString(
+                    R.string.dashboard_light_minutes_format, totalMinutes));
+        } else {
+            int h = totalMinutes / 60;
+            int m = totalMinutes % 60;
+            lightTimeLabel.setText(getString(
+                    R.string.dashboard_light_hm_format, h, m));
+        }
+    }
+
+    /**
+     * Renderiza el badge de "Luz encendida / apagada" en la card de la puerta.
+     * Verde (bg_pill_status, accent_neon) si encendida; gris (bg_pill_warning,
+     * text_secondary) si apagada. lightState viene del server ("on"/"off"),
+     * pero los eventos light_on/light_off del firmware tambien actualizan el
+     * badge via DoorStateMachine + broadcast.
+     */
+    /**
+     * Renderiza el icono de lampara al lado del minutaje:
+     *   - encendida: ic_lamp_on con tinte amarillo + bg_lamp_glow (sombra
+     *     radial dorada que sugiere "luz emitida")
+     *   - apagada:   ic_lamp_off (contorno solamente) con tinte gris claro
+     *
+     * Minimalista, sin texto ni pill. El semantico contentDescription cambia
+     * para accesibilidad (TalkBack).
+     */
+    private void renderLightBadge(String lightState) {
+        android.widget.ImageView lamp = findViewById(R.id.dashboard_light_badge);
+        if (lamp == null) return;
+        boolean isOn = "on".equals(lightState);
+        if (isOn) {
+            lamp.setImageResource(R.drawable.ic_lamp_on);
+            // Tinte ambar / amarillo "warm" (Material amber 600)
+            lamp.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFB300));
+            lamp.setBackgroundResource(R.drawable.bg_lamp_glow);
+            lamp.setContentDescription(getString(R.string.dashboard_light_on));
+        } else {
+            lamp.setImageResource(R.drawable.ic_lamp_off);
+            lamp.setImageTintList(android.content.res.ColorStateList.valueOf(
+                    getResources().getColor(R.color.text_secondary, getTheme())));
+            lamp.setBackground(null);
+            lamp.setContentDescription(getString(R.string.dashboard_light_off));
+        }
     }
 
     /**
@@ -453,6 +529,10 @@ public class DashboardActivity extends AppCompatActivity {
             lastActivityLabel.setText(getString(R.string.dashboard_last_activity_template, rel));
         }
         renderDoorState();
+        // Refrescar el badge de luz INMEDIATO usando el estado persistido
+        // por DoorStateMachine (light_on/light_off ya actualizaron isLightOn).
+        // Sin esperar al /metrics/today que puede tardar 100ms mas.
+        renderLightBadge(PrefsHelper.isLightOn(this) ? "on" : "off");
         // Refrescar el contador de "Aperturas hoy" cuando hay un evento nuevo,
         // asi se actualiza en vivo (la mayoria de los broadcasts del Service son
         // de events no-door, pero cualquier door event nuevo podria ser un opened).
@@ -469,18 +549,38 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void renderDoorState() {
         DoorStateMachine.DoorState state = DoorStateMachine.currentState(this);
+        String direction = PrefsHelper.getCycleDirection(this);
 
         String doorLabel;
         switch (state) {
             case OPENING:
-                doorLabel = getString(R.string.dashboard_door_opening);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_opening_in);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_opening_out);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_opening);
+                }
                 break;
-            case OPEN:
-                doorLabel = getString(R.string.dashboard_door_open_countdown,
-                        DoorStateMachine.secondsRemainingInCountdown(this));
+            case OPEN: {
+                int sec = DoorStateMachine.secondsRemainingInCountdown(this);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_open_in_countdown, sec);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_open_out_countdown, sec);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_open_countdown, sec);
+                }
                 break;
+            }
             case CLOSING:
-                doorLabel = getString(R.string.dashboard_door_closing);
+                if ("in".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_closing_in);
+                } else if ("out".equals(direction)) {
+                    doorLabel = getString(R.string.dashboard_door_closing_out);
+                } else {
+                    doorLabel = getString(R.string.dashboard_door_closing);
+                }
                 break;
             case BLOCKED:
                 doorLabel = getString(R.string.dashboard_door_locked);
@@ -554,8 +654,46 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void onActionCallClick() {
         if (isBusyCycle()) return;
+        // En BLOCKED no llamamos. isBusyCycle excluia BLOCKED a proposito
+        // (era para el caso 'estoy en un ciclo de apertura, no quiero llamar')
+        // pero deja pasar BLOCKED. Aca cortamos explicito.
+        if (DoorStateMachine.currentState(this) == DoorStateMachine.DoorState.BLOCKED) {
+            Toast.makeText(this, R.string.dashboard_call_blocked_toast,
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // 1) UX optimista: arrancar el ciclo local YA para feedback inmediato.
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);
+
+        // 2) Abrir ControlActivity (sigue mostrando el countdown del CALLING).
         openControl(null);
+
+        // 3) Disparar el cmd al backend que publica al topic MQTT cmd/call.
+        //    El firmware lo recibe y activa el buzzer 3s. Sin este sendCommand
+        //    el ciclo local corria pero la mascota nunca era llamada — el
+        //    bug que viste tocando "Llamar" desde el dashboard.
+        deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_CALL,
+                java.util.Collections.emptyMap(),
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
+                    @Override public void onSuccess(
+                            com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                        android.util.Log.i("DashboardActivity",
+                                "cmd/call OK from dashboard button");
+                        // Poll inmediato para que la confirmacion del firmware
+                        // (eventos relacionados) lleguen rapido.
+                        PawGatePollingService.requestPollNow(DashboardActivity.this);
+                    }
+                    @Override public void onError(String message) {
+                        android.util.Log.w("DashboardActivity",
+                                "cmd/call error: " + message);
+                        // Revertir el ciclo local para no mostrar un fake call
+                        // que el device nunca recibio.
+                        PrefsHelper.clearCycle(DashboardActivity.this);
+                        Toast.makeText(DashboardActivity.this, message,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     /** Hay un ciclo de puerta o llamada en curso? */
@@ -658,6 +796,7 @@ public class DashboardActivity extends AppCompatActivity {
                 PrefsHelper.clearCycle(DashboardActivity.this);
                 showToast(R.string.toast_action_block);
                 renderDoorState();
+                PawGatePollingService.requestPollNow(DashboardActivity.this);
             }
             @Override public void onError(String message) {
                 Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
@@ -708,6 +847,7 @@ public class DashboardActivity extends AppCompatActivity {
                     PrefsHelper.setDoorBlocked(DashboardActivity.this, false);
                     showToast(R.string.toast_action_unblock);
                     renderDoorState();
+                    PawGatePollingService.requestPollNow(DashboardActivity.this);
                 }
                 @Override public void onError(String message) {
                     Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();

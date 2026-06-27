@@ -58,8 +58,14 @@
     <string name="dashboard_door_closed">Puerta · Cerrada</string>
     <string name="dashboard_door_locked">Puerta · Bloqueada</string>
     <string name="dashboard_door_opening">Puerta · Abriendo…</string>
+    <string name="dashboard_door_opening_in">Puerta · Abriendo hacia adentro…</string>
+    <string name="dashboard_door_opening_out">Puerta · Abriendo hacia afuera…</string>
     <string name="dashboard_door_open_countdown">Puerta · Abierta · %1$ds</string>
+    <string name="dashboard_door_open_in_countdown">Puerta · Abierta hacia adentro · %1$ds</string>
+    <string name="dashboard_door_open_out_countdown">Puerta · Abierta hacia afuera · %1$ds</string>
     <string name="dashboard_door_closing">Puerta · Cerrando…</string>
+    <string name="dashboard_door_closing_in">Puerta · Cerrando (estaba hacia adentro)…</string>
+    <string name="dashboard_door_closing_out">Puerta · Cerrando (estaba hacia afuera)…</string>
     <string name="dashboard_door_calling_countdown">Puerta · Llamando · %1$ds</string>
     <string name="dashboard_door_ending_call">Puerta · Finalizando llamada…</string>
     <string name="dashboard_last_activity_template">Última actividad: %1$s</string>
@@ -67,6 +73,10 @@
     <!-- Dashboard - Metric cards -->
     <string name="dashboard_metric_openings_label">Aperturas hoy</string>
     <string name="dashboard_metric_light_label">Tiempo de luz encendida</string>
+    <string name="dashboard_light_minutes_format">%1$d min</string>
+    <string name="dashboard_light_hm_format">%1$dh %2$dm</string>
+    <string name="dashboard_light_on">Luz encendida</string>
+    <string name="dashboard_light_off">Luz apagada</string>
 
     <!-- Dashboard - Acciones rápidas -->
     <string name="dashboard_quick_actions">Acciones rápidas</string>
@@ -102,6 +112,8 @@
     <!-- Control de puerta -->
     <string name="control_title">Control de puerta</string>
     <string name="control_status_live">EN VIVO · ESP32 CONECTADO</string>
+    <string name="control_status_offline">ESP32 DESCONECTADO</string>
+    <string name="dashboard_call_blocked_toast">No se puede llamar mientras la puerta está bloqueada</string>
     <string name="control_btn_open">ABRIR PUERTA</string>
     <string name="control_card_block_title">Bloquear</string>
     <string name="control_card_block_subtitle">Modo seguridad</string>
@@ -150,7 +162,9 @@
     <string name="control_info_last_open_title">Última apertura: ahora</string>
     <string name="control_info_last_open_subtitle">Manual · desde Control</string>
     <string name="control_info_blocked_title">Modo seguridad activado</string>
-    <string name="control_info_blocked_subtitle">Activado 14:32 · 2h</string>
+    <string name="control_info_blocked_subtitle">Activado recién</string>
+    <string name="control_info_blocked_subtitle_with_time">Activado %1$s · %2$s</string>
+    <string name="control_info_blocked_subtitle_only_rel">Activado %1$s</string>
     <string name="control_info_calling_title">Tu mascota fue notificada</string>
     <string name="control_info_calling_subtitle">Esperando respuesta · %1$ds</string>
 
@@ -362,6 +376,16 @@
     <string name="ajustes_device_ip">Dirección IP</string>
     <string name="ajustes_device_uptime">Tiempo activo</string>
     <string name="ajustes_device_mac">MAC address</string>
+    <string name="ajustes_value_loading">Cargando…</string>
+    <string name="ajustes_value_unavailable">No disponible</string>
+    <string name="ajustes_uptime_dhm">%1$dd · %2$dh · %3$dmin</string>
+    <string name="ajustes_uptime_hm">%1$dh · %2$dmin</string>
+    <string name="ajustes_uptime_m">%1$dmin</string>
+    <string name="perfil_edit_name_title">Cambiar nombre</string>
+    <string name="perfil_edit_name_hint">Nuevo nombre</string>
+    <string name="perfil_edit_name_save">Guardar</string>
+    <string name="perfil_edit_name_invalid">El nombre no puede estar vacío</string>
+    <string name="cd_edit">Editar</string>
     <string name="ajustes_sensor_ultrasound">Ultrasonido HC-SR04</string>
     <string name="ajustes_sensor_servo">Servomotor SG90</string>
     <string name="ajustes_schedules_row">Horarios programados</string>

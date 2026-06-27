@@ -153,9 +153,13 @@
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_globe" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_ip" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="192.168.1.42" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_ip_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_value_loading"
+                            tools:text="192.168.1.42" />
                     </LinearLayout>
-                    <ImageView style="@style/AjustesRowChevron" />
+                    <!-- Sin chevron: no es navegable, solo info -->
                 </LinearLayout>
 
                 <View style="@style/AjustesRowDivider" />
@@ -164,7 +168,11 @@
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_timer" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_uptime" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="3 d · 12 h · 24 min" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_uptime_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_value_loading"
+                            tools:text="3 d · 12 h · 24 min" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -174,43 +182,17 @@
                     <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_hash" />
                     <LinearLayout style="@style/AjustesRowTexts">
                         <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_device_mac" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="AC:67:B2:1F:88:42" />
+                        <TextView
+                            android:id="@+id/ajustes_row_device_mac_subtitle"
+                            style="@style/AjustesRowSubtitle"
+                            android:text="@string/ajustes_value_loading"
+                            tools:text="AC:67:B2:1F:88:42" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- ============== SECTION: SENSORES ============== -->
-            <LinearLayout style="@style/AjustesSectionHeader">
-                <TextView style="@style/AjustesSectionTitle"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:text="@string/ajustes_section_sensors" />
-                <TextView style="@style/AjustesBadgeSuccess"
-                    android:text="@string/ajustes_badge_all_ok" />
-            </LinearLayout>
-
-            <LinearLayout style="@style/AjustesSectionCard">
-
-                <LinearLayout style="@style/AjustesRow">
-                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_radio" />
-                    <LinearLayout style="@style/AjustesRowTexts">
-                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_sensor_ultrasound" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="Distancia: 14 cm · 20 Hz" />
-                    </LinearLayout>
-                    <TextView style="@style/AjustesBadgeSuccess" android:text="@string/ajustes_badge_active" />
-                </LinearLayout>
-
-                <View style="@style/AjustesRowDivider" />
-
-                <LinearLayout style="@style/AjustesRow">
-                    <ImageView style="@style/AjustesRowIcon" android:src="@drawable/ic_settings" />
-                    <LinearLayout style="@style/AjustesRowTexts">
-                        <TextView style="@style/AjustesRowTitle" android:text="@string/ajustes_sensor_servo" />
-                        <TextView style="@style/AjustesRowSubtitle" android:text="Posición: 0° · cerrado" />
-                    </LinearLayout>
-                    <TextView style="@style/AjustesBadgeSuccess" android:text="@string/ajustes_badge_ok" />
-                </LinearLayout>
-            </LinearLayout>
+            <!-- (Seccion SENSORES Y DIAGNOSTICO removida — los detalles del
+                 sensor / servo viven en DeviceDetailActivity, no en Ajustes) -->
 
             <!-- ============== SECTION: HORARIOS ============== -->
             <LinearLayout style="@style/AjustesSectionHeader">

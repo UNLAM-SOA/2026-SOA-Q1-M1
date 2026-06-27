@@ -106,17 +106,58 @@ public class ControlActivity extends AppCompatActivity {
         }
     };
 
+    /** Polling separado para /info: necesitamos saber si el ESP32 esta online
+     *  (campo info.online del response) para colorear el dot del header.
+     *  Telemetry del ESP32 sube cada 30s, asi que poll cada 10s es suficiente. */
+    private static final long INFO_POLL_INTERVAL_MS = 10_000L;
+    private final Runnable infoPollRunnable = new Runnable() {
+        @Override public void run() {
+            pollDeviceInfo();
+            handler.postDelayed(this, INFO_POLL_INTERVAL_MS);
+        }
+    };
+
+    private void pollDeviceInfo() {
+        deviceRepo.deviceInfo(deviceId,
+                new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.DeviceInfoResponse>() {
+            @Override public void onSuccess(
+                    com.unlam.pawgate.api.dto.DeviceDtos.DeviceInfoResponse r) {
+                boolean newOnline = r != null && r.online;
+                if (newOnline != esp32Online) {
+                    esp32Online = newOnline;
+                    refreshTickRunnable.run(); // refresca el dot del header
+                }
+            }
+            @Override public void onError(String message) { /* silencio */ }
+        });
+    }
+
+    /** ISO 8601 del ultimo cambio de lock_state (state.updated_at). Se
+     *  usa en renderBlocked para mostrar 'Activado HH:MM · hace Xh'. */
+    private String lockStateUpdatedAtIso;
+
+    /** True si el ESP32 publico telemetry en los ultimos 2 min. Lo refresca
+     *  pollDeviceInfo cada 10s. Determina si el dot del header se ve verde
+     *  (online) o gris (offline). */
+    private boolean esp32Online = false;
+
     private void pollDeviceState() {
         deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
             @Override
             public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
                 if (state == null || state.lock_state == null) return;
+                lockStateUpdatedAtIso = state.updated_at;
                 boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
                         || "MANUAL_BLOCKED".equals(state.lock_state);
                 boolean locallyBlocked = PrefsHelper.isDoorBlocked(ControlActivity.this);
                 if (shouldBeBlocked != locallyBlocked) {
                     PrefsHelper.setDoorBlocked(ControlActivity.this, shouldBeBlocked);
                     if (shouldBeBlocked) PrefsHelper.clearCycle(ControlActivity.this);
+                    refreshTickRunnable.run();
+                } else if (shouldBeBlocked) {
+                    // El estado no cambio pero estamos en BLOCKED: refrescar
+                    // solo el subtitle del info strip para que el "hace Xh"
+                    // se actualice con cada poll.
                     refreshTickRunnable.run();
                 }
             }
@@ -192,6 +233,7 @@ public class ControlActivity extends AppCompatActivity {
         super.onResume();
         refreshTickRunnable.run();
         statePollRunnable.run();
+        infoPollRunnable.run();
 
         // Receiver para que el broadcast del Service nos despierte el render
         // sin tener que esperar al tick local.
@@ -206,6 +248,7 @@ public class ControlActivity extends AppCompatActivity {
     protected void onPause() {
         handler.removeCallbacks(refreshTickRunnable);
         handler.removeCallbacks(statePollRunnable);
+        handler.removeCallbacks(infoPollRunnable);
         try {
             unregisterReceiver(eventUpdateReceiver);
         } catch (IllegalArgumentException ignored) {
@@ -253,7 +296,10 @@ public class ControlActivity extends AppCompatActivity {
         if (s == DoorStateMachine.DoorState.IDLE) {
             // Preguntar al user hacia donde abrir, despues disparar el ciclo.
             OpenDirectionBottomSheet.show(getSupportFragmentManager(), direction -> {
-                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR);
+                // Pasamos la direction al ciclo para que la UI muestre
+                // 'Abriendo hacia adentro/afuera' coherente con lo que va a
+                // hacer el firmware fisicamente.
+                PrefsHelper.startCycle(this, PrefsHelper.CYCLE_OPEN_DOOR, direction);
                 refreshTickRunnable.run();
                 dispatchOpen(direction);
             });
@@ -271,7 +317,13 @@ public class ControlActivity extends AppCompatActivity {
         if (direction != null) body.put("direction", direction);
         deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_OPEN, body,
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
-            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {}
+            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                // Cmd encolado al backend con exito. Dispara un poll YA al
+                // Service para que veamos el evento de confirmacion del
+                // firmware (opened con direction) en <1s. Sin esto, esperabamos
+                // hasta el proximo ciclo de polling (1-3s).
+                PawGatePollingService.requestPollNow(ControlActivity.this);
+            }
             @Override public void onError(String message) {
                 Toast.makeText(ControlActivity.this,
                         "Error al abrir: " + message, Toast.LENGTH_LONG).show();
@@ -446,8 +498,10 @@ public class ControlActivity extends AppCompatActivity {
         deviceRepo.sendCommand(deviceId, cmd, new ApiCallback<DeviceDtos.CommandResponse>() {
             @Override
             public void onSuccess(DeviceDtos.CommandResponse result) {
-                // Silencio en exito - el feedback visual ya lo dio el ciclo local.
-                // Si quisieramos log: Log.d(TAG, "cmd queued: " + result.topic);
+                // Cmd encolado. Dispara un poll YA al Service para que la
+                // confirmacion del firmware (blocked/unblocked/etc) llegue
+                // a la UI en <1s en vez de esperar al proximo ciclo.
+                PawGatePollingService.requestPollNow(ControlActivity.this);
             }
             @Override
             public void onError(String message) {
@@ -481,9 +535,17 @@ public class ControlActivity extends AppCompatActivity {
         title.setText(R.string.control_title);
 
         statusPill.setBackground(null);
-        tintDot(R.color.text_muted);
-        statusText.setText(R.string.control_status_live);
-        statusText.setTextColor(color(R.color.text_muted));
+        // Dot: verde si el ESP32 esta online (publico telemetry en ultimos 2 min),
+        // gris si offline. Texto verde / 'desconectado' segun el caso.
+        if (esp32Online) {
+            tintDot(R.color.accent_success);
+            statusText.setText(R.string.control_status_live);
+            statusText.setTextColor(color(R.color.text_secondary));
+        } else {
+            tintDot(R.color.text_muted);
+            statusText.setText(R.string.control_status_offline);
+            statusText.setTextColor(color(R.color.text_muted));
+        }
 
         bigBtn.setBackgroundResource(R.drawable.bg_button_primary);
         bigBtn.setClickable(true);
@@ -603,22 +665,77 @@ public class ControlActivity extends AppCompatActivity {
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_unblock);
 
-        // Las cards no funcionan en BLOCKED (logica interna en cada listener),
-        // pero las dejamos clickables para no hacerlas ver disabled.
-        setActionCardsEnabled(true);
+        // En BLOCKED las cards no funcionan. La card de Bloquear queda
+        // highlighted (Activo). La card de Llamar queda visualmente DISABLED
+        // (alpha 0.5) — el user no debe confundirse pensando que puede llamar.
         setCardsArrowsVisible(false); // sin flechita: indican que no hay accion
 
         cardBlock.setBackgroundResource(R.drawable.bg_card_active_danger);
+        cardBlock.setAlpha(1.0f);
         cardBlockSubtitle.setText(R.string.control_card_active);
         cardBlockSubtitle.setTextColor(color(R.color.accent_block));
 
         renderCardCallInactive();
+        // Override: en BLOCKED la card de llamar se ve DISABLED (alpha 0.5).
+        // setClickable(false) refuerza el comportamiento ya bloqueado en
+        // onCallCardClick (que verifica BLOCKED y returnea).
+        cardCall.setAlpha(0.5f);
+        cardCall.setClickable(false);
 
-        // Info strip propio del modo seguridad
+        // Info strip propio del modo seguridad. Subtitle: 'Activado HH:MM · hace Xh'
+        // usando el lock_state_updated_at del backend (cuando se aplico el block).
+        // Si no tenemos info aun, fallback al texto generico.
         infoIcon.setImageResource(R.drawable.ic_shield_check);
         infoIcon.setColorFilter(color(R.color.accent_block));
         infoTitle.setText(R.string.control_info_blocked_title);
-        infoSubtitle.setText(R.string.control_info_blocked_subtitle);
+        infoSubtitle.setText(formatBlockedSubtitle(lockStateUpdatedAtIso));
+    }
+
+    /**
+     * Devuelve "Activado HH:MM · hace Xh" en castellano usando la hora local.
+     * Si iso es null o no parseable, devuelve el texto generico estatico.
+     *
+     * Ejemplos:
+     *   Activado 14:32 · hace 2 h
+     *   Activado 09:15 · hace 35 min
+     *   Activado ayer 22:10 · hace 1 d
+     */
+    private String formatBlockedSubtitle(String iso) {
+        if (iso == null || iso.isEmpty()) {
+            return getString(R.string.control_info_blocked_subtitle);
+        }
+        try {
+            java.time.OffsetDateTime parsed = java.time.OffsetDateTime.parse(iso);
+            long whenMs = parsed.toInstant().toEpochMilli();
+            long nowMs = System.currentTimeMillis();
+            // Tiempo absoluto en zona horaria local.
+            java.time.ZonedDateTime local = parsed.atZoneSameInstant(
+                    java.time.ZoneId.systemDefault());
+            String hhmm = String.format(java.util.Locale.getDefault(),
+                    "%02d:%02d", local.getHour(), local.getMinute());
+            // Tiempo relativo en espanol.
+            String rel = formatRelativeEs(nowMs - whenMs);
+            // Si fue hace > 18h, ya no decimos "Activado HH:MM" porque puede ser
+            // de otro dia y confunde. Mostramos solo el relativo.
+            if (nowMs - whenMs > 18L * 3600L * 1000L) {
+                return getString(R.string.control_info_blocked_subtitle_only_rel, rel);
+            }
+            return getString(R.string.control_info_blocked_subtitle_with_time, hhmm, rel);
+        } catch (Exception e) {
+            return getString(R.string.control_info_blocked_subtitle);
+        }
+    }
+
+    /** Devuelve 'hace X min', 'hace X h', 'hace X d' segun magnitud del delta. */
+    private static String formatRelativeEs(long deltaMs) {
+        if (deltaMs < 0) deltaMs = 0;
+        long mins = deltaMs / 60_000L;
+        if (mins < 1)   return "recién";
+        if (mins < 60)  return "hace " + mins + " min";
+        long hours = mins / 60;
+        if (hours < 24) return "hace " + hours + " h";
+        long days = hours / 24;
+        return "hace " + days + " d";
     }
 
     private void renderCalling() {

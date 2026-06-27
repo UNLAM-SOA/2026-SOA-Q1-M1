@@ -37,10 +37,45 @@ public class PawGatePollingService extends Service {
     public static final String EXTRA_CREATED_AT_ISO = "created_at";
     public static final String EXTRA_CREATED_AT_MS = "created_at_ms";
 
+    /** Action que las activities envian al Service para forzar un poll
+     *  inmediato. Usado despues de cmd_open/block/unblock para que la app
+     *  vea el evento de confirmacion del firmware sin esperar al proximo
+     *  ciclo de polling. */
+    public static final String ACTION_POLL_NOW = "com.unlam.pawgate.POLL_NOW";
+
+    /** Triggers un poll inmediato al Service. Idempotente: si el Service no
+     *  esta corriendo, no hace nada. */
+    public static void requestPollNow(android.content.Context ctx) {
+        Intent intent = new Intent(ctx, PawGatePollingService.class);
+        intent.setAction(ACTION_POLL_NOW);
+        try {
+            ctx.startService(intent);
+        } catch (IllegalStateException ignored) {
+            // App en background sin service vivo: el polling normal cubre
+            // cuando la app vuelva.
+        }
+    }
+
     private static final String CHANNEL_ID = "pawgate_polling_channel";
     private static final int NOTIFICATION_ID = 1001;
 
-    private static final long POLL_INTERVAL_MS = 3_000L;
+    /** Polling ULTRA-rapido cuando hay un ciclo OPEN_DOOR vivo. El user esta
+     *  mirando la pantalla esperando que algo cambie — minimizamos latencia.
+     *  300ms es el limite practico donde el delay deja de ser perceptible.
+     *  Costo: hasta 30 req/min/user pero solo mientras dure el ciclo (~5s). */
+    private static final long ULTRA_FAST_POLL_INTERVAL_MS = 300L;
+    /** Polling rapido cuando hay actividad reciente. Funciona como BACKUP del
+     *  push FCM (PawGateFcmService llama DoorStateMachine.onExternalDoorEvent
+     *  en cuanto llega el push, ~500ms desde el firmware). El polling cubre
+     *  cuando no hay push (red caida, push deshabilitado en Ajustes, etc). */
+    private static final long FAST_POLL_INTERVAL_MS = 500L;
+    /** Polling normal cuando todo esta quieto. Baja consumo de bateria y
+     *  costo de API Gateway. */
+    private static final long NORMAL_POLL_INTERVAL_MS = 3_000L;
+    /** Cuanto tiempo seguir en fast-poll despues del ultimo door event.
+     *  Cubre el caso 'mascota abre, esperamos closed que llega 4.5s despues
+     *  + margen para que el cliente termine la animacion'. */
+    private static final long FAST_POLL_GRACE_MS = 15_000L;
     private static final long POLL_WINDOW_MS = 5L * 60L * 1000L;
 
     private Handler handler;
@@ -50,9 +85,34 @@ public class PawGatePollingService extends Service {
     private final Runnable pollRunnable = new Runnable() {
         @Override public void run() {
             pollBackend();
-            handler.postDelayed(this, POLL_INTERVAL_MS);
+            // Polling adaptativo: si hay actividad reciente o un ciclo
+            // OPEN_DOOR activo, agendar el proximo poll en 1s. Sino, 3s.
+            handler.postDelayed(this, nextPollInterval());
         }
     };
+
+    private long nextPollInterval() {
+        // 1) Ciclo de la puerta vivo -> ULTRA fast (300ms). El user esta
+        //    mirando una animacion en vivo, cualquier delay es perceptible.
+        String cycle = PrefsHelper.getCycleType(this);
+        if (PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)) {
+            long elapsed = android.os.SystemClock.elapsedRealtime()
+                    - PrefsHelper.getCycleStartMs(this);
+            if (elapsed < DoorStateMachine.OPENING_MS + DoorStateMachine.OPEN_MS
+                            + DoorStateMachine.CLOSING_MS) {
+                return ULTRA_FAST_POLL_INTERVAL_MS;
+            }
+        }
+        // 2) Door event reciente -> fast (esperamos closed que viene 4.5s
+        // despues del opened). Aca no estamos en animacion activa, 500ms es
+        // suficiente para cubrir el evento siguiente.
+        long lastDoorMs = PrefsHelper.getLastDoorEventAt(this);
+        if (lastDoorMs > 0
+                && System.currentTimeMillis() - lastDoorMs < FAST_POLL_GRACE_MS) {
+            return FAST_POLL_INTERVAL_MS;
+        }
+        return NORMAL_POLL_INTERVAL_MS;
+    }
 
     @Override
     public void onCreate() {
@@ -66,7 +126,7 @@ public class PawGatePollingService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "onStartCommand");
+        Log.d(TAG, "onStartCommand action=" + (intent != null ? intent.getAction() : null));
 
         // startForeground tiene que llamarse dentro de los 5s post startForegroundService
         // o el sistema mata la app con ForegroundServiceDidNotStartInTimeException.
@@ -78,6 +138,16 @@ public class PawGatePollingService extends Service {
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         } else {
             startForeground(NOTIFICATION_ID, notification);
+        }
+
+        // ACTION_POLL_NOW: el cliente (ControlActivity) acaba de disparar un
+        // cmd al backend. Hacer poll YA y reagendar — asi vemos la
+        // confirmacion del firmware (opened/blocked) en <1s en vez de
+        // esperar al proximo ciclo.
+        if (intent != null && ACTION_POLL_NOW.equals(intent.getAction())) {
+            handler.removeCallbacks(pollRunnable);
+            handler.post(pollRunnable);
+            return START_STICKY;
         }
 
         handler.removeCallbacks(pollRunnable); // evitar duplicados
@@ -143,9 +213,38 @@ public class PawGatePollingService extends Service {
         deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
+                int total = (result != null && result.events != null) ? result.events.size() : 0;
+                long lastSeen = PrefsHelper.getLastDoorEventAt(PawGatePollingService.this);
+                Log.d(TAG, "history poll: " + total + " events in window, lastSeen=" + lastSeen);
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
+
+                // ====== SYNC del state machine local ======
+                // Procesar TODOS los door events nuevos en orden cronológico
+                // ASCENDENTE. Si solo procesaramos el mas reciente y el
+                // firmware completa un ciclo opened->closed en menos de 1
+                // poll-interval (4.5s en firmware vs 3s polling), nos
+                // perderiamos el opened. Eso hace que el user nunca vea el
+                // estado "Abriendo / Abierta" cuando la mascota usa la puerta.
+                long lastDoorMs = PrefsHelper.getLastDoorEventAt(
+                        PawGatePollingService.this);
+                java.util.List<DeviceDtos.Event> newDoorEventsAsc =
+                        collectNewDoorEventsAsc(result.events, lastDoorMs);
+                for (DeviceDtos.Event de : newDoorEventsAsc) {
+                    long ms = HistorialMapper.parseIsoToMs(de.created_at);
+                    boolean changed = DoorStateMachine.onExternalDoorEvent(
+                            PawGatePollingService.this,
+                            de.event_type, de.direction);
+                    PrefsHelper.setLastDoorEventAt(
+                            PawGatePollingService.this, ms);
+                    Log.d(TAG, "DoorStateMachine sync: " + de.event_type
+                            + " direction=" + de.direction
+                            + " changed=" + changed
+                            + " ts=" + ms);
+                }
+
+                // ====== Label de "Ultima actividad" + broadcast UI ======
                 DeviceDtos.Event mostRecent = pickMostRecent(result.events, null);
                 if (mostRecent != null) {
                     String label = humanLabelFor(mostRecent.event_type);
@@ -158,6 +257,28 @@ public class PawGatePollingService extends Service {
                 Log.w(TAG, "history poll error: " + message);
             }
         });
+    }
+
+    /**
+     * Devuelve los door events con created_at > sinceMs ordenados ASCendente
+     * por created_at. Necesario para reproducir la secuencia opened->closed
+     * en el state machine sin saltearse el opened si vino en el mismo poll.
+     */
+    private java.util.List<DeviceDtos.Event> collectNewDoorEventsAsc(
+            java.util.List<DeviceDtos.Event> events, long sinceMs) {
+        java.util.List<DeviceDtos.Event> out = new java.util.ArrayList<>();
+        for (DeviceDtos.Event e : events) {
+            if (e.event_type == null) continue;
+            if (!isDoorEvent(e.event_type)) continue;
+            long ms = HistorialMapper.parseIsoToMs(e.created_at);
+            if (ms <= sinceMs) continue;
+            out.add(e);
+        }
+        // Sort ASC por created_at
+        java.util.Collections.sort(out, (a, b) -> Long.compare(
+                HistorialMapper.parseIsoToMs(a.created_at),
+                HistorialMapper.parseIsoToMs(b.created_at)));
+        return out;
     }
 
     /** Broadcast vacio para que el Dashboard sepa que el lock_state cambio. */
@@ -202,12 +323,27 @@ public class PawGatePollingService extends Service {
     }
 
     private void broadcastEvent(DeviceDtos.Event e) {
+        // El sync con el state machine local de la puerta ya se hizo en el
+        // loop del onSuccess. Aca solo emitimos el broadcast con el evento
+        // mas reciente para que la UI pueda refrescar el label "Ultima
+        // actividad" y el conteo de notifs.
         Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
         broadcast.setPackage(getPackageName()); // restringir solo a nuestra app
         broadcast.putExtra(EXTRA_EVENT_TYPE, e.event_type);
         broadcast.putExtra(EXTRA_CREATED_AT_ISO, e.created_at);
         broadcast.putExtra(EXTRA_CREATED_AT_MS, HistorialMapper.parseIsoToMs(e.created_at));
         sendBroadcast(broadcast);
+    }
+
+    /** Eventos del firmware que afectan el state machine local de la puerta
+     *  o de la luz. Para todos llamamos DoorStateMachine.onExternalDoorEvent. */
+    private static boolean isDoorEvent(String eventType) {
+        return "opened".equals(eventType)
+                || "closed".equals(eventType)
+                || "blocked".equals(eventType)
+                || "unblocked".equals(eventType)
+                || "light_on".equals(eventType)
+                || "light_off".equals(eventType);
     }
 
     // ============================================================

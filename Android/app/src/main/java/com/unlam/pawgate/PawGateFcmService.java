@@ -103,6 +103,7 @@ public class PawGateFcmService extends FirebaseMessagingService {
         String title = data.getOrDefault("title", "PawGate");
         String body  = data.getOrDefault("body", "Nueva actividad");
         String eventType = data.get("event_type");
+        String direction = data.get("direction");
         // notif_id permite que al tap el push, NotificacionesActivity sepa
         // exactamente cual entrada marcar como leida (sin marcar todas).
         // El backend (eventIngest._notify_owners) lo incluye en el payload
@@ -110,7 +111,32 @@ public class PawGateFcmService extends FirebaseMessagingService {
         String notifId = data.get("notif_id");
 
         Log.i(TAG, "onMessageReceived: " + title + " - " + body
-                + " (" + eventType + ", notif_id=" + notifId + ")");
+                + " (" + eventType + " dir=" + direction
+                + ", notif_id=" + notifId + ")");
+
+        // ====== SYNC INSTANTANEO del state machine ======
+        // El push llega en 500ms-2s desde el firmware (vs hasta 1s mas del
+        // polling). Sincronizamos el state machine local AHORA, antes de
+        // mostrar la notif. Asi cuando el user abre la app, la UI ya esta
+        // mostrando el ciclo correcto sin esperar al proximo poll.
+        if (eventType != null) {
+            boolean changed = DoorStateMachine.onExternalDoorEvent(
+                    getApplicationContext(), eventType, direction);
+            if (changed) {
+                Log.i(TAG, "DoorStateMachine sync from push: " + eventType
+                        + " direction=" + direction);
+                // Emit broadcast para que las activities en foreground
+                // (Dashboard / Control) refresquen su UI sin esperar al
+                // proximo tick.
+                Intent broadcast = new Intent(
+                        PawGatePollingService.ACTION_EVENT_UPDATE);
+                broadcast.setPackage(getPackageName());
+                broadcast.putExtra(
+                        PawGatePollingService.EXTRA_EVENT_TYPE, eventType);
+                sendBroadcast(broadcast);
+            }
+        }
+
         showNotification(title, body, notifId);
     }
 

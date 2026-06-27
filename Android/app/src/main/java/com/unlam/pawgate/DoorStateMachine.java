@@ -40,13 +40,20 @@ public final class DoorStateMachine {
         IDLE, OPENING, OPEN, CLOSING, BLOCKED, CALLING, CALL_ENDING
     }
 
-    // Duraciones de cada subestado (ms). Si cambia algo aca, todos los Activities
-    // que usen el helper ven el cambio (sin tocar codigo en cada uno).
-    public static final long OPENING_MS = 2_000L;
-    public static final long OPEN_MS = 5_000L;
-    public static final long CLOSING_MS = 2_000L;
-    public static final long CALLING_MS = 3_000L;
-    public static final long CALL_ENDING_MS = 1_000L;
+    // Duraciones de cada subestado (ms). Se ajustaron para coincidir mejor
+    // con el ciclo del firmware (opened -> 4500ms -> closed). La UI muestra
+    // OPENING como animacion corta para feedback inmediato, OPEN como el
+    // grueso del ciclo esperando el closed real, y CLOSING como animacion
+    // corta cuando llega el evento closed (que tambien hace "saltar" el
+    // ciclo a CLOSING via DoorStateMachine.handleClosedEvent).
+    public static final long OPENING_MS = 1_000L;
+    public static final long OPEN_MS = 3_500L;
+    public static final long CLOSING_MS = 1_000L;
+    /** CALLING_MS coincide EXACTAMENTE con la duracion del beep en el firmware
+     *  (callback MQTT cmd/call: 5 iteraciones * 500ms = 2500ms). Asi el
+     *  countdown "Llamando 3..2..1" termina cuando el buzzer deja de sonar. */
+    public static final long CALLING_MS = 2_500L;
+    public static final long CALL_ENDING_MS = 800L;
 
     private DoorStateMachine() { /* no instanciar */ }
 
@@ -98,5 +105,114 @@ public final class DoorStateMachine {
         }
 
         return 0;
+    }
+
+    // ============================================================
+    // SINCRONIZACION CON EVENTOS DEL FIRMWARE
+    // ============================================================
+
+    /**
+     * Sincroniza el ciclo local con un evento del backend/firmware.
+     *
+     * Llamado por PawGatePollingService cada vez que llega un evento nuevo
+     * del topic events/door (opened, closed, blocked, unblocked).
+     *
+     * Casos:
+     *
+     *   "opened" — el firmware acaba de abrir la puerta. Puede ser por:
+     *     a) la mascota (sensor RFID/proximidad) — no hubo cmd previo
+     *     b) un cmd del user (cmd_open) — la app ya arranco un ciclo
+     *   Si NO hay un ciclo OPEN_DOOR vivo, arrancamos uno con la direction
+     *   del evento. Asi la UI muestra 'Abriendo hacia X'. Si YA hay uno
+     *   vivo (caso b), no rearrancamos — el ciclo local ya esta sincronizado.
+     *
+     *   "closed" — el firmware acaba de cerrar la puerta. Si hay un ciclo
+     *   OPEN_DOOR vivo y estamos en OPEN, saltamos a CLOSING ya (asi la UI
+     *   se actualiza inmediatamente en vez de esperar al timer local).
+     *   Si ya estamos en CLOSING o IDLE, no hacemos nada.
+     *
+     *   "blocked" — la puerta se bloqueo (por cmd o por horario). Marcamos
+     *   isDoorBlocked=true. Esto pisa cualquier ciclo activo.
+     *
+     *   "unblocked" — la puerta se desbloqueo. Marcamos isDoorBlocked=false.
+     *
+     * Idempotente: si el evento ya esta reflejado, no hace nada.
+     *
+     * @return true si hubo cambio de estado, false si ya estaba sincronizado.
+     *         El caller usa el retorno para emitir broadcast y refrescar UI.
+     */
+    public static boolean onExternalDoorEvent(Context ctx, String eventType,
+                                               String direction) {
+        if (eventType == null) return false;
+        switch (eventType) {
+            case "opened":
+                return handleOpenedEvent(ctx, direction);
+            case "closed":
+                return handleClosedEvent(ctx);
+            case "blocked":
+                if (PrefsHelper.isDoorBlocked(ctx)) return false;
+                PrefsHelper.setDoorBlocked(ctx, true);
+                return true;
+            case "unblocked":
+                if (!PrefsHelper.isDoorBlocked(ctx)) return false;
+                PrefsHelper.setDoorBlocked(ctx, false);
+                return true;
+            case "light_on":
+                // PrefsHelper.setLightOn(ctx, true) si quisieramos persistir.
+                // Pero el badge del Dashboard se refresca cuando le llega el
+                // broadcast (loadDailyMetrics + renderLightBadge), por lo que
+                // basta con devolver true para que se emita el broadcast.
+                if (PrefsHelper.isLightOn(ctx)) return false;
+                PrefsHelper.setLightOn(ctx, true);
+                return true;
+            case "light_off":
+                if (!PrefsHelper.isLightOn(ctx)) return false;
+                PrefsHelper.setLightOn(ctx, false);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean handleOpenedEvent(Context ctx, String direction) {
+        // Si ya hay un ciclo OPEN_DOOR vivo (no expirado), no rearrancamos.
+        // Solo actualizamos la direction si nos la pasaron y no la teniamos.
+        String cycle = PrefsHelper.getCycleType(ctx);
+        long elapsed = SystemClock.elapsedRealtime() - PrefsHelper.getCycleStartMs(ctx);
+        boolean openDoorCycleAlive =
+                PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)
+                && elapsed < (OPENING_MS + OPEN_MS + CLOSING_MS);
+        if (openDoorCycleAlive) {
+            // El user ya disparo cmd_open desde la app. El evento del
+            // firmware es la confirmacion. No tocamos el ciclo. Si veniamos
+            // sin direction y ahora llego, la guardamos.
+            if (direction != null && PrefsHelper.getCycleDirection(ctx) == null) {
+                PrefsHelper.startCycle(ctx,
+                        PrefsHelper.CYCLE_OPEN_DOOR,
+                        direction);
+                // Restablecemos el startMs original para no resetear el ciclo.
+                long savedStart = SystemClock.elapsedRealtime() - elapsed;
+                PrefsHelper.setCycleStartMs(ctx, savedStart);
+                return true;
+            }
+            return false;
+        }
+        // Caso comun: la mascota abrio (sensor) -> arrancamos ciclo nuevo.
+        PrefsHelper.startCycle(ctx, PrefsHelper.CYCLE_OPEN_DOOR, direction);
+        return true;
+    }
+
+    private static boolean handleClosedEvent(Context ctx) {
+        String cycle = PrefsHelper.getCycleType(ctx);
+        if (!PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)) return false;
+        long elapsed = SystemClock.elapsedRealtime() - PrefsHelper.getCycleStartMs(ctx);
+        // Si ya estamos en CLOSING o IDLE, no tocar.
+        if (elapsed >= OPENING_MS + OPEN_MS) return false;
+        // "Saltar" a CLOSING: ajustar startMs para que elapsed quede justo
+        // al borde OPEN -> CLOSING. Asi currentState() devuelve CLOSING ya.
+        long now = SystemClock.elapsedRealtime();
+        long newStart = now - (OPENING_MS + OPEN_MS);
+        PrefsHelper.setCycleStartMs(ctx, newStart);
+        return true;
     }
 }
