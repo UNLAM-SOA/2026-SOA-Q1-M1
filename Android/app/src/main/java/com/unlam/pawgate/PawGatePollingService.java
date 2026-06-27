@@ -60,10 +60,12 @@ public class PawGatePollingService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     /** Polling rapido cuando hay actividad reciente o un ciclo activo.
-     *  Permite que la app vea el opened→closed del firmware en tiempo real
-     *  (firmware completa el ciclo en ~4.5s; con 1s de polling vemos cada
-     *  transicion). */
-    private static final long FAST_POLL_INTERVAL_MS = 1_000L;
+     *  Permite que la app vea el opened→closed del firmware en tiempo real.
+     *  Funciona como BACKUP del push FCM (PawGateFcmService llama
+     *  DoorStateMachine.onExternalDoorEvent en cuanto llega el push, que es
+     *  ~500ms desde el firmware). El polling cubre cuando no hay push
+     *  (red caida, push deshabilitado en Ajustes, etc). */
+    private static final long FAST_POLL_INTERVAL_MS = 800L;
     /** Polling normal cuando todo esta quieto. Baja consumo de bateria y
      *  costo de API Gateway. */
     private static final long NORMAL_POLL_INTERVAL_MS = 3_000L;
