@@ -1020,8 +1020,16 @@
       ev = EV_DESBLOQUEO_POR_APP;
     } else if(strcmp(comando + 1, "call") == 0) {
       Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
-      for (int i = 0; i < 3; i++) {
-        buzzer_beep(1200, 100);
+      // Beep prolongado y reconocible: alternar agudo/grave durante ~2.5s.
+      // Coincide con CALLING_MS=2500 en la app, asi el countdown
+      // "Llamando 3..2..1" termina al mismo tiempo que el sonido real.
+      // 5 iteraciones * (150ms beep agudo + 100ms gap + 150ms grave + 100ms gap)
+      // = 5 * 500ms = 2500ms.
+      for (int i = 0; i < 5; i++) {
+        buzzer_beep(1200, 150);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        buzzer_beep(800, 150);
+        vTaskDelay(pdMS_TO_TICKS(100));
       }
       return; // No cambia el estado de la puerta
     } else if(strcmp(comando + 1, "cancel") == 0) {
