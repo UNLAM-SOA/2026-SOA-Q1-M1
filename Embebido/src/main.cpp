@@ -38,9 +38,6 @@
   #define TELEMETRY_INTERVAL_MS 30000
 
   // Topics y ClientID
-  // #define MQTT_CLIENT_ID "esp32-puerta-soa" // Se podría aleatorizar en runtime
-  // #define MQTT_TOPIC_CMD "soa/puerta/cmd" // Para recibir bloqueo/desbloqueo
-  // #define MQTT_TOPIC_EVENT_DOOR "soa/puerta/evento" // Para enviar eventos de la puerta
   #define MQTT_CLIENT_ID AWS_THING_NAME
   #define MQTT_TOPIC_CMD_FILTER "pawgate/pawgate-001/cmd/+"
   #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
@@ -184,10 +181,6 @@
   QueueHandle_t queueEventos_puerta;
   QueueHandle_t queueAcciones_puerta;
   QueueHandle_t queueMqttOut;
-  /** Protege sensor_proximidad.estado y sensor_rfid.estado, que son
-   *  escritos por la tarea puerta_accion (al abrir/cerrar) y leidos por
-   *  puerta_deteccion en paralelo. Sin mutex hay race conditions raras
-   *  (eventos repetidos, detecciones fantasma al desbloquear, etc). */
   SemaphoreHandle_t mutex_sensores;
 
   MFRC522 rfid(RFID_SS, RFID_RST); // RFID (crea el objeto que ocupa el lector)
@@ -298,9 +291,6 @@
   void abrir_desde_adentro()
   {
     estado_actual_puerta = ST_ABIERTA_DESDE_ADENTRO;
-    // Deshabilitar sensores mientras la puerta esta abierta para evitar
-    // detecciones repetidas del mismo animal mientras pasa. Mutex para
-    // proteger contra reads concurrentes de puerta_deteccion.
     if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
       sensor_proximidad.estado = ESTADO_DESHABILITADO;
       sensor_rfid.estado       = ESTADO_DESHABILITADO;
@@ -351,11 +341,7 @@
 
   void apagar_luz()
   {
-    // Emitir la acción a la cola de acciones
-    //Serial.print("Transición iniciada: Luz apagada\n");
-    //emitir_accion_puerta(ACC_APAGAR_LUZ, ">> Acción emitida: ACC_APAGAR_LUZ");
     emitir_accion_puerta(ACC_APAGAR_LUZ, "");
-
     return;
   }
 
@@ -397,11 +383,6 @@
 
   bool sensor_proximidad_detectar_animal()
   {
-    // Mutex protege la lectura de sensor_proximidad.estado, que puede ser
-    // modificado por abrir_*/cerrar_puerta desde la tarea de control.
-    // Sacamos la pregunta por estado_actual_puerta: si el animal aparece
-    // pero la puerta esta abierta o bloqueada, el evento se emite igual y
-    // la FSM lo descarta con none() en la tabla de transiciones.
     bool resultado = false;
     if (xSemaphoreTake(mutex_sensores, portMAX_DELAY) == pdTRUE) {
       if (sensor_proximidad.distancia_actual_cm < sensor_proximidad.distancia_minima_cm &&
@@ -414,7 +395,6 @@
       }
       else
       {
-        // Serial.println("[sensor_proximidad_detectar_animal] Animal no detectado desde adentro");
         Serial.println(sensor_proximidad.distancia_actual_cm);
       }
       xSemaphoreGive(mutex_sensores);
@@ -424,9 +404,6 @@
 
   void leer_sensor_rfid()
   {
-    // Limpiar flag stale antes de evaluar: el flag representa "tarjeta detectada en esta iteracion".
-    // Sin este reset, una lectura previa hecha mientras la puerta estaba BLOQUEADA queda flotando
-    // y dispara una deteccion fantasma al desbloquear.
     sensor_rfid.acceso_permitido = false;
 
     if (!rfid.PICC_IsNewCardPresent() && !rfid.PICC_ReadCardSerial())
@@ -434,7 +411,6 @@
 
     Serial.println(F("RFID detectado"));
 
-    // Magia negra del RFID, no tocar
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
     sensor_rfid.acceso_permitido = true;
@@ -458,11 +434,6 @@
 
   void detectar_animales_en_puerta()
   {
-    // No deshabilitamos los sensores aca: lo hacen las funciones de
-    // transicion (abrir_*/cerrar_*) con mutex. Si la puerta esta abierta o
-    // bloqueada y se detecta un animal, el evento se emite igual y la FSM
-    // lo descarta con none() en la tabla. Asi evitamos la race condition
-    // donde la tarea de deteccion leia un estado viejo y perdia eventos.
     leer_sensor_proximidad();
     if (sensor_proximidad_detectar_animal())
     {
@@ -477,28 +448,18 @@
 
   void detectar_cambios_luz()
   {
-      // Leer el valor del fotoresistor
-      // Comparar con el umbral
-      // Emitir evento correspondiente a la cola de eventos
       sensor_luz.valor_actual = analogRead(sensor_luz.pin);
 
-      //Serial.print("[luz_deteccion] ADC=");
-      //Serial.print(sensor_luz.valor_actual);
-
-      if (estado_actual_puerta == ST_CERRADA_BLOQUEADA || estado_actual_puerta == ST_CERRADA_NO_BLOQUEADA)
+      if(sensor_luz.valor_actual > UMBRAL_LUZ)
       {
-        if(sensor_luz.valor_actual > UMBRAL_LUZ)
-        {
-          emitir_evento_puerta(EV_DIA_DETECTADO, "EV_DIA_DETECTADO");
-        }
-        else
-        {
-          emitir_evento_puerta(EV_NOCHE_DETECTADA, "EV_NOCHE_DETECTADA");
-        }
-      }    
+        emitir_evento_puerta(EV_DIA_DETECTADO, "EV_DIA_DETECTADO");
+      }
+      else
+      {
+        emitir_evento_puerta(EV_NOCHE_DETECTADA, "EV_NOCHE_DETECTADA");
+      }
 
   }
-
 
   // --- Helpers ---
   char leer_serial_puerta()
@@ -529,7 +490,7 @@
 
     // Sensor RFID
     sensor_rfid.estado    = ESTADO_HABILITADO;
-    sensor_rfid.id_tag    = 0; //esto no lo estamos usando para nada por ahora
+    sensor_rfid.id_tag    = 0;
 
     SPI.begin(RFID_SCK, RFID_MISO, RFID_MOSI, RFID_SS);
     rfid.PCD_Init();
@@ -555,8 +516,6 @@
 
     while (1)
     {
-      // Bloqueo/desbloqueo por serial: emitimos el evento SIEMPRE; si el
-      // estado actual no admite la transicion la FSM la descarta (none()).
       char bloqueo = leer_serial_puerta();
       if (bloqueo == 'B')
       {
@@ -572,11 +531,6 @@
     }
   }
 
-  /**
-   * Tarea separada para luz. Antes corria dentro de puerta_deteccion cada
-   * 200ms, pero leer fotoresistor es relativamente lento y no necesita la
-   * misma frecuencia que la deteccion de animales. Cada 2s es suficiente.
-   */
   void luz_deteccion(void *pvParametros)
   {
     while (1)
@@ -619,14 +573,7 @@
     publicar_mqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
   }
 
-  // Direction de la ultima apertura, para incluirla en el evento "closed".
-  // Asi la app puede saber HACIA DONDE se cerro la puerta (in/out) y matchear
-  // el ciclo visual abrir->cerrar de manera consistente.
   static const char* ultima_direction_apertura = nullptr;
-
-  // Ultimo estado de la luz que PUBLICAMOS al backend. La maquina dispara
-  // ACC_ENCENDER_LUZ continuamente mientras detecta oscuridad — solo
-  // publicamos en la TRANSICION para no inundar el backend.
   static bool estado_luz_publicado = false;
 
   void puerta_accion(void *pvParametros)
@@ -639,8 +586,6 @@
         Serial.print("[puerta_accion] Accion recibida=");
         if (action_recibido == ACC_ABRIR_DESDE_AFUERA)
         {
-          // ABRIR_DESDE_AFUERA = el animal viene de afuera y entra a casa.
-          // La puerta se abre HACIA ADENTRO -> direction = "in".
           Serial.println("ACC_ABRIR_DESDE_AFUERA");
           servo.write(0);
           xTimerStart(timer_puerta, 0);
@@ -649,8 +594,6 @@
         }
         else if (action_recibido == ACC_ABRIR_DESDE_ADENTRO)
         {
-          // ABRIR_DESDE_ADENTRO = el animal sale al patio.
-          // La puerta se abre HACIA AFUERA -> direction = "out".
           Serial.println("ACC_ABRIR_DESDE_ADENTRO 180 grados ACA");
           servo.write(180);
           xTimerStart(timer_puerta, 0);
@@ -661,10 +604,6 @@
         {
           Serial.println("ACC_CERRAR");
           servo.write(90);
-          // El rehabilitado de sensores ya lo hace cerrar_puerta() con
-          // mutex. Aca solo movemos el servo y publicamos el evento.
-          // Pasamos la misma direction que el opened previo, asi la app
-          // matchea el ciclo (abriendo->abierta->cerrando hacia la misma X).
           publicar_evento_puerta("closed", ultima_direction_apertura);
           ultima_direction_apertura = nullptr;
         }
@@ -687,10 +626,6 @@
         else if (action_recibido == ACC_ENCENDER_LUZ)
         {
           digitalWrite(LED, HIGH);
-          // Dedup: la maquina dispara ACC_ENCENDER_LUZ con cada lectura del
-          // sensor de luz (si esta oscuro), no solo cuando cambia. Publicamos
-          // light_on solo en la TRANSICION off -> on para no inundar el
-          // backend. estado_luz_publicado se inicializa en false al boot.
           if (!estado_luz_publicado) {
             publicar_evento_puerta("light_on", nullptr);
             estado_luz_publicado = true;
@@ -856,10 +791,6 @@
 
     wifiConnect();
 
-    // SNTP sync ANTES de definir broker. Critico para TLS contra AWS IoT:
-    // mTLS valida notBefore/notAfter del cert y para eso necesita la hora
-    // actual. Sin esto, el ESP32 arranca en 1970 y client.connect() se
-    // cuelga en el handshake TLS sin nunca devolver error visible.
     sincronizar_hora_ntp();
     definir_broker();
 
@@ -882,17 +813,10 @@
 
   void sincronizar_hora_ntp()
   {
-    // configTime arranca el sntp client interno del ESP32. Argumentos:
-    //   gmtOffset_sec = 0   -> UTC (TLS necesita UTC, no la timezone local)
-    //   daylightOffset_sec = 0
-    //   servers NTP        -> redundancia con 2 servers publicos
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     Serial.print("Sincronizando hora via NTP");
     time_t now = 0;
     int intentos = 0;
-    // Esperamos hasta que time(NULL) devuelva un valor > 2024-01-01
-    // (segundo 1700000000 ~= mediados 2023). Antes de eso el RTC sigue
-    // sin sincronizar y TLS va a fallar.
     while (now < 1700000000 && intentos < 30)
     {
       delay(500);
@@ -914,9 +838,6 @@
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback); // Esto es necesario para recibir mensajes del broker
 
-    // Timeouts explicitos para no quedarnos colgados eternamente en el TLS
-    // handshake. Si supera 15s, espClient.connect() devuelve false y
-    // PubSubClient hace return -> entramos al else y vemos rc=N.
     espClient.setHandshakeTimeout(15);   // segundos para TLS handshake
     espClient.setTimeout(15);            // segundos para read/write TCP
     client.setSocketTimeout(15);         // segundos para MQTT-level
@@ -924,9 +845,6 @@
     Serial.printf("\n[mqtt] target=%s:%d clientId=%s\n",
                   mqtt_server, mqtt_port, MQTT_CLIENT_ID);
 
-    // Smoke test TCP crudo (sin TLS) — descarta firewall / ISP bloqueando
-    // el puerto 8883 outgoing. Si esto NO completa, el TLS handshake nunca
-    // tendra chance — el bug es de red, no de certs.
     {
       WiFiClient tcpTest;
       Serial.printf("[debug] TCP raw test %s:%d ... ", mqtt_server, mqtt_port);
@@ -957,9 +875,6 @@
       }
       else
       {
-        // PubSubClient state codes:
-        //   -4 timeout, -3 connection lost, -2 connect failed (TLS),
-        //   -1 disconnected, 0 connected, 1-5 wrong proto / id / cred
         int state = client.state();
         Serial.printf("FALLO rc=%d, retry 5s\n", state);
         vTaskDelay(pdMS_TO_TICKS(5000));
@@ -973,7 +888,6 @@
 
   void definir_broker()
   {
-    // Ver código de esteban, hace mas cosas que solo definir variables
     switch (BROKER)
     {
       case HIVEMQ_PUBLIC:
@@ -1032,10 +946,6 @@
       }
       const char* direction = doc["direction"];
       if(direction != nullptr) {
-        // direction "in" = puerta HACIA ADENTRO => animal viene de afuera
-        //                  => EV_ANIMAL_DETECTADO_AFUERA (afuera_entrando)
-        // direction "out"= puerta HACIA AFUERA  => animal sale desde adentro
-        //                  => EV_ANIMAL_DETECTADO_ADENTRO (adentro_saliendo)
         if(strcmp(direction, "in") == 0) {
           Serial.println("cmd open direction=in -> EV_ANIMAL_DETECTADO_AFUERA");
           ev = EV_ANIMAL_DETECTADO_AFUERA;
@@ -1058,11 +968,6 @@
       ev = EV_DESBLOQUEO_POR_APP;
     } else if(strcmp(comando + 1, "call") == 0) {
       Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
-      // Beep prolongado y reconocible: alternar agudo/grave durante ~2.5s.
-      // Coincide con CALLING_MS=2500 en la app, asi el countdown
-      // "Llamando 3..2..1" termina al mismo tiempo que el sonido real.
-      // 5 iteraciones * (150ms beep agudo + 100ms gap + 150ms grave + 100ms gap)
-      // = 5 * 500ms = 2500ms.
       for (int i = 0; i < 5; i++) {
         buzzer_beep(1200, 150);
         vTaskDelay(pdMS_TO_TICKS(100));
