@@ -3,6 +3,7 @@
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
   #include <ArduinoJson.h>
+  #include <time.h>          // configTime() + time() para sync NTP previo a TLS
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
   #include "aws_certs.h"
 
@@ -230,6 +231,7 @@
   void conectar_mqtt();
   void setup_wifi_mqtt();
   void wifiConnect();
+  void sincronizar_hora_ntp();
   void publicar_mqtt(const char* topico, const char* payload);
 
   // --- Tabla de estados ---
@@ -795,6 +797,12 @@
     Serial.println(WIFI_SSID);
 
     wifiConnect();
+
+    // SNTP sync ANTES de definir broker. Critico para TLS contra AWS IoT:
+    // mTLS valida notBefore/notAfter del cert y para eso necesita la hora
+    // actual. Sin esto, el ESP32 arranca en 1970 y client.connect() se
+    // cuelga en el handshake TLS sin nunca devolver error visible.
+    sincronizar_hora_ntp();
     definir_broker();
 
     Serial.println("\nWiFi Conectado");
@@ -804,14 +812,42 @@
     Serial.println(WiFi.macAddress());
   }
 
-  void wifiConnect()  
+  void wifiConnect()
   {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) 
+    while (WiFi.status() != WL_CONNECTED)
     {
       delay(500);
       Serial.print(".");
     }
+  }
+
+  void sincronizar_hora_ntp()
+  {
+    // configTime arranca el sntp client interno del ESP32. Argumentos:
+    //   gmtOffset_sec = 0   -> UTC (TLS necesita UTC, no la timezone local)
+    //   daylightOffset_sec = 0
+    //   servers NTP        -> redundancia con 2 servers publicos
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Sincronizando hora via NTP");
+    time_t now = 0;
+    int intentos = 0;
+    // Esperamos hasta que time(NULL) devuelva un valor > 2024-01-01
+    // (segundo 1700000000 ~= mediados 2023). Antes de eso el RTC sigue
+    // sin sincronizar y TLS va a fallar.
+    while (now < 1700000000 && intentos < 30)
+    {
+      delay(500);
+      Serial.print(".");
+      now = time(nullptr);
+      intentos++;
+    }
+    if (now < 1700000000) {
+      Serial.println("\n[ntp] WARN: hora no sincronizada, TLS puede fallar");
+      return;
+    }
+    Serial.print("\n[ntp] hora UTC: ");
+    Serial.println(ctime(&now));
   }
 
   void conectar_mqtt()
