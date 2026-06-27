@@ -845,6 +845,7 @@ def handle_get_info(device_id):
         "flash_total_kb":   int(info.get("flash_total_kb", 0) or 0),
         "cpu_temp_c":       str(info.get("cpu_temp_c", "") or ""),
         "local_ip":         str(info.get("local_ip", "") or ""),
+        "device_mac":       str(info.get("device_mac", "") or ""),
         "firmware_version": str(info.get("firmware_version", "") or ""),
         "hardware_model":   str(info.get("hardware_model", "") or ""),
         # WiFi info (W14)

@@ -372,6 +372,16 @@
     <string name="ajustes_device_ip">Dirección IP</string>
     <string name="ajustes_device_uptime">Tiempo activo</string>
     <string name="ajustes_device_mac">MAC address</string>
+    <string name="ajustes_value_loading">Cargando…</string>
+    <string name="ajustes_value_unavailable">No disponible</string>
+    <string name="ajustes_uptime_dhm">%1$dd · %2$dh · %3$dmin</string>
+    <string name="ajustes_uptime_hm">%1$dh · %2$dmin</string>
+    <string name="ajustes_uptime_m">%1$dmin</string>
+    <string name="perfil_edit_name_title">Cambiar nombre</string>
+    <string name="perfil_edit_name_hint">Nuevo nombre</string>
+    <string name="perfil_edit_name_save">Guardar</string>
+    <string name="perfil_edit_name_invalid">El nombre no puede estar vacío</string>
+    <string name="cd_edit">Editar</string>
     <string name="ajustes_sensor_ultrasound">Ultrasonido HC-SR04</string>
     <string name="ajustes_sensor_servo">Servomotor SG90</string>
     <string name="ajustes_schedules_row">Horarios programados</string>

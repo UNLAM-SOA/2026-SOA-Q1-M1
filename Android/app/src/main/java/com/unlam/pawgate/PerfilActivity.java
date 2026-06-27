@@ -30,8 +30,50 @@ public class PerfilActivity extends AppCompatActivity {
 
         renderUser();
 
+        // Tap en el row de nombre (o en el lapiz) abre dialog de edicion.
+        findViewById(R.id.perfil_name_row_container)
+                .setOnClickListener(v -> showEditNameDialog());
+
         MaterialButton logoutButton = findViewById(R.id.perfil_logout_button);
         logoutButton.setOnClickListener(v -> showLogoutDialog());
+    }
+
+    /**
+     * Dialog con EditText para editar el nombre del user. Persiste en
+     * PrefsHelper y refresca todas las Views (avatar, header big, row card).
+     * Es cambio LOCAL — no toca Cognito porque eso requeriria un endpoint
+     * UpdateUserAttributes que no esta implementado en el backend.
+     */
+    private void showEditNameDialog() {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint(R.string.perfil_edit_name_hint);
+        String current = PrefsHelper.getUserName(this);
+        if (current != null) {
+            input.setText(current);
+            input.setSelection(current.length());
+        }
+        int pad = Math.round(20 * getResources().getDisplayMetrics().density);
+        android.widget.FrameLayout container = new android.widget.FrameLayout(this);
+        container.setPadding(pad, pad / 2, pad, 0);
+        container.addView(input);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.perfil_edit_name_title)
+                .setView(container)
+                .setPositiveButton(R.string.perfil_edit_name_save, (d, w) -> {
+                    String newName = input.getText().toString().trim();
+                    if (newName.isEmpty()) {
+                        android.widget.Toast.makeText(this,
+                                R.string.perfil_edit_name_invalid,
+                                android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    PrefsHelper.setUserName(this, newName);
+                    renderUser();
+                })
+                .setNegativeButton(R.string.action_cancel, null)
+                .show();
     }
 
     private void renderUser() {

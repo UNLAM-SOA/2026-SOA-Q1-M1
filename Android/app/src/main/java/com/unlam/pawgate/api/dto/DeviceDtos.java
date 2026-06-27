@@ -77,6 +77,9 @@ public final class DeviceDtos {
         public int flash_total_kb;
         public String cpu_temp_c;          // string para no perder precision decimal
         public String local_ip;
+        /** MAC propia del ESP32 (WiFi.macAddress()) — distinto de wifi_bssid
+         *  que es la MAC del AP al que esta conectado. */
+        public String device_mac;
         public String firmware_version;
         public String hardware_model;
         // W14 - WiFi info

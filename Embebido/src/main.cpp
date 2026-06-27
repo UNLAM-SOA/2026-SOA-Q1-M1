@@ -701,6 +701,7 @@
     doc["flash_total_kb"] = ESP.getFlashChipSize() / 1024; // Tamaño total del chip de flash. Típicamente 4096 KB
     doc["cpu_temp_c"] = temperatureRead(); // Disponible en ESP32, devuelve float en °C
     doc["local_ip"] = WiFi.localIP().toString().c_str();
+    doc["device_mac"] = WiFi.macAddress().c_str(); // MAC propia del ESP32 (no la del AP)
     doc["firmware_version"] = FIRMWARE_VERSION;
     doc["hardware_model"] = HARDWARE_MODEL;
     doc["wifi_ssid"] = WiFi.SSID().c_str();

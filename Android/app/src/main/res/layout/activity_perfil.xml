@@ -136,14 +136,35 @@
                     android:textColor="@color/text_muted"
                     android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/perfil_name_row"
+                <!-- Row clickable: tap en cualquier parte abre el dialog de
+                     editar nombre. El lapiz a la derecha es la pista visual. -->
+                <LinearLayout
+                    android:id="@+id/perfil_name_row_container"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="Usuario"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp" />
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:id="@+id/perfil_name_row"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Usuario"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp" />
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@string/cd_edit"
+                        android:src="@drawable/ic_pencil"
+                        app:tint="@color/text_secondary" />
+                </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
