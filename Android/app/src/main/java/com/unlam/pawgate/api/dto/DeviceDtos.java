@@ -55,6 +55,12 @@ public final class DeviceDtos {
         public String last_door_event_at;        // ISO 8601 (nullable)
         public String last_door_event_type;      // opened/closed/blocked/...
         public String last_door_event_direction; // in/out (solo opened/closed)
+        /** Minutos totales que la luz estuvo encendida hoy. */
+        public int light_minutes_today;
+        /** "on" / "off" — estado actual de la luz (el del ultimo evento). */
+        public String light_state;
+        /** ISO 8601 del ultimo cambio de luz (nullable). */
+        public String light_state_at;
     }
 
     // ===== GET /devices/{id}/info (telemetria del ESP32) =====

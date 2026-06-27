@@ -154,6 +154,18 @@ public final class DoorStateMachine {
                 if (!PrefsHelper.isDoorBlocked(ctx)) return false;
                 PrefsHelper.setDoorBlocked(ctx, false);
                 return true;
+            case "light_on":
+                // PrefsHelper.setLightOn(ctx, true) si quisieramos persistir.
+                // Pero el badge del Dashboard se refresca cuando le llega el
+                // broadcast (loadDailyMetrics + renderLightBadge), por lo que
+                // basta con devolver true para que se emita el broadcast.
+                if (PrefsHelper.isLightOn(ctx)) return false;
+                PrefsHelper.setLightOn(ctx, true);
+                return true;
+            case "light_off":
+                if (!PrefsHelper.isLightOn(ctx)) return false;
+                PrefsHelper.setLightOn(ctx, false);
+                return true;
             default:
                 return false;
         }

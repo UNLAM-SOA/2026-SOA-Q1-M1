@@ -335,12 +335,15 @@ public class PawGatePollingService extends Service {
         sendBroadcast(broadcast);
     }
 
-    /** Eventos del firmware que afectan el estado de la puerta. */
+    /** Eventos del firmware que afectan el state machine local de la puerta
+     *  o de la luz. Para todos llamamos DoorStateMachine.onExternalDoorEvent. */
     private static boolean isDoorEvent(String eventType) {
         return "opened".equals(eventType)
                 || "closed".equals(eventType)
                 || "blocked".equals(eventType)
-                || "unblocked".equals(eventType);
+                || "unblocked".equals(eventType)
+                || "light_on".equals(eventType)
+                || "light_off".equals(eventType);
     }
 
     // ============================================================

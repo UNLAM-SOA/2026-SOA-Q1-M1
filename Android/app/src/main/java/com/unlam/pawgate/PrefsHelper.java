@@ -18,6 +18,10 @@ public final class PrefsHelper {
 
     private static final String PREFS = "pawgate_prefs";
     private static final String KEY_DOOR_BLOCKED = "door_blocked";
+    /** Estado actual de la luz (sincronizado desde events light_on/off del
+     *  firmware). El badge del Dashboard lo lee para mostrar verde/gris en
+     *  vivo, sin esperar al proximo /metrics/today. */
+    private static final String KEY_LIGHT_ON = "light_on";
     private static final String KEY_PUSH_ENABLED = "push_enabled";
     private static final String KEY_SHAKE_TO_CALL = "shake_to_call";
     private static final String KEY_PENDING_FCM_TOKEN = "pending_fcm_token";
@@ -63,6 +67,14 @@ public final class PrefsHelper {
 
     public static boolean isDoorBlocked(Context ctx) {
         return prefs(ctx).getBoolean(KEY_DOOR_BLOCKED, false);
+    }
+
+    public static boolean isLightOn(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_LIGHT_ON, false);
+    }
+
+    public static void setLightOn(Context ctx, boolean on) {
+        prefs(ctx).edit().putBoolean(KEY_LIGHT_ON, on).apply();
     }
 
     public static void setDoorBlocked(Context ctx, boolean blocked) {

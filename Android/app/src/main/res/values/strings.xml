@@ -73,6 +73,10 @@
     <!-- Dashboard - Metric cards -->
     <string name="dashboard_metric_openings_label">Aperturas hoy</string>
     <string name="dashboard_metric_light_label">Tiempo de luz encendida</string>
+    <string name="dashboard_light_minutes_format">%1$d min</string>
+    <string name="dashboard_light_hm_format">%1$dh %2$dm</string>
+    <string name="dashboard_light_on">Luz encendida</string>
+    <string name="dashboard_light_off">Luz apagada</string>
 
     <!-- Dashboard - Acciones rápidas -->
     <string name="dashboard_quick_actions">Acciones rápidas</string>
