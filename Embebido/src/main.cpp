@@ -855,20 +855,38 @@
     int intentos = 0;
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback); // Esto es necesario para recibir mensajes del broker
-    
+
+    // Timeouts explicitos para no quedarnos colgados eternamente en el TLS
+    // handshake. Si supera 15s, espClient.connect() devuelve false y
+    // PubSubClient hace return -> entramos al else y vemos rc=N.
+    espClient.setHandshakeTimeout(15);   // segundos para TLS handshake
+    espClient.setTimeout(15);            // segundos para read/write TCP
+    client.setSocketTimeout(15);         // segundos para MQTT-level
+
+    Serial.printf("\n[mqtt] target=%s:%d clientId=%s\n",
+                  mqtt_server, mqtt_port, MQTT_CLIENT_ID);
     Serial.print("Intentando conexión MQTT...");
     while (!client.connected() && intentos < 5)
     {
       intentos++;
-      Serial.print("[mqtt] Conectando...");
-      if (client.connect(MQTT_CLIENT_ID))
+      Serial.printf("\n[mqtt] intento %d Conectando...", intentos);
+      unsigned long t0 = millis();
+      bool ok = client.connect(MQTT_CLIENT_ID);
+      unsigned long dt = millis() - t0;
+      Serial.printf(" took=%lums ", dt);
+      if (ok)
       {
-        Serial.println("Conexión MQTT OK");
+        Serial.println("OK");
         client.subscribe(MQTT_TOPIC_CMD_FILTER);
+        Serial.printf("[mqtt] subscribed to %s\n", MQTT_TOPIC_CMD_FILTER);
       }
       else
       {
-        Serial.printf(" rc=%d, retry 2s\n", client.state());
+        // PubSubClient state codes:
+        //   -4 timeout, -3 connection lost, -2 connect failed (TLS),
+        //   -1 disconnected, 0 connected, 1-5 wrong proto / id / cred
+        int state = client.state();
+        Serial.printf("FALLO rc=%d, retry 5s\n", state);
         vTaskDelay(pdMS_TO_TICKS(5000));
       }
     }
