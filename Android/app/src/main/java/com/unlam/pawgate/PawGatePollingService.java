@@ -146,6 +146,32 @@ public class PawGatePollingService extends Service {
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
+
+                // ====== SYNC del state machine local ======
+                // Procesar TODOS los door events nuevos en orden cronológico
+                // ASCENDENTE. Si solo procesaramos el mas reciente y el
+                // firmware completa un ciclo opened->closed en menos de 1
+                // poll-interval (4.5s en firmware vs 3s polling), nos
+                // perderiamos el opened. Eso hace que el user nunca vea el
+                // estado "Abriendo / Abierta" cuando la mascota usa la puerta.
+                long lastDoorMs = PrefsHelper.getLastDoorEventAt(
+                        PawGatePollingService.this);
+                java.util.List<DeviceDtos.Event> newDoorEventsAsc =
+                        collectNewDoorEventsAsc(result.events, lastDoorMs);
+                for (DeviceDtos.Event de : newDoorEventsAsc) {
+                    long ms = HistorialMapper.parseIsoToMs(de.created_at);
+                    boolean changed = DoorStateMachine.onExternalDoorEvent(
+                            PawGatePollingService.this,
+                            de.event_type, de.direction);
+                    PrefsHelper.setLastDoorEventAt(
+                            PawGatePollingService.this, ms);
+                    Log.d(TAG, "DoorStateMachine sync: " + de.event_type
+                            + " direction=" + de.direction
+                            + " changed=" + changed
+                            + " ts=" + ms);
+                }
+
+                // ====== Label de "Ultima actividad" + broadcast UI ======
                 DeviceDtos.Event mostRecent = pickMostRecent(result.events, null);
                 if (mostRecent != null) {
                     String label = humanLabelFor(mostRecent.event_type);
@@ -158,6 +184,28 @@ public class PawGatePollingService extends Service {
                 Log.w(TAG, "history poll error: " + message);
             }
         });
+    }
+
+    /**
+     * Devuelve los door events con created_at > sinceMs ordenados ASCendente
+     * por created_at. Necesario para reproducir la secuencia opened->closed
+     * en el state machine sin saltearse el opened si vino en el mismo poll.
+     */
+    private java.util.List<DeviceDtos.Event> collectNewDoorEventsAsc(
+            java.util.List<DeviceDtos.Event> events, long sinceMs) {
+        java.util.List<DeviceDtos.Event> out = new java.util.ArrayList<>();
+        for (DeviceDtos.Event e : events) {
+            if (e.event_type == null) continue;
+            if (!isDoorEvent(e.event_type)) continue;
+            long ms = HistorialMapper.parseIsoToMs(e.created_at);
+            if (ms <= sinceMs) continue;
+            out.add(e);
+        }
+        // Sort ASC por created_at
+        java.util.Collections.sort(out, (a, b) -> Long.compare(
+                HistorialMapper.parseIsoToMs(a.created_at),
+                HistorialMapper.parseIsoToMs(b.created_at)));
+        return out;
     }
 
     /** Broadcast vacio para que el Dashboard sepa que el lock_state cambio. */
@@ -202,24 +250,10 @@ public class PawGatePollingService extends Service {
     }
 
     private void broadcastEvent(DeviceDtos.Event e) {
-        // Sincronizar el state machine local de la puerta con eventos del
-        // firmware. Solo procesamos eventos NUEVOS (created_at posterior al
-        // ultimo door event procesado) — evita rearrancar el ciclo en cada
-        // polling cuando el mismo evento sigue siendo "el mas reciente".
-        if (e.event_type != null && isDoorEvent(e.event_type)) {
-            long eventMs = HistorialMapper.parseIsoToMs(e.created_at);
-            long lastMs = PrefsHelper.getLastDoorEventAt(this);
-            if (eventMs > lastMs) {
-                boolean changed = DoorStateMachine.onExternalDoorEvent(
-                        this, e.event_type, e.direction);
-                PrefsHelper.setLastDoorEventAt(this, eventMs);
-                if (changed) {
-                    Log.d(TAG, "DoorStateMachine sync: " + e.event_type
-                            + " direction=" + e.direction);
-                }
-            }
-        }
-
+        // El sync con el state machine local de la puerta ya se hizo en el
+        // loop del onSuccess. Aca solo emitimos el broadcast con el evento
+        // mas reciente para que la UI pueda refrescar el label "Ultima
+        // actividad" y el conteo de notifs.
         Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
         broadcast.setPackage(getPackageName()); // restringir solo a nuestra app
         broadcast.putExtra(EXTRA_EVENT_TYPE, e.event_type);
