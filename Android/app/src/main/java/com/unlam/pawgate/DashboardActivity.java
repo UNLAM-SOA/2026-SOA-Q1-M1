@@ -326,7 +326,21 @@ public class DashboardActivity extends AppCompatActivity {
                     openingsCountLabel.setText(String.valueOf(opens));
                 }
                 renderLightTime(lightMin);
-                renderLightBadge(lightState);
+                // NO renderizamos el badge desde el server aca para evitar
+                // flicker. El server puede ir 200-500ms atras del estado real
+                // (el push light_on llego pero el server todavia no lo
+                // proceso). El badge se renderiza UNICAMENTE desde
+                // PrefsHelper.isLightOn — que el state machine actualiza al
+                // instante cuando llega el push o el polling trae el event.
+                // Aca solo SEMBRAMOS el estado local si nunca tuvimos info:
+                // si server dice 'on' y nuestro local nunca se seteo, lo
+                // tomamos como inicial. Despues los events ganan.
+                if (lightState != null
+                        && PrefsHelper.getLastDoorEventAt(DashboardActivity.this) == 0L) {
+                    PrefsHelper.setLightOn(DashboardActivity.this,
+                            "on".equals(lightState));
+                    renderLightBadge(lightState);
+                }
 
                 if (lastActivityLabel != null) {
                     if (lastIso != null) {
@@ -369,21 +383,23 @@ public class DashboardActivity extends AppCompatActivity {
     private void renderLightBadge(String lightState) {
         TextView badge = findViewById(R.id.dashboard_light_badge);
         if (badge == null) return;
-        // Si no sabemos, asumimos apagada (el caso comun para el ESP32 en idle).
         boolean isOn = "on".equals(lightState);
-        if (isOn) {
-            badge.setBackgroundResource(R.drawable.bg_pill_status);
-            badge.setTextColor(getResources().getColor(R.color.accent_neon, getTheme()));
-            badge.setCompoundDrawableTintList(
-                    getResources().getColorStateList(R.color.accent_neon, getTheme()));
-            badge.setText(R.string.dashboard_light_on);
-        } else {
-            badge.setBackgroundResource(R.drawable.bg_pill_warning);
-            badge.setTextColor(getResources().getColor(R.color.text_secondary, getTheme()));
-            badge.setCompoundDrawableTintList(
-                    getResources().getColorStateList(R.color.text_secondary, getTheme()));
-            badge.setText(R.string.dashboard_light_off);
+        int colorRes = isOn ? R.color.accent_neon : R.color.text_secondary;
+        // Pequeño truco: ic_sun nativo es 24x24dp; con texto 9sp se ve grande.
+        // Reducimos el drawableStart a 11dp programaticamente y aplicamos tint.
+        android.graphics.drawable.Drawable icon =
+                androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_sun);
+        if (icon != null) {
+            int px = Math.round(11 * getResources().getDisplayMetrics().density);
+            icon.setBounds(0, 0, px, px);
+            icon.setTint(getResources().getColor(colorRes, getTheme()));
         }
+        badge.setCompoundDrawables(icon, null, null, null);
+        badge.setBackgroundResource(isOn ? R.drawable.bg_pill_status
+                                          : R.drawable.bg_pill_warning);
+        badge.setTextColor(getResources().getColor(colorRes, getTheme()));
+        badge.setText(isOn ? R.string.dashboard_light_on
+                            : R.string.dashboard_light_off);
     }
 
     /**

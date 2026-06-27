@@ -99,25 +99,6 @@
                     android:text="@string/dashboard_no_recent_activity"
                     android:textSize="13sp"
                     android:textColor="@color/text_secondary"/>
-                <!-- Badge chico de estado de luz en vivo. Reusa bg_pill_status
-                     (verde) cuando encendida, bg_pill_warning (naranja) cuando
-                     apagada. Se sincroniza desde events light_on/off del firmware. -->
-                <TextView
-                    android:id="@+id/dashboard_light_badge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/bg_pill_status"
-                    android:drawableStart="@drawable/ic_sun"
-                    android:drawablePadding="6dp"
-                    android:drawableTint="@color/accent_neon"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="4dp"
-                    android:text="@string/dashboard_light_on"
-                    android:textColor="@color/accent_neon"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    tools:text="Luz encendida" />
             </LinearLayout>
             <LinearLayout android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -165,6 +146,26 @@
                         android:textSize="26sp"
                         android:textStyle="bold"
                         android:textColor="@color/text_primary"/>
+                    <!-- Badge chico de estado actual de luz, abajo a la izquierda
+                         de la card. Se sincroniza desde events light_on/off del
+                         firmware via DoorStateMachine + isLightOn (no usa el
+                         server para evitar flicker entre los dos origenes). -->
+                    <TextView
+                        android:id="@+id/dashboard_light_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_pill_status"
+                        android:drawableStart="@drawable/ic_sun"
+                        android:drawablePadding="4dp"
+                        android:drawableTint="@color/accent_neon"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="2dp"
+                        android:text="@string/dashboard_light_off"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="9sp"
+                        android:textStyle="bold"
+                        tools:text="Luz encendida" />
                 </LinearLayout>
             </LinearLayout>
             <TextView android:layout_width="wrap_content"
