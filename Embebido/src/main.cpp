@@ -778,6 +778,7 @@
   //funcion genérica para mandar a MQTT desde cualquier parte del código a cualquier tópico
   void publicar_mqtt(const char* topico, const char* payload)
   {
+    Serial.printf("\n[mqtt] queueing topic=%s payload=%s\n", topico, payload);
     stMensajeMqtt msg;
     strncpy(msg.topico,   topico,   TAM_TOPIC_MQTT   - 1);
     strncpy(msg.payload, payload, TAM_PAYLOAD_MQTT - 1);
@@ -787,6 +788,8 @@
     if (xQueueSend(queueMqttOut, &msg, TIME_OUT_CERO) != pdPASS)
     {
       Serial.println("[mqtt] Cola de salida LLENA");
+    } else {
+      Serial.println("[mqtt] queued OK");
     }
   }
 
@@ -1035,9 +1038,14 @@
         stMensajeMqtt msg;
         while (xQueueReceive(queueMqttOut, &msg, 0) == pdPASS)
         {
-          if (!client.publish(msg.topico, msg.payload, true))
+          Serial.printf("\n[mqtt] publishing topic=%s payload=%s\n",
+                        msg.topico, msg.payload);
+          bool ok = client.publish(msg.topico, msg.payload, true);
+          if (!ok)
           {
-            Serial.println("[mqtt] publish FALLÓ");
+            Serial.printf("[mqtt] publish FALLO state=%d\n", client.state());
+          } else {
+            Serial.println("[mqtt] publish OK");
           }
         }
       }
