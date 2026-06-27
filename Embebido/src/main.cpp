@@ -806,10 +806,10 @@
   void setup_puerta()
   {
     crear_colas_puerta();
-    crear_mutex_sensores();
     configuracion_sensores_puerta();
     configuracion_sensores_luz();
     configuracion_estado_inicial_puerta();
+    crear_mutex_sensores();
     timer_puerta = xTimerCreate("Timer_Puerta", pdMS_TO_TICKS(TIEMPO_TIMEOUT_PUERTA), pdFALSE, NULL, timer_callback_puerta);
     crear_tareas_puerta();
   }
