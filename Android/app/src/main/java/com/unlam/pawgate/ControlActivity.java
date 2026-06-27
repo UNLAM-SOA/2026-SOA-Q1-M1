@@ -274,7 +274,13 @@ public class ControlActivity extends AppCompatActivity {
         if (direction != null) body.put("direction", direction);
         deviceRepo.sendCommand(deviceId, DeviceRepository.CMD_OPEN, body,
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
-            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {}
+            @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
+                // Cmd encolado al backend con exito. Dispara un poll YA al
+                // Service para que veamos el evento de confirmacion del
+                // firmware (opened con direction) en <1s. Sin esto, esperabamos
+                // hasta el proximo ciclo de polling (1-3s).
+                PawGatePollingService.requestPollNow(ControlActivity.this);
+            }
             @Override public void onError(String message) {
                 Toast.makeText(ControlActivity.this,
                         "Error al abrir: " + message, Toast.LENGTH_LONG).show();
@@ -449,8 +455,10 @@ public class ControlActivity extends AppCompatActivity {
         deviceRepo.sendCommand(deviceId, cmd, new ApiCallback<DeviceDtos.CommandResponse>() {
             @Override
             public void onSuccess(DeviceDtos.CommandResponse result) {
-                // Silencio en exito - el feedback visual ya lo dio el ciclo local.
-                // Si quisieramos log: Log.d(TAG, "cmd queued: " + result.topic);
+                // Cmd encolado. Dispara un poll YA al Service para que la
+                // confirmacion del firmware (blocked/unblocked/etc) llegue
+                // a la UI en <1s en vez de esperar al proximo ciclo.
+                PawGatePollingService.requestPollNow(ControlActivity.this);
             }
             @Override
             public void onError(String message) {

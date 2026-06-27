@@ -267,6 +267,7 @@ public class DashboardActivity extends AppCompatActivity {
                 new ApiCallback<com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse>() {
                     @Override public void onSuccess(com.unlam.pawgate.api.dto.DeviceDtos.CommandResponse r) {
                         android.util.Log.i("DashboardActivity", "shake cmd/call OK");
+                        PawGatePollingService.requestPollNow(DashboardActivity.this);
                     }
                     @Override public void onError(String message) {
                         android.util.Log.w("DashboardActivity", "shake call error: " + message);
@@ -678,6 +679,7 @@ public class DashboardActivity extends AppCompatActivity {
                 PrefsHelper.clearCycle(DashboardActivity.this);
                 showToast(R.string.toast_action_block);
                 renderDoorState();
+                PawGatePollingService.requestPollNow(DashboardActivity.this);
             }
             @Override public void onError(String message) {
                 Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();
@@ -728,6 +730,7 @@ public class DashboardActivity extends AppCompatActivity {
                     PrefsHelper.setDoorBlocked(DashboardActivity.this, false);
                     showToast(R.string.toast_action_unblock);
                     renderDoorState();
+                    PawGatePollingService.requestPollNow(DashboardActivity.this);
                 }
                 @Override public void onError(String message) {
                     Toast.makeText(DashboardActivity.this, message, Toast.LENGTH_LONG).show();

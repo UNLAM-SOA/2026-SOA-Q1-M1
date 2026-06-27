@@ -37,10 +37,40 @@ public class PawGatePollingService extends Service {
     public static final String EXTRA_CREATED_AT_ISO = "created_at";
     public static final String EXTRA_CREATED_AT_MS = "created_at_ms";
 
+    /** Action que las activities envian al Service para forzar un poll
+     *  inmediato. Usado despues de cmd_open/block/unblock para que la app
+     *  vea el evento de confirmacion del firmware sin esperar al proximo
+     *  ciclo de polling. */
+    public static final String ACTION_POLL_NOW = "com.unlam.pawgate.POLL_NOW";
+
+    /** Triggers un poll inmediato al Service. Idempotente: si el Service no
+     *  esta corriendo, no hace nada. */
+    public static void requestPollNow(android.content.Context ctx) {
+        Intent intent = new Intent(ctx, PawGatePollingService.class);
+        intent.setAction(ACTION_POLL_NOW);
+        try {
+            ctx.startService(intent);
+        } catch (IllegalStateException ignored) {
+            // App en background sin service vivo: el polling normal cubre
+            // cuando la app vuelva.
+        }
+    }
+
     private static final String CHANNEL_ID = "pawgate_polling_channel";
     private static final int NOTIFICATION_ID = 1001;
 
-    private static final long POLL_INTERVAL_MS = 3_000L;
+    /** Polling rapido cuando hay actividad reciente o un ciclo activo.
+     *  Permite que la app vea el opened→closed del firmware en tiempo real
+     *  (firmware completa el ciclo en ~4.5s; con 1s de polling vemos cada
+     *  transicion). */
+    private static final long FAST_POLL_INTERVAL_MS = 1_000L;
+    /** Polling normal cuando todo esta quieto. Baja consumo de bateria y
+     *  costo de API Gateway. */
+    private static final long NORMAL_POLL_INTERVAL_MS = 3_000L;
+    /** Cuanto tiempo seguir en fast-poll despues del ultimo door event.
+     *  Cubre el caso 'mascota abre, esperamos closed que llega 4.5s despues
+     *  + margen para que el cliente termine la animacion'. */
+    private static final long FAST_POLL_GRACE_MS = 15_000L;
     private static final long POLL_WINDOW_MS = 5L * 60L * 1000L;
 
     private Handler handler;
@@ -50,9 +80,32 @@ public class PawGatePollingService extends Service {
     private final Runnable pollRunnable = new Runnable() {
         @Override public void run() {
             pollBackend();
-            handler.postDelayed(this, POLL_INTERVAL_MS);
+            // Polling adaptativo: si hay actividad reciente o un ciclo
+            // OPEN_DOOR activo, agendar el proximo poll en 1s. Sino, 3s.
+            handler.postDelayed(this, nextPollInterval());
         }
     };
+
+    private long nextPollInterval() {
+        // 1) Ciclo de la puerta vivo -> fast (el user esta mirando el ciclo).
+        String cycle = PrefsHelper.getCycleType(this);
+        if (PrefsHelper.CYCLE_OPEN_DOOR.equals(cycle)) {
+            long elapsed = android.os.SystemClock.elapsedRealtime()
+                    - PrefsHelper.getCycleStartMs(this);
+            if (elapsed < DoorStateMachine.OPENING_MS + DoorStateMachine.OPEN_MS
+                            + DoorStateMachine.CLOSING_MS) {
+                return FAST_POLL_INTERVAL_MS;
+            }
+        }
+        // 2) Door event reciente -> fast (esperamos closed que viene 4.5s
+        // despues del opened).
+        long lastDoorMs = PrefsHelper.getLastDoorEventAt(this);
+        if (lastDoorMs > 0
+                && System.currentTimeMillis() - lastDoorMs < FAST_POLL_GRACE_MS) {
+            return FAST_POLL_INTERVAL_MS;
+        }
+        return NORMAL_POLL_INTERVAL_MS;
+    }
 
     @Override
     public void onCreate() {
@@ -66,7 +119,7 @@ public class PawGatePollingService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "onStartCommand");
+        Log.d(TAG, "onStartCommand action=" + (intent != null ? intent.getAction() : null));
 
         // startForeground tiene que llamarse dentro de los 5s post startForegroundService
         // o el sistema mata la app con ForegroundServiceDidNotStartInTimeException.
@@ -78,6 +131,16 @@ public class PawGatePollingService extends Service {
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         } else {
             startForeground(NOTIFICATION_ID, notification);
+        }
+
+        // ACTION_POLL_NOW: el cliente (ControlActivity) acaba de disparar un
+        // cmd al backend. Hacer poll YA y reagendar — asi vemos la
+        // confirmacion del firmware (opened/blocked) en <1s en vez de
+        // esperar al proximo ciclo.
+        if (intent != null && ACTION_POLL_NOW.equals(intent.getAction())) {
+            handler.removeCallbacks(pollRunnable);
+            handler.post(pollRunnable);
+            return START_STICKY;
         }
 
         handler.removeCallbacks(pollRunnable); // evitar duplicados
