@@ -614,16 +614,22 @@ public class ControlActivity extends AppCompatActivity {
         btnSecondary.setVisibility(View.VISIBLE);
         btnSecondary.setText(R.string.control_secondary_unblock);
 
-        // Las cards no funcionan en BLOCKED (logica interna en cada listener),
-        // pero las dejamos clickables para no hacerlas ver disabled.
-        setActionCardsEnabled(true);
+        // En BLOCKED las cards no funcionan. La card de Bloquear queda
+        // highlighted (Activo). La card de Llamar queda visualmente DISABLED
+        // (alpha 0.5) — el user no debe confundirse pensando que puede llamar.
         setCardsArrowsVisible(false); // sin flechita: indican que no hay accion
 
         cardBlock.setBackgroundResource(R.drawable.bg_card_active_danger);
+        cardBlock.setAlpha(1.0f);
         cardBlockSubtitle.setText(R.string.control_card_active);
         cardBlockSubtitle.setTextColor(color(R.color.accent_block));
 
         renderCardCallInactive();
+        // Override: en BLOCKED la card de llamar se ve DISABLED (alpha 0.5).
+        // setClickable(false) refuerza el comportamiento ya bloqueado en
+        // onCallCardClick (que verifica BLOCKED y returnea).
+        cardCall.setAlpha(0.5f);
+        cardCall.setClickable(false);
 
         // Info strip propio del modo seguridad
         infoIcon.setImageResource(R.drawable.ic_shield_check);
