@@ -36,6 +36,16 @@ public class AjustesActivity extends AppCompatActivity {
 
         renderProfile();
         loadDeviceInfo();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Volver de PerfilActivity tras editar el nombre debe refrescar
+        // el avatar + email row de la profile card. Lo mismo si volvio
+        // de DeviceDetail / WifiDetail (no afecta nada pero tampoco
+        // hace harm).
+        renderProfile();
 
         findViewById(R.id.ajustes_profile_card).setOnClickListener(
                 v -> startActivity(new Intent(this, PerfilActivity.class)));

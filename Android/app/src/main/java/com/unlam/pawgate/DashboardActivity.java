@@ -654,6 +654,14 @@ public class DashboardActivity extends AppCompatActivity {
 
     private void onActionCallClick() {
         if (isBusyCycle()) return;
+        // En BLOCKED no llamamos. isBusyCycle excluia BLOCKED a proposito
+        // (era para el caso 'estoy en un ciclo de apertura, no quiero llamar')
+        // pero deja pasar BLOCKED. Aca cortamos explicito.
+        if (DoorStateMachine.currentState(this) == DoorStateMachine.DoorState.BLOCKED) {
+            Toast.makeText(this, R.string.dashboard_call_blocked_toast,
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         // 1) UX optimista: arrancar el ciclo local YA para feedback inmediato.
         PrefsHelper.startCycle(this, PrefsHelper.CYCLE_CALL);

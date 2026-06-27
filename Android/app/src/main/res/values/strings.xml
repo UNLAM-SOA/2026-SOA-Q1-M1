@@ -113,6 +113,7 @@
     <string name="control_title">Control de puerta</string>
     <string name="control_status_live">EN VIVO · ESP32 CONECTADO</string>
     <string name="control_status_offline">ESP32 DESCONECTADO</string>
+    <string name="dashboard_call_blocked_toast">No se puede llamar mientras la puerta está bloqueada</string>
     <string name="control_btn_open">ABRIR PUERTA</string>
     <string name="control_card_block_title">Bloquear</string>
     <string name="control_card_block_subtitle">Modo seguridad</string>
