@@ -206,6 +206,9 @@ public class PawGatePollingService extends Service {
         deviceRepo.history(deviceId, from, now, new ApiCallback<DeviceDtos.HistoryResponse>() {
             @Override
             public void onSuccess(DeviceDtos.HistoryResponse result) {
+                int total = (result != null && result.events != null) ? result.events.size() : 0;
+                long lastSeen = PrefsHelper.getLastDoorEventAt(PawGatePollingService.this);
+                Log.d(TAG, "history poll: " + total + " events in window, lastSeen=" + lastSeen);
                 if (result == null || result.events == null || result.events.isEmpty()) {
                     return;
                 }
