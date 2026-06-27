@@ -168,7 +168,7 @@
     ST_CERRADA_BLOQUEADA,
     ST_ABIERTA_DESDE_AFUERA,
     ST_ABIERTA_DESDE_ADENTRO
-  } estado_actual_puerta; // Declaro el estado global de la puerta
+  } estado_actual_puerta; // Declaro estado global de la puerta
 
   enum acciones_puerta
   {
