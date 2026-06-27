@@ -71,6 +71,20 @@ NOTIFIABLE_EVENT_TYPES = {
     "light_off",
 }
 
+# Cuando el user dispara un cmd desde la app, el apiHandler ya persiste una
+# notif tipo cmd_X con el actor. Luego el ESP32 ejecuta y publica el evento
+# de confirmacion (opened/blocked/unblocked). Para no duplicar, eventIngest
+# verifica si el mismo user tiene una notif cmd_X reciente (correspondiente
+# al evento) y skipea la persistencia + push.
+EVENT_TO_CMD_TYPE = {
+    "opened":    "cmd_open",
+    "blocked":   "cmd_block",
+    "unblocked": "cmd_unblock",
+}
+# Ventana de tiempo para considerar el cmd como "padre" del evento. El ESP32
+# tipicamente responde en <5s, asi que 10s tiene margen.
+DEDUP_WINDOW_SECONDS = 10
+
 
 def lambda_handler(event, context):
     """Entry point para AWS Lambda. event es el payload del IoT Rule SELECT."""
@@ -195,17 +209,30 @@ def _notify_owners(device_id, event_type, direction, payload):
     # configurado. Asi un evento del firmware (perro abre puerta) aparece en
     # la bandeja de la app aunque el push no llegue.
     #
+    # DEDUP cmd ↔ evento: si el user disparo un cmd_X reciente, este evento
+    # del firmware es su confirmacion. apiHandler ya persistio la notif con
+    # actor; no queremos persistir otra copia 'Por el dispositivo'. Si TODOS
+    # los users tienen cmd_X reciente, terminamos la funcion aca (ni
+    # persistencia ni push).
+    #
     # Trackeamos {user_email -> notif_id} para despues incluir el notif_id
     # CORRECTO en el push de cada endpoint. Asi cuando el user tap el push,
     # la app sabe que notif marcar como leida.
     user_to_notif_id = {}
+    skipped_users = set()
     for ep in endpoints:
         user_email = ep.get("user_email")
-        if user_email:
-            nid = _persist_notification(user_email, device_id, event_type,
-                                         direction, title, body, payload)
-            if nid:
-                user_to_notif_id[user_email] = nid
+        if not user_email:
+            continue
+        if _has_recent_user_cmd_for(user_email, event_type):
+            logger.info("dedup: skip event=%s user=%s (recent cmd in <%ds)",
+                        event_type, user_email, DEDUP_WINDOW_SECONDS)
+            skipped_users.add(user_email)
+            continue
+        nid = _persist_notification(user_email, device_id, event_type,
+                                     direction, title, body, payload)
+        if nid:
+            user_to_notif_id[user_email] = nid
 
     # ====== A partir de aca: PUSH via SNS. Solo si hay ARN configurado. ======
     if not FCM_PLATFORM_APP_ARN:
@@ -239,6 +266,10 @@ def _notify_owners(device_id, event_type, direction, payload):
         if not arn:
             continue
         user_email = ep.get("user_email")
+        # Si dedup skipeo a este user (porque tiene un cmd reciente),
+        # tampoco le mandamos push — el cmd ya lo informo en pantalla.
+        if user_email in skipped_users:
+            continue
         notif_id = user_to_notif_id.get(user_email, "") if user_email else ""
 
         gcm_payload = json.dumps({
@@ -312,6 +343,49 @@ def _format_notification(event_type, direction):
     if event_type == "light_off":
         return "Luz apagada", "Por el dispositivo"
     return "Evento de la puerta", event_type or "evento"
+
+
+def _has_recent_user_cmd_for(user_email, event_type):
+    """
+    True si el user_email tiene una notif tipo cmd_X reciente (< DEDUP_WINDOW)
+    correspondiente al event_type del firmware. Usado para evitar duplicar
+    'Puerta bloqueada · Por el dispositivo' + 'Puerta bloqueada · Por NAME'
+    cuando el user ejecuto el cmd desde la app.
+
+    Mapeo:
+      opened    -> cmd_open
+      blocked   -> cmd_block
+      unblocked -> cmd_unblock
+
+    Si event_type no esta en el mapeo (light_on/off por ej.), devuelve False
+    porque esos eventos del firmware NO tienen contraparte de cmd.
+    """
+    cmd_type = EVENT_TO_CMD_TYPE.get(event_type)
+    if not cmd_type:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=DEDUP_WINDOW_SECONDS)
+    cutoff_iso = cutoff.isoformat()
+    try:
+        # Como el SK esta invertido por ts (mas reciente = SK menor), default
+        # Query devuelve los items mas recientes primero. Con Limit=20 cubrimos
+        # el caso de varios eventos entre el cmd y la confirmacion.
+        resp = notifications_table.query(
+            KeyConditionExpression="user_email = :u",
+            FilterExpression="#t = :type AND created_at > :since",
+            ExpressionAttributeNames={"#t": "type"},
+            ExpressionAttributeValues={
+                ":u":     user_email,
+                ":type":  cmd_type,
+                ":since": cutoff_iso,
+            },
+            Limit=20,
+        )
+        return resp.get("Count", 0) > 0
+    except Exception as e:
+        # En caso de error, asumimos NO hay cmd reciente (mejor duplicar que
+        # perder una notif legitima del firmware).
+        logger.warning("dedup query failed (assume no recent cmd): %s", e)
+        return False
 
 
 def _persist_notification(user_email, device_id, event_type, direction,
