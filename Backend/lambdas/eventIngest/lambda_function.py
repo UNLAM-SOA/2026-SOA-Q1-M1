@@ -113,10 +113,26 @@ def lambda_handler(event, context):
         _update_device_info(device_id, event)
         return {"statusCode": 200, "device_id": device_id, "kind": "telemetry"}
 
-    # 2) Construir sort key. Timestamp del DEVICE (no del server) para que el
-    #    orden refleje cuando paso el evento fisicamente, no cuando AWS lo recibio.
-    #    Padded a 13 digitos para que el ordenamiento lexicografico = cronologico.
-    ts_device = int(event.get("ts", event.get("server_ts", 0)))
+    # 2) Construir sort key. Preferimos server_ts (epoch_ms inyectado por la
+    #    IoT Rule via timestamp()) porque es UNIVERSAL: no depende de que el
+    #    device tenga reloj sincronizado.
+    #
+    #    Algunos devices mandan `ts` con un valor que NO es epoch — el ESP32
+    #    manda millis() desde boot (numero chico, p.ej. 8236), el simulador
+    #    Python manda epoch_ms (numero grande). Si usamos ese `ts` como sort
+    #    key, los eventos del ESP32 quedan ordenados al inicio (millis < 1e10)
+    #    y los del simulador al final, mezclados sin sentido cronologico.
+    #
+    #    Heuristica: si `ts` se ve como epoch_ms valido (> 1.5e12 = 2017+),
+    #    lo usamos. Sino, server_ts. Fallback final: time.time() * 1000.
+    payload_ts = int(event.get("ts", 0))
+    server_ts  = int(event.get("server_ts", 0))
+    if payload_ts > 1_500_000_000_000:
+        ts_device = payload_ts
+    elif server_ts > 0:
+        ts_device = server_ts
+    else:
+        ts_device = int(datetime.now(timezone.utc).timestamp() * 1000)
     # event_type: tomar "type" del payload del device; si no vino, usar el kind
     # del topic como fallback (mas legible que "unknown" cuando luego se filtra).
     event_type = event.get("type") or event_kind
