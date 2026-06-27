@@ -106,17 +106,27 @@ public class ControlActivity extends AppCompatActivity {
         }
     };
 
+    /** ISO 8601 del ultimo cambio de lock_state (state.updated_at). Se
+     *  usa en renderBlocked para mostrar 'Activado HH:MM · hace Xh'. */
+    private String lockStateUpdatedAtIso;
+
     private void pollDeviceState() {
         deviceRepo.getDeviceState(deviceId, new ApiCallback<ScheduleDtos.DeviceStateResponse>() {
             @Override
             public void onSuccess(ScheduleDtos.DeviceStateResponse state) {
                 if (state == null || state.lock_state == null) return;
+                lockStateUpdatedAtIso = state.updated_at;
                 boolean shouldBeBlocked = "AUTO_BLOCKED".equals(state.lock_state)
                         || "MANUAL_BLOCKED".equals(state.lock_state);
                 boolean locallyBlocked = PrefsHelper.isDoorBlocked(ControlActivity.this);
                 if (shouldBeBlocked != locallyBlocked) {
                     PrefsHelper.setDoorBlocked(ControlActivity.this, shouldBeBlocked);
                     if (shouldBeBlocked) PrefsHelper.clearCycle(ControlActivity.this);
+                    refreshTickRunnable.run();
+                } else if (shouldBeBlocked) {
+                    // El estado no cambio pero estamos en BLOCKED: refrescar
+                    // solo el subtitle del info strip para que el "hace Xh"
+                    // se actualice con cada poll.
                     refreshTickRunnable.run();
                 }
             }
@@ -631,11 +641,60 @@ public class ControlActivity extends AppCompatActivity {
         cardCall.setAlpha(0.5f);
         cardCall.setClickable(false);
 
-        // Info strip propio del modo seguridad
+        // Info strip propio del modo seguridad. Subtitle: 'Activado HH:MM · hace Xh'
+        // usando el lock_state_updated_at del backend (cuando se aplico el block).
+        // Si no tenemos info aun, fallback al texto generico.
         infoIcon.setImageResource(R.drawable.ic_shield_check);
         infoIcon.setColorFilter(color(R.color.accent_block));
         infoTitle.setText(R.string.control_info_blocked_title);
-        infoSubtitle.setText(R.string.control_info_blocked_subtitle);
+        infoSubtitle.setText(formatBlockedSubtitle(lockStateUpdatedAtIso));
+    }
+
+    /**
+     * Devuelve "Activado HH:MM · hace Xh" en castellano usando la hora local.
+     * Si iso es null o no parseable, devuelve el texto generico estatico.
+     *
+     * Ejemplos:
+     *   Activado 14:32 · hace 2 h
+     *   Activado 09:15 · hace 35 min
+     *   Activado ayer 22:10 · hace 1 d
+     */
+    private String formatBlockedSubtitle(String iso) {
+        if (iso == null || iso.isEmpty()) {
+            return getString(R.string.control_info_blocked_subtitle);
+        }
+        try {
+            java.time.OffsetDateTime parsed = java.time.OffsetDateTime.parse(iso);
+            long whenMs = parsed.toInstant().toEpochMilli();
+            long nowMs = System.currentTimeMillis();
+            // Tiempo absoluto en zona horaria local.
+            java.time.ZonedDateTime local = parsed.atZoneSameInstant(
+                    java.time.ZoneId.systemDefault());
+            String hhmm = String.format(java.util.Locale.getDefault(),
+                    "%02d:%02d", local.getHour(), local.getMinute());
+            // Tiempo relativo en espanol.
+            String rel = formatRelativeEs(nowMs - whenMs);
+            // Si fue hace > 18h, ya no decimos "Activado HH:MM" porque puede ser
+            // de otro dia y confunde. Mostramos solo el relativo.
+            if (nowMs - whenMs > 18L * 3600L * 1000L) {
+                return getString(R.string.control_info_blocked_subtitle_only_rel, rel);
+            }
+            return getString(R.string.control_info_blocked_subtitle_with_time, hhmm, rel);
+        } catch (Exception e) {
+            return getString(R.string.control_info_blocked_subtitle);
+        }
+    }
+
+    /** Devuelve 'hace X min', 'hace X h', 'hace X d' segun magnitud del delta. */
+    private static String formatRelativeEs(long deltaMs) {
+        if (deltaMs < 0) deltaMs = 0;
+        long mins = deltaMs / 60_000L;
+        if (mins < 1)   return "recién";
+        if (mins < 60)  return "hace " + mins + " min";
+        long hours = mins / 60;
+        if (hours < 24) return "hace " + hours + " h";
+        long days = hours / 24;
+        return "hace " + days + " d";
     }
 
     private void renderCalling() {
