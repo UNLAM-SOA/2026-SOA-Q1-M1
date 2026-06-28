@@ -35,8 +35,11 @@ const Transicion TABLA[N_ESTADOS][N_EVENTOS] = { ... }; // 5 x 9
   (abrir afuera/adentro, cerrar), suena el buzzer (bloqueo/desbloqueo), prende/apaga el
   LED y publica eventos por MQTT.
 - **`tareaMqtt`**: mantiene la conexión (reconexión no bloqueante), `mqtt.loop()` y
-  vacía `colaMqttSalida` publicando cada mensaje. El resto del código publica con
-  `publicarEvento(...)`, que solo encola (desacopla el publish de las tareas).
+  vacía `colaMqttSalida` publicando cada mensaje (tópico + payload). El resto del código
+  publica con `publicarEvento(...)` / `publicarMqtt(...)`, que solo encolan (desacopla el
+  publish de las tareas).
+- **`tareaTelemetria`**: cada 30 s arma un JSON de telemetría (uptime, RSSI, heap, temp
+  de CPU, IP/MAC, etc.) y lo encola hacia `pawgate/pawgate-001/events/telemetry`.
 
 Colas: `colaEventos` (Evento), `colaAcciones` (Accion), `colaMqttSalida` (MensajeMqtt).
 Timer one-shot `timerCierre` (4500 ms) que encola `Evento::TIMEOUT`.
@@ -60,15 +63,21 @@ Timer one-shot `timerCierre` (4500 ms) que encola `Evento::TIMEOUT`.
    `CERRADA_LIBRE`, así que nunca se podía mandar `D` estando bloqueada. Ahora se lee en
    cualquier estado y la tabla decide la validez.
 3. **Suscripción MQTT redundante** al propio tópico de eventos: eliminada (solo se
-   suscribe a `soa/puerta/cmd`).
+   suscribe a `pawgate/pawgate-001/cmd/+`).
 4. **Flag RFID "fantasma"**: se elimina leyendo y actuando en el momento, sin flag
    persistente entre ciclos.
 
 ## MQTT
-- Broker: HiveMQ público (`broker.hivemq.com:1883`, sin auth). Client ID `esp32-puerta-soa`.
-- `soa/puerta/cmd` (suscripción): payload que empieza con `B` = bloquear, `D` = desbloquear.
-  El callback traduce a `Evento::BLOQUEAR`/`Evento::DESBLOQUEAR`.
-- `soa/puerta/evento` (publicación): "PUERTA ABIERTA AFUERA/ADENTRO", "PUERTA CERRADA".
+Misma interfaz que la versión sin IA (mismos tópicos, comandos y payloads JSON), pero
+sobre broker público para poder simular en Wokwi sin la nube AWS.
+- Broker: HiveMQ público (`broker.hivemq.com:1883`, sin auth). Client ID `esp32-pawgate-soa`.
+- `pawgate/pawgate-001/cmd/+` (suscripción): el comando es el último segmento del tópico.
+  - `open` con JSON `{"direction":"in"|"out"}` → `Evento::ANIMAL_AFUERA` / `ANIMAL_ADENTRO`.
+  - `block` / `unblock` → `Evento::BLOQUEAR` / `DESBLOQUEAR`.
+  - `call` (beeps), `cancel` (sin efecto), `reboot` (reinicia), `metrics` (`finishStats()`).
+- `pawgate/pawgate-001/events/door` (publicación): eventos JSON
+  `{"type":"opened|closed|blocked|unblocked|light_on|light_off","direction":...,"ts":...}`.
+- `pawgate/pawgate-001/events/telemetry` (publicación): telemetría JSON periódica (cada 30 s).
 
 > WiFi: en simulación Wokwi se usa `Wokwi-GUEST` (sin clave). Para hardware real,
 > reemplazar `WIFI_SSID`/`WIFI_PASS` en `src/main.cpp`.

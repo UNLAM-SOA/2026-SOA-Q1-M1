@@ -13,11 +13,11 @@
 // ============================================================================
 
 #include <Arduino.h>
-#include <ESP32Servo.h>
 #include <SPI.h>
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h> // eventos y telemetría en JSON (mismo formato que la versión sin IA)
 #include "Metrics.h" // métricas de CPU/memoria (biblioteca de la cátedra; requiere arduino-esp32 3.x)
 
 // ----------------------------------------------------------------------------
@@ -68,17 +68,33 @@ constexpr char WIFI_SSID[] = "Wokwi-GUEST";
 constexpr char WIFI_PASS[] = "";
 constexpr int WIFI_CANAL = 6; // canal fijo => asociación rápida en Wokwi
 
-constexpr char MQTT_HOST[] = "broker.hivemq.com"; // broker público HiveMQ
+// Broker público HiveMQ (MQTT plano, sin TLS) => se puede simular en Wokwi sin
+// depender de la nube AWS. La INTERFAZ (tópicos + payloads JSON) es la MISMA que
+// la versión sin IA (AWS IoT Core), así el mismo control/Android sirve para ambas.
+constexpr char MQTT_HOST[] = "broker.hivemq.com";
 constexpr int MQTT_PORT = 1883;
-constexpr char MQTT_CLIENT_ID[] = "esp32-puerta-soa";
-constexpr char MQTT_TOPIC_CMD[] = "soa/puerta/cmd";       // entrada: 'B'/'D'
-constexpr char MQTT_TOPIC_EVENTO[] = "soa/puerta/evento"; // salida: estados
+constexpr char MQTT_CLIENT_ID[] = "esp32-pawgate-soa";
 
-constexpr size_t TAM_PAYLOAD = 32;
+// Identidad del firmware (para la telemetría)
+constexpr char FIRMWARE_VERSION[] = "1.0.0";
+constexpr char HARDWARE_MODEL[] = "ESP32-WROOM-32";
+constexpr uint32_t TELEMETRY_INTERVAL_MS = 30000;
+
+// Tópicos (idéntica estructura a la versión sin IA)
+//   entrada : pawgate/pawgate-001/cmd/<comando>  (open|block|unblock|call|cancel|reboot|metrics)
+//   salida  : pawgate/pawgate-001/events/door        (eventos de la puerta, JSON)
+//             pawgate/pawgate-001/events/telemetry   (telemetría periódica, JSON)
+constexpr char MQTT_TOPIC_CMD_FILTER[] = "pawgate/pawgate-001/cmd/+";
+constexpr char MQTT_TOPIC_EVENT_DOOR[] = "pawgate/pawgate-001/events/door";
+constexpr char MQTT_TOPIC_EVENT_TELEMETRY[] = "pawgate/pawgate-001/events/telemetry";
+
+constexpr size_t TAM_PAYLOAD = 512;
+constexpr size_t TAM_TOPIC = 64;
 constexpr UBaseType_t TAM_COLA = 10;
 
 struct MensajeMqtt
 {
+    char topico[TAM_TOPIC];
     char payload[TAM_PAYLOAD];
 };
 
@@ -171,15 +187,63 @@ QueueHandle_t colaAcciones;
 QueueHandle_t colaMqttSalida;
 TimerHandle_t timerCierre;
 
-Servo servo;
+// ----------------------------------------------------------------------------
+//  Servo por LEDC directo (arduino-esp32 3.x)
+//  Reemplaza a ESP32Servo: esa biblioteca (v3.2.1) adjunta el pin al canal LEDC
+//  dos veces durante attach() y, en arduino-esp32 3.x, el segundo intento
+//  dispara el error "Pin X is already attached to LEDC". Manejar el LEDC a mano
+//  evita ese doble-attach sin perder funcionalidad (mismo API: setPeriodHertz/
+//  attach/write).
+// ----------------------------------------------------------------------------
+class ServoLedc
+{
+public:
+    void setPeriodHertz(uint32_t hz) { frecuenciaHz = hz; }
+
+    bool attach(uint8_t pin, uint16_t minUs, uint16_t maxUs)
+    {
+        this->pin = pin;
+        this->minUs = minUs;
+        this->maxUs = maxUs;
+        return ledcAttach(pin, frecuenciaHz, RESOLUCION_BITS);
+    }
+
+    void write(int angulo)
+    {
+        if (angulo < 0)
+            angulo = 0;
+        if (angulo > 180)
+            angulo = 180;
+        uint32_t pulsoUs = minUs + (uint32_t)(maxUs - minUs) * angulo / 180;
+        uint32_t periodoUs = 1000000UL / frecuenciaHz;
+        uint32_t duty = (uint64_t)pulsoUs * ((1UL << RESOLUCION_BITS) - 1) / periodoUs;
+        ledcWrite(pin, duty);
+    }
+
+private:
+    static constexpr uint8_t RESOLUCION_BITS = 16;
+    uint8_t pin = 0;
+    uint16_t minUs = 500;
+    uint16_t maxUs = 2400;
+    uint32_t frecuenciaHz = 50;
+};
+
+ServoLedc servo;
 MFRC522 rfid(Pin::RFID_SS, Pin::RFID_RST);
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
 // Prototipos
 void encolarEvento(Evento ev);
-void publicarEvento(const char *payload);
+void publicarMqtt(const char *topico, const char *payload);
+void publicarEvento(const char *tipo, const char *direccion);
+void publicarTelemetria();
 bool enEstadoCerrado();
+
+// Dirección de la última apertura ("in"/"out"), para informarla al cerrar.
+const char *ultimaDireccionApertura = nullptr;
+// Dedup de la luz: solo se publica el flanco on->off / off->on.
+bool estadoLuzPublicado = false;
 
 // ----------------------------------------------------------------------------
 //  Utilidades
@@ -325,33 +389,48 @@ void ejecutarAccion(Accion a)
     switch (a)
     {
     case Accion::ABRIR_AFUERA:
-        servo.write(ANGULO_ABIERTA_AFUERA);
+        servo.write(ANGULO_ABIERTA_AFUERA); // 0° => apertura "hacia adentro" (animal entra)
         xTimerStart(timerCierre, 0);
-        publicarEvento("PUERTA ABIERTA AFUERA");
+        ultimaDireccionApertura = "in";
+        publicarEvento("opened", "in");
         break;
     case Accion::ABRIR_ADENTRO:
-        servo.write(ANGULO_ABIERTA_ADENTRO);
+        servo.write(ANGULO_ABIERTA_ADENTRO); // 180° => apertura "hacia afuera" (animal sale)
         xTimerStart(timerCierre, 0);
-        publicarEvento("PUERTA ABIERTA ADENTRO");
+        ultimaDireccionApertura = "out";
+        publicarEvento("opened", "out");
         break;
     case Accion::CERRAR:
         servo.write(ANGULO_CERRADA);
         deteccionHabilitada = true; // se rehabilitan los sensores
-        publicarEvento("PUERTA CERRADA");
+        publicarEvento("closed", ultimaDireccionApertura);
+        ultimaDireccionApertura = nullptr;
         break;
     case Accion::BLOQUEAR:
         beep(600, 120);
         beep(300, 200); // descendente: se bloquea
+        publicarEvento("blocked", nullptr);
         break;
     case Accion::DESBLOQUEAR:
         beep(600, 120);
         beep(1200, 200); // ascendente: se desbloquea
+        publicarEvento("unblocked", nullptr);
         break;
     case Accion::ENCENDER_LUZ:
         digitalWrite(Pin::LED, HIGH);
+        if (!estadoLuzPublicado)
+        {
+            publicarEvento("light_on", nullptr);
+            estadoLuzPublicado = true;
+        }
         break;
     case Accion::APAGAR_LUZ:
         digitalWrite(Pin::LED, LOW);
+        if (estadoLuzPublicado)
+        {
+            publicarEvento("light_off", nullptr);
+            estadoLuzPublicado = false;
+        }
         break;
     default:
         break;
@@ -372,39 +451,140 @@ void tareaActuadores(void *)
 // ----------------------------------------------------------------------------
 //  TAREA 4: MQTT (reconexión + loop + drenaje de la cola de salida)
 // ----------------------------------------------------------------------------
-void publicarEvento(const char *payload)
+// Encola un mensaje (tópico + payload) para que la tareaMqtt lo publique.
+void publicarMqtt(const char *topico, const char *payload)
 {
     MensajeMqtt msg;
+    strncpy(msg.topico, topico, TAM_TOPIC - 1);
+    msg.topico[TAM_TOPIC - 1] = '\0';
     strncpy(msg.payload, payload, TAM_PAYLOAD - 1);
     msg.payload[TAM_PAYLOAD - 1] = '\0';
     if (xQueueSend(colaMqttSalida, &msg, 0) != pdPASS)
         Serial.println("[mqtt] cola de salida LLENA");
 }
 
+// Publica un evento de la puerta en JSON: {"type":..., "direction":..., "ts":...}
+// (mismo formato que la versión sin IA, sobre pawgate/.../events/door).
+void publicarEvento(const char *tipo, const char *direccion)
+{
+    char buffer[TAM_PAYLOAD];
+    JsonDocument doc;
+    doc["type"] = tipo;
+    if (direccion != nullptr)
+        doc["direction"] = direccion;
+    doc["ts"] = millis();
+    serializeJson(doc, buffer, sizeof(buffer));
+    publicarMqtt(MQTT_TOPIC_EVENT_DOOR, buffer);
+}
+
+// Telemetría periódica del dispositivo (mismo formato que la versión sin IA).
+void publicarTelemetria()
+{
+    char buffer[TAM_PAYLOAD];
+    JsonDocument doc;
+    doc["type"] = "telemetry";
+    doc["ts"] = millis();
+    doc["uptime_s"] = millis() / 1000;
+    doc["rssi_dbm"] = WiFi.RSSI();                         // negativo (-30 muy bueno, -90 malo)
+    doc["free_heap_kb"] = ESP.getFreeHeap() / 1024;
+    doc["total_heap_kb"] = ESP.getHeapSize() / 1024;
+    doc["flash_used_kb"] = ESP.getSketchSize() / 1024;
+    doc["flash_total_kb"] = ESP.getFlashChipSize() / 1024;
+    doc["cpu_temp_c"] = temperatureRead();                 // sensor interno del ESP32 (°C)
+    doc["local_ip"] = WiFi.localIP().toString();
+    doc["device_mac"] = WiFi.macAddress();
+    doc["firmware_version"] = FIRMWARE_VERSION;
+    doc["hardware_model"] = HARDWARE_MODEL;
+    doc["wifi_ssid"] = WiFi.SSID();
+    doc["wifi_bssid"] = WiFi.BSSIDstr();                   // MAC del AP
+    doc["wifi_band"] = "2.4 GHz";
+    doc["wifi_gateway"] = WiFi.gatewayIP().toString();
+    doc["wifi_security"] = "WPA2-PSK";
+    size_t escrito = serializeJson(doc, buffer, sizeof(buffer));
+    if (escrito == 0 || escrito >= sizeof(buffer))
+        Serial.println("[telemetry] buffer chico, payload truncado");
+    publicarMqtt(MQTT_TOPIC_EVENT_TELEMETRY, buffer);
+}
+
+// Callback de comandos. El comando es el último segmento del tópico
+// (pawgate/pawgate-001/cmd/<comando>), igual que en la versión sin IA.
 void mqttCallback(char *topico, byte *payload, unsigned int length)
 {
-    if (length == 0)
+    const char *comando = strrchr(topico, '/');
+    if (!comando)
+    {
+        Serial.println("[mqtt] tópico malformado");
         return;
-    Serial.printf("[mqtt] msg en %s: %c\n", topico, (char)payload[0]);
-    if (payload[0] == 'B')
+    }
+    comando++; // saltar la '/'
+    Serial.printf("[mqtt] cmd '%s'\n", comando);
+
+    if (strcmp(comando, "open") == 0)
+    {
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, payload, length);
+        if (err)
+        {
+            Serial.printf("[mqtt] JSON inválido en open: %s\n", err.c_str());
+            return;
+        }
+        const char *direccion = doc["direction"];
+        if (direccion == nullptr)
+        {
+            Serial.println("[mqtt] open sin 'direction'");
+            return;
+        }
+        if (strcmp(direccion, "in") == 0)
+            encolarEvento(Evento::ANIMAL_AFUERA); // abre 0° (animal entra)
+        else if (strcmp(direccion, "out") == 0)
+            encolarEvento(Evento::ANIMAL_ADENTRO); // abre 180° (animal sale)
+        else
+            Serial.println("[mqtt] 'direction' debe ser in/out");
+    }
+    else if (strcmp(comando, "block") == 0)
         encolarEvento(Evento::BLOQUEAR);
-    else if (payload[0] == 'D')
+    else if (strcmp(comando, "unblock") == 0)
         encolarEvento(Evento::DESBLOQUEAR);
-    else if (payload[0] == 'M')
+    else if (strcmp(comando, "call") == 0)
+    {
+        // Llamar al animal: secuencia de beeps (no cambia el estado de la puerta).
+        for (int i = 0; i < 5; i++)
+        {
+            beep(1200, 150);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            beep(800, 150);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+    else if (strcmp(comando, "cancel") == 0)
+        Serial.println("[mqtt] cancel (sin efecto sobre la puerta)");
+    else if (strcmp(comando, "reboot") == 0)
+    {
+        Serial.println("[mqtt] reboot");
+        delay(100);
+        ESP.restart();
+    }
+    else if (strcmp(comando, "metrics") == 0)
         finishStats(); // termina el muestreo y muestra promedios de CPU/memoria
+    else
+        Serial.println("[mqtt] comando desconocido");
 }
 
 void reconectarMqtt()
 {
     mqtt.setServer(MQTT_HOST, MQTT_PORT);
     mqtt.setCallback(mqttCallback);
+    // El buffer por defecto de PubSubClient (256 B) es chico para la telemetría JSON
+    // (~400 B) y haría fallar el publish. Lo agrandamos como en la versión sin IA.
+    mqtt.setBufferSize(1024);
     for (int intentos = 0; !mqtt.connected() && intentos < 5; intentos++)
     {
         Serial.print("[mqtt] conectando...");
         if (mqtt.connect(MQTT_CLIENT_ID))
         {
             Serial.println("Conexión MQTT OK");
-            mqtt.subscribe(MQTT_TOPIC_CMD); // BUGFIX: solo el tópico de comandos
+            mqtt.subscribe(MQTT_TOPIC_CMD_FILTER); // suscripción a todos los comandos
+            Serial.printf("[mqtt] suscripto a %s\n", MQTT_TOPIC_CMD_FILTER);
         }
         else
         {
@@ -428,11 +608,26 @@ void tareaMqtt(void *)
             MensajeMqtt msg;
             while (xQueueReceive(colaMqttSalida, &msg, 0) == pdPASS)
             {
-                if (!mqtt.publish(MQTT_TOPIC_EVENTO, msg.payload, true))
+                if (!mqtt.publish(msg.topico, msg.payload, true))
                     Serial.println("[mqtt] publish FALLÓ");
             }
         }
         vTaskDelay(pdMS_TO_TICKS(PERIODO_TAREA_MS));
+    }
+}
+
+// ----------------------------------------------------------------------------
+//  TAREA 5: telemetría (publica el estado del dispositivo cada cierto intervalo)
+// ----------------------------------------------------------------------------
+void tareaTelemetria(void *)
+{
+    // Espera a tener WiFi antes del primer envío.
+    while (WiFi.status() != WL_CONNECTED)
+        vTaskDelay(pdMS_TO_TICKS(500));
+    for (;;)
+    {
+        publicarTelemetria();
+        vTaskDelay(pdMS_TO_TICKS(TELEMETRY_INTERVAL_MS));
     }
 }
 
@@ -449,12 +644,8 @@ void configurarPines()
     pinMode(Pin::TRIGGER, OUTPUT);
     digitalWrite(Pin::TRIGGER, LOW);
     pinMode(Pin::ECHO, INPUT);
-    // ESP32Servo en arduino-esp32 3.x: hay que reservar los timers LEDC antes de
-    // attach(), si no falla la configuración PWM del servo ("Pin already attached").
-    ESP32PWM::allocateTimer(0);
-    ESP32PWM::allocateTimer(1);
-    ESP32PWM::allocateTimer(2);
-    ESP32PWM::allocateTimer(3);
+    // Servo manejado por LEDC directo (ver clase ServoLedc): adjunta el pin una
+    // sola vez, evitando el error "Pin already attached" de ESP32Servo.
     servo.setPeriodHertz(50); // servo estándar de 50 Hz
     servo.attach(Pin::SERVO, 500, 2400);
     servo.write(ANGULO_CERRADA);
@@ -511,6 +702,7 @@ void crearTareas()
     xTaskCreate(tareaControlador, "controlador", STACK_TAREAS, NULL, PRIORIDAD, NULL);
     xTaskCreate(tareaActuadores, "actuadores", STACK_TAREAS, NULL, PRIORIDAD, NULL);
     xTaskCreate(tareaMqtt, "mqtt", STACK_TAREAS, NULL, PRIORIDAD, NULL);
+    xTaskCreate(tareaTelemetria, "telemetria", STACK_TAREAS, NULL, PRIORIDAD, NULL);
 }
 
 void setup()
@@ -534,8 +726,8 @@ void setup()
     crearTareas();
 
     // Métricas de CPU/memoria: arranca el muestreo. Para terminar y ver los promedios,
-    // publicar 'M' en soa/puerta/cmd (caso "FinishStats() al recibir un mensaje MQTT"),
-    // o esperar 10 s sin interacción y luego publicar 'M'.
+    // publicar en pawgate/pawgate-001/cmd/metrics (caso "FinishStats() al recibir un
+    // mensaje MQTT"), enviar 'M' por serial, o esperar 10 s sin interacción.
     initStats();
 }
 

@@ -57,7 +57,7 @@ static void printCpuUseForTask(uint64_t totalCore[], TaskStatus_t *taskArray, UB
  
     if (core < 2 && totalCore[core] > 0) {
       float pct = 100.0f * (float)taskArray[i].ulRunTimeCounter / (float)totalCore[core];
-      Serial.printf("Core %u | %-16s | %6.2f%%\n", core, taskArray[i].pcTaskName, pct);
+      Serial.printf("Core %u | %-16s | %6.2f%%\r\n", core, taskArray[i].pcTaskName, pct);
     }
   }
 }
@@ -94,35 +94,59 @@ static void calculateStats() {
     printCpuUseForTask(totalCore, taskArray, taskCount);
   }
 
-  if (totalRuntime > 0) {
-    for (int core = 0; core < 2; core++) {
+  // Cálculo por DELTAS (no acumulado desde el boot): cada core se normaliza contra
+  // el tiempo transcurrido en ESTE intervalo. Así el "Total" de cada núcleo queda
+  // ~100% (Ocupado + IDLE), que es lo coherente. Necesita una muestra previa.
+  if (havePrevSnapshot) {
+    uint32_t deltaRuntime = totalRuntime - prevTotalRuntime; // resta con wrap de 32 bits
 
-      // Calculo el total/idle/busy del núcleo
-      pctCoreTotal[core] = 100.0f * (float)totalCore[core] / (float)totalRuntime;
-      pctIdleTotal[core] = 100.0f * (float)idleCore[core] / (float)totalRuntime;
-      pctBusyTotal[core] = pctCoreTotal[core] - pctIdleTotal[core];
+    if (deltaRuntime > 0) {
+      for (int core = 0; core < 2; core++) {
+        uint64_t deltaIdle = idleCore[core] - prevIdleCore[core];
 
-      // Acumulo para promedio
-      sumCoreTotal[core] += pctCoreTotal[core];
-      sumIdleTotal[core] += pctIdleTotal[core];
-      sumBusyTotal[core] += pctBusyTotal[core];
+        // Utilización por núcleo. El denominador es deltaRuntime, que equivale al
+        // tiempo DISPONIBLE de cada core en el intervalo. El IDLE del core lo da su
+        // tarea IDLEx. TODO lo que no es IDLE (tareas con afinidad, tareas SIN
+        // afinidad como WiFi/lwIP, e ISRs) se considera Ocupado => Ocupado = 100% -
+        // IDLE. Así Ocupado + IDLE = 100% por núcleo, sin subcontar el trabajo de
+        // red. (Antes se normalizaba con la suma de tareas con afinidad, que dejaba
+        // afuera lo sin-afinidad/ISR y daba "Total" < 100%.)
+        float idle = 100.0f * (float)deltaIdle / (float)deltaRuntime;
+        if (idle < 0.0f) idle = 0.0f;   // guarda ante jitter del contador
+        if (idle > 100.0f) idle = 100.0f;
+
+        pctIdleTotal[core] = idle;
+        pctBusyTotal[core] = 100.0f - idle;
+        pctCoreTotal[core] = 100.0f;
+
+        // Acumulo para promedio
+        sumCoreTotal[core] += pctCoreTotal[core];
+        sumIdleTotal[core] += pctIdleTotal[core];
+        sumBusyTotal[core] += pctBusyTotal[core];
+      }
+
+      // Uso de la memoria heap (instantáneo en la misma muestra)
+      heapTotal = ESP.getHeapSize();
+      heapLibre = ESP.getFreeHeap();
+      heapUsado = heapTotal - heapLibre;
+
+      sumHeapTotal += heapTotal;
+      sumHeapLibre += heapLibre;
+      sumHeapUsado += heapUsado;
+
+      gSamples++;
     }
-
-    // Obtengo el uso de la Memoria heap
-    heapTotal = ESP.getHeapSize();
-    heapLibre = ESP.getFreeHeap();
-    heapUsado = heapTotal - heapLibre;
-
-    //llevo la cuenta de la cantidad de muestras para poder despues sacar el promedio
-    sumHeapTotal += heapTotal;
-    sumHeapLibre += heapLibre;
-    sumHeapUsado += heapUsado;
-
-    gSamples++;
-    
   } else {
-    Serial.println("(totalRuntime = 0: aún no hay muestras suficientes. No se pudo calcular las métricas)");
+    Serial.println("(primera muestra: tomo snapshot inicial; las métricas salen desde el próximo intervalo)");
   }
+
+  // Guardo el snapshot para el cálculo por delta de la próxima muestra
+  for (int core = 0; core < 2; core++) {
+    prevTotalCore[core] = totalCore[core];
+    prevIdleCore[core] = idleCore[core];
+  }
+  prevTotalRuntime = totalRuntime;
+  havePrevSnapshot = true;
 
   vPortFree(taskArray);
 }
@@ -130,7 +154,7 @@ static void calculateStats() {
 
 static void printCpuStats() {
   for (int core = 0; core < 2; core++) {
-    Serial.printf("Core %d -> Total: %6.2f%% | Ocupado: %6.2f%% | Libre (IDLE): %6.2f%%\n",
+    Serial.printf("Core %d -> Total: %6.2f%% | Ocupado: %6.2f%% | Libre (IDLE): %6.2f%%\r\n",
                   core, pctCoreTotal[core], pctBusyTotal[core], pctIdleTotal[core]);
   }
 }
@@ -138,10 +162,10 @@ static void printCpuStats() {
 static void printMemoryStats() {
   Serial.println("\n=== Estado de la memoria en ESP32 ===");
   Serial.println("=== Memoria interna (Heap) ===");
-  Serial.printf("Heap total : %lu bytes\n", (unsigned long)heapTotal);
-  Serial.printf("Heap libre : %lu bytes\n", (unsigned long)heapLibre);
-  Serial.printf("Heap usado : %lu bytes\n", (unsigned long)heapUsado);
-  Serial.printf("Uso        : %.2f %%\n\n",
+  Serial.printf("Heap total : %lu bytes\r\n",(unsigned long)heapTotal);
+  Serial.printf("Heap libre : %lu bytes\r\n",(unsigned long)heapLibre);
+  Serial.printf("Heap usado : %lu bytes\r\n",(unsigned long)heapUsado);
+  Serial.printf("Uso        : %.2f %%\r\n\r\n",
                 heapTotal ? (heapUsado * 100.0) / heapTotal : 0.0);
 }
 
@@ -160,7 +184,7 @@ static void printCpuAverageStats() {
     const float avgBusy = sumBusyTotal[core] / gSamples;
     const float avgIdle = sumIdleTotal[core] / gSamples;
 
-    Serial.printf("Core %d -> Total: %6.2f%% | Ocupado: %6.2f%% | Libre (IDLE): %6.2f%%\n",
+    Serial.printf("Core %d -> Total: %6.2f%% | Ocupado: %6.2f%% | Libre (IDLE): %6.2f%%\r\n",
                   core, avgTotal, avgBusy, avgIdle);
   }
 }
@@ -180,10 +204,10 @@ static void printMemoryAverageStats() {
   Serial.println("============= Memoria interna (Heap) =============");
   Serial.println("==================================================");
 
-  Serial.printf("Heap total : %lu bytes\n", averageHeapTotal);
-  Serial.printf("Heap libre : %lu bytes\n", averageHeapLibre);
-  Serial.printf("Heap usado : %lu bytes\n", averageHeapUsado);
-  Serial.printf("Uso        : %.2f %%\n\n",
+  Serial.printf("Heap total : %lu bytes\r\n",averageHeapTotal);
+  Serial.printf("Heap libre : %lu bytes\r\n",averageHeapLibre);
+  Serial.printf("Heap usado : %lu bytes\r\n",averageHeapUsado);
+  Serial.printf("Uso        : %.2f %%\r\n\r\n",
                 averageHeapTotal ? (averageHeapUsado * 100.0) / averageHeapTotal : 0.0);
 }
 
@@ -213,7 +237,7 @@ static void StatsTask(void *pv) {
       double samplingTime = finalTime / 1e6;
 
       Serial.println("\n=== Contribución Promedio al total del sistema ===");
-      Serial.printf("=== Tiempo de muestreado: %6.0lf% (segundos) ===\n", samplingTime);
+      Serial.printf("=== Tiempo de muestreado: %.0lf segundos ===\r\n", samplingTime);
 
       printCpuAverageStats();
       printMemoryAverageStats();
@@ -230,7 +254,7 @@ static void StatsTask(void *pv) {
 void initStats() {
 #if (configGENERATE_RUN_TIME_STATS == 1)
 
-  Serial.printf("\nMuestreo de Metricas Iniciado...\n");
+  Serial.printf("\r\nMuestreo de Metricas Iniciado...\r\n");
 
   taskENTER_CRITICAL(&sMux);
   bool already = (gStatsTask != nullptr);
@@ -246,10 +270,18 @@ void initStats() {
     sumIdleTotal[i] = 0;
     sumBusyTotal[i] = 0;
   }
-  sumHeapTotal = 0; 
+  sumHeapTotal = 0;
   sumHeapLibre = 0;
   sumHeapUsado = 0;
   gSamples = 0;
+
+  // Reseteo el snapshot del cálculo por delta
+  for (int i = 0; i < 2; i++) {
+    prevTotalCore[i] = 0;
+    prevIdleCore[i] = 0;
+  }
+  prevTotalRuntime = 0;
+  havePrevSnapshot = false;
 
   //creo la tarea
   BaseType_t ok = xTaskCreatePinnedToCore(StatsTask, "StatsTask", 4096, nullptr, 1, &gStatsTask, 1);
