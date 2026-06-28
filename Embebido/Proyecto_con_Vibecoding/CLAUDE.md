@@ -1,0 +1,6 @@
+- Este proyecto usa ESP32 + PlatformIO + Wokwi.
+- El codigo principal esta en src/main.cpp.
+- Se usa FreeRTOS con tareas y colas.
+- No renombrar funciones existentes sin pedir permiso.
+- Compilar siempre con pio run.
+- No modificar pines sin revisar diagram.json.
