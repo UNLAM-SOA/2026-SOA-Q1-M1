@@ -127,6 +127,8 @@ OVERRIDE_BLOCK_RES=$(ensure_resource "$STATE_RES" "override-block" "/devices/{id
 METRICS_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "metrics" "/devices/{id}/metrics" | tail -1)
 METRICS_TODAY_RES=$(ensure_resource "$METRICS_RES" "today" "/devices/{id}/metrics/today" | tail -1)
 INFO_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "info" "/devices/{id}/info" | tail -1)
+FIRMWARE_RES=$(ensure_resource "$DEVICES_ID_RESOURCE" "firmware" "/devices/{id}/firmware" | tail -1)
+FIRMWARE_LATEST_RES=$(ensure_resource "$FIRMWARE_RES" "latest" "/devices/{id}/firmware/latest" | tail -1)
 
 # FCM token endpoint (Fase 20)
 USERS_RES=$(ensure_resource "$ROOT_RES" "users" "/users" | tail -1)
@@ -305,6 +307,10 @@ ensure_cors   $METRICS_TODAY_RES     "       /devices/{id}/metrics/today"
 # /devices/{id}/info                     GET
 ensure_method $INFO_RES GET "GET    /devices/{id}/info"
 ensure_cors   $INFO_RES     "       /devices/{id}/info"
+
+# /devices/{id}/firmware/latest          GET   (OTA metadata desde S3 manifest)
+ensure_method $FIRMWARE_LATEST_RES GET "GET    /devices/{id}/firmware/latest"
+ensure_cors   $FIRMWARE_LATEST_RES     "       /devices/{id}/firmware/latest"
 
 # /users/me/fcm-token                    POST + DELETE
 ensure_method $FCM_TOKEN_RES POST   "POST   /users/me/fcm-token"
