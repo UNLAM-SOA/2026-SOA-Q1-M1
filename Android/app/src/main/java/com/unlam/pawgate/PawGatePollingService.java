@@ -330,8 +330,22 @@ public class PawGatePollingService extends Service {
         Intent broadcast = new Intent(ACTION_EVENT_UPDATE);
         broadcast.setPackage(getPackageName()); // restringir solo a nuestra app
         broadcast.putExtra(EXTRA_EVENT_TYPE, e.event_type);
-        broadcast.putExtra(EXTRA_CREATED_AT_ISO, e.created_at);
-        broadcast.putExtra(EXTRA_CREATED_AT_MS, HistorialMapper.parseIsoToMs(e.created_at));
+        // IMPORTANTE: solo incluimos created_at cuando el evento ES de actividad
+        // de la puerta (opened/closed/blocked/unblocked). El label "Ultima
+        // actividad" del Dashboard se refiere a la puerta — los eventos de luz
+        // (light_on/light_off) tienen su propia metrica (light_minutes_today +
+        // badge). Si dejamos pasar el created_at de un light_on, el Dashboard
+        // lo escribe como "hace unos segundos" y enseguida loadDailyMetrics()
+        // lo pisa con el last_door_event_at del backend (que NO incluye light),
+        // produciendo un flicker entre "hace unos segundos" y "hace X min".
+        boolean includeIso = isDoorActivityEvent(e.event_type);
+        if (includeIso) {
+            broadcast.putExtra(EXTRA_CREATED_AT_ISO, e.created_at);
+            broadcast.putExtra(EXTRA_CREATED_AT_MS, HistorialMapper.parseIsoToMs(e.created_at));
+        }
+        Log.d(TAG, "broadcastEvent: type=" + e.event_type
+                + " includeIso=" + includeIso
+                + " (false => label 'Ultima actividad' NO se toca)");
         sendBroadcast(broadcast);
     }
 
@@ -344,6 +358,16 @@ public class PawGatePollingService extends Service {
                 || "unblocked".equals(eventType)
                 || "light_on".equals(eventType)
                 || "light_off".equals(eventType);
+    }
+
+    /** Subset de isDoorEvent que SOLO considera actividad de la puerta. Se usa
+     *  para decidir si el evento debe pisar el label "Ultima actividad" del
+     *  Dashboard. Los light_on/light_off quedan afuera adrede. */
+    private static boolean isDoorActivityEvent(String eventType) {
+        return "opened".equals(eventType)
+                || "closed".equals(eventType)
+                || "blocked".equals(eventType)
+                || "unblocked".equals(eventType);
     }
 
     // ============================================================
