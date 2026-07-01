@@ -35,8 +35,10 @@ La luz **no** es una segunda FSM: el día/noche son **eventos** (`Evento::DIA`,
 `INIT_LIBRE`, `INIT_BLOQUEADA`, `DESBLOQUEAR`, `BLOQUEAR`, `ANIMAL_ADENTRO`,
 `ANIMAL_AFUERA`, `TIMEOUT`, `DIA`, `NOCHE`.
 
-> Bloqueo/desbloqueo entran por **serial** o por **MQTT** (tópico `soa/puerta/cmd`,
-> payload `'B'`/`'D'`). Día/noche provienen del fotoresistor (por flanco). Timeout del timer.
+> Bloqueo/desbloqueo entran por **serial** (`'B'`/`'D'`) o por **MQTT**
+> (`pawgate/pawgate-001/cmd/block` y `.../cmd/unblock`). La apertura remota llega por
+> `.../cmd/open` con JSON `{"direction":"in"|"out"}`. Día/noche provienen del fotoresistor
+> (por flanco). Timeout del timer.
 
 ## Acciones (7)
 `ABRIR_AFUERA`, `ABRIR_ADENTRO`, `CERRAR`, `BLOQUEAR`, `DESBLOQUEAR`, `ENCENDER_LUZ`, `APAGAR_LUZ`.

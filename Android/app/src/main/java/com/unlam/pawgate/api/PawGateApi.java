@@ -64,6 +64,9 @@ public interface PawGateApi {
     @GET("devices/{id}/info")
     Call<DeviceDtos.DeviceInfoResponse> getDeviceInfo(@Path("id") String deviceId);
 
+    @GET("devices/{id}/firmware/latest")
+    Call<DeviceDtos.FirmwareLatestResponse> getFirmwareLatest(@Path("id") String deviceId);
+
     // ===== FCM token (Fase 20) =====
 
     @POST("users/me/fcm-token")

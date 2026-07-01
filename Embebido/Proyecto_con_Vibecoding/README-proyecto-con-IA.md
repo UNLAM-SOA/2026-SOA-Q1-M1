@@ -49,8 +49,10 @@ indicaciones dadas:
 
 1. **FSM única + MQTT.** Se reescribió `main.cpp` desde el código manual: una sola tabla de
    transiciones (5 estados × 9 eventos) con la luz como eventos/acciones, y se incorporó MQTT
-   completo (WiFi, reconexión, suscripción a `soa/puerta/cmd`, publicación en
-   `soa/puerta/evento`, cola de salida y callback). Para Wokwi se usó el AP `Wokwi-GUEST`.
+   completo (WiFi, reconexión, suscripción a `pawgate/pawgate-001/cmd/+`, publicación de
+   eventos JSON en `pawgate/pawgate-001/events/door`, telemetría en
+   `pawgate/pawgate-001/events/telemetry`, cola de salida y callback). Para Wokwi se usó el
+   AP `Wokwi-GUEST`.
 2. **Verificación temprana.** `pio run` OK; un test de la FSM (modelo fiel en Python, 31/31) y
    una demo de MQTT end-to-end contra el broker real HiveMQ (6/6).
 3. **Ajustes funcionales pedidos.** Baud a 115200; se reactivó y luego se **eliminó el pulsador**
@@ -77,12 +79,14 @@ indicaciones dadas:
 
 ## 4. Arquitectura de la versión con IA
 
-- **4 tareas FreeRTOS** (prioridad 1, `while(1)` + `vTaskDelay` no bloqueante):
-  `tareaDeteccion`, `tareaControlador` (la FSM), `tareaActuadores`, `tareaMqtt`.
+- **5 tareas FreeRTOS** (prioridad 1, `while(1)` + `vTaskDelay` no bloqueante):
+  `tareaDeteccion`, `tareaControlador` (la FSM), `tareaActuadores`, `tareaMqtt`, `tareaTelemetria`.
 - **3 colas**: eventos, acciones y salida MQTT. **Timer** de FreeRTOS para el cierre automático.
 - **Sensores**: proximidad (HC-SR04), RFID (MFRC522), luz (fotoresistor).
 - **Actuadores**: servo, buzzer, LED.
-- **Comunicación**: MQTT (broker HiveMQ; `soa/puerta/cmd` y `soa/puerta/evento`).
+- **Comunicación**: MQTT (broker público HiveMQ, simulable en Wokwi sin la nube). Misma
+  interfaz que la versión sin IA: comandos en `pawgate/pawgate-001/cmd/<open|block|unblock|call|cancel|reboot>`
+  y eventos/telemetría JSON en `pawgate/pawgate-001/events/door` y `.../events/telemetry`.
 
 Detalle completo en `Arquitectura.md` y la tabla de estados en `máquina_de_estados.excalidraw.md`.
 
@@ -126,7 +130,7 @@ Pedida por la cátedra: un directorio por versión.
 | Criterio | Estado | Evidencia |
 |---|---|---|
 | Funciona sin errores | A | Compila (`pio run` OK); FSM 31/31; MQTT 6/6. *(Único aviso: log cosmético de LEDC del servo.)* |
-| Emplea tareas de FreeRTOS | A | 4 tareas (detección, controlador, actuadores, MQTT) |
+| Emplea tareas de FreeRTOS | A | 5 tareas (detección, controlador, actuadores, MQTT, telemetría) |
 | Evita esperas bloqueantes (temporizadores) | A | `xTimerCreate` para el cierre automático; tareas con `vTaskDelay` |
 | Usa los sensores y actuadores solicitados | A | 3 sensores (proximidad, RFID, luz) + 3 actuadores (servo, buzzer, LED) |
 | Se comunica con Android | Parcial | MQTT bidireccional probado; falta la app Android sobre los mismos tópicos |
@@ -141,5 +145,11 @@ pio run        # compila (primer build descarga el toolchain 3.x, tarda unos min
 Luego, simular en **Wokwi** (extensión de VS Code). En el monitor serial (115200) se ve la
 conexión WiFi/MQTT, el funcionamiento de la FSM y, a los 10 s, las métricas de CPU/memoria.
 
-- Bloquear/desbloquear: `B`/`D` por serial o por MQTT en `soa/puerta/cmd`.
-- Terminar el muestreo de métricas: `M` por serial o MQTT (o esperar el auto-fin a los 10 s).
+- Comandos por MQTT (publicar en `pawgate/pawgate-001/cmd/<comando>`):
+  - `open` con payload JSON `{"direction":"in"}` o `{"direction":"out"}` — abre la puerta.
+  - `block` / `unblock` — bloquea / desbloquea (también `B`/`D` por serial).
+  - `call` — llama al animal (beeps); `cancel` — sin efecto; `reboot` — reinicia el ESP32.
+  - `metrics` — termina el muestreo de métricas (también `M` por serial, o auto-fin a los 10 s).
+- Eventos y telemetría (JSON) salen por `pawgate/pawgate-001/events/door` y `.../events/telemetry`.
+- Para probar el MQTT: `python control_mqtt.py` (control vivo contra el firmware en Wokwi) o
+  `python demo_mqtt.py` (demo end-to-end offline con la puerta emulada).

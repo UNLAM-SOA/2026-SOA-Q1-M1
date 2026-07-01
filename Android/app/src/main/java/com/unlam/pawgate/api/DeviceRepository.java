@@ -40,6 +40,7 @@ public class DeviceRepository {
     public static final String CMD_UNBLOCK = "unblock";
     public static final String CMD_CALL = "call";
     public static final String CMD_CANCEL = "cancel";
+    public static final String CMD_OTA = "ota";
 
     private final Context appContext;
     private final PawGateApi api;
@@ -84,6 +85,8 @@ public class DeviceRepository {
                 if (response.isSuccessful() && response.body() != null) {
                     cb.onSuccess(response.body());
                 } else {
+                    Log.w(TAG, "history HTTP " + response.code()
+                            + " url=" + call.request().url());
                     cb.onError(parseError(response.errorBody(), "No se pudo cargar el historial"));
                 }
             }
@@ -202,6 +205,22 @@ public class DeviceRepository {
         });
     }
 
+    /** GET /devices/{id}/firmware/latest — metadata del .bin "latest" en S3. */
+    public void firmwareLatest(String deviceId, ApiCallback<DeviceDtos.FirmwareLatestResponse> cb) {
+        api.getFirmwareLatest(deviceId).enqueue(new Callback<DeviceDtos.FirmwareLatestResponse>() {
+            @Override public void onResponse(Call<DeviceDtos.FirmwareLatestResponse> call,
+                                             Response<DeviceDtos.FirmwareLatestResponse> response) {
+                if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
+                else cb.onError(parseError(response.errorBody(),
+                        "No se pudo consultar la version mas reciente"));
+            }
+            @Override public void onFailure(Call<DeviceDtos.FirmwareLatestResponse> call, Throwable t) {
+                Log.e(TAG, "firmwareLatest network error", t);
+                cb.onError(networkErrorMessage(t));
+            }
+        });
+    }
+
     // ============================================================
     // SCHEDULES CRUD
     // ============================================================
@@ -273,7 +292,11 @@ public class DeviceRepository {
             @Override public void onResponse(Call<ScheduleDtos.DeviceStateResponse> call,
                                              Response<ScheduleDtos.DeviceStateResponse> response) {
                 if (response.isSuccessful() && response.body() != null) cb.onSuccess(response.body());
-                else cb.onError(parseError(response.errorBody(), "No se pudo obtener el estado"));
+                else {
+                    Log.w(TAG, "getDeviceState HTTP " + response.code()
+                            + " url=" + call.request().url());
+                    cb.onError(parseError(response.errorBody(), "No se pudo obtener el estado"));
+                }
             }
             @Override public void onFailure(Call<ScheduleDtos.DeviceStateResponse> call, Throwable t) {
                 Log.e(TAG, "getDeviceState network error", t);

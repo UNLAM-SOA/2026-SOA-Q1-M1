@@ -103,7 +103,7 @@ void loop() {
 ```
 
 > En este proyecto, `finishStats()` también se dispara escribiendo `M` por el **monitor serial**
-> (más cómodo para probar) además de por **MQTT** en el tópico `soa/puerta/cmd`.
+> (más cómodo para probar) además de por **MQTT** publicando en `pawgate/pawgate-001/cmd/metrics`.
 
 ---
 
@@ -113,8 +113,8 @@ void loop() {
 2. Correr en **Wokwi** (extensión de VS Code) — ahora usa el firmware 3.x con métricas.
 3. Dos casos de prueba (los que pide la cátedra):
    - **10 s sin interacción**: arranca, esperás 10 s → imprime los promedios solo.
-   - **Por evento MQTT**: hacés la interacción y publicás `M` en `soa/puerta/cmd` (o tipeás `M`
-     en el monitor) → imprime los promedios.
+   - **Por evento MQTT**: hacés la interacción y publicás en `pawgate/pawgate-001/cmd/metrics`
+     (o tipeás `M` en el monitor) → imprime los promedios.
 
 ---
 

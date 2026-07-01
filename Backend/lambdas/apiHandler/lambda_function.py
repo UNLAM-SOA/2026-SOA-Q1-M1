@@ -175,6 +175,10 @@ def lambda_handler(event, context):
         if method == "GET" and path.endswith("/info"):
             return handle_get_info(device_id)
 
+        # ===== Firmware OTA: metadata del .bin "latest" en S3 =====
+        if method == "GET" and path.endswith("/firmware/latest"):
+            return handle_firmware_latest(device_id)
+
         # ===== FCM push token (Fase 20) =====
         # POST /users/me/fcm-token   body: {token}
         # DELETE /users/me/fcm-token
@@ -475,9 +479,30 @@ def handle_history(device_id, query_params):
 def handle_cmd(device_id, cmd, body, actor=None):
     if not device_id or not cmd:
         return _bad_request("device_id y cmd son requeridos")
-    allowed_cmds = {"open", "block", "unblock", "call", "cancel", "reboot"}
+    allowed_cmds = {"open", "block", "unblock", "call", "cancel", "reboot", "ota"}
     if cmd not in allowed_cmds:
         return _bad_request(f"cmd '{cmd}' no permitido. Allowed: {allowed_cmds}")
+
+    # OTA: la app puede pasarnos {"version": "1.1.0"} o nada. En ambos casos
+    # leemos el manifest.json de S3 para obtener url + sha256 actualizados.
+    # Si la app pidio una version distinta a la "latest", devolvemos error
+    # (no soportamos rollback a versiones arbitrarias por ahora).
+    if cmd == "ota":
+        manifest = _fetch_firmware_manifest()
+        if manifest is None:
+            return _server_error("no se pudo leer manifest.json del bucket de firmware")
+        requested_version = (body or {}).get("version")
+        if requested_version and requested_version != manifest.get("latest_version"):
+            return _bad_request(
+                f"version '{requested_version}' no disponible. latest={manifest.get('latest_version')}"
+            )
+        # Reemplazamos body por la metadata enriquecida que el firmware espera.
+        body = {
+            "url":     manifest["url"],
+            "version": manifest["latest_version"],
+            "sha256":  manifest["sha256"],
+            "size":    manifest.get("size"),
+        }
 
     # Para block/unblock, sincronizar el lock_state en DDB. Sin esto el polling
     # del app leeria un state desactualizado y revertiria el flag local en 3s,
@@ -854,6 +879,64 @@ def handle_get_info(device_id):
         "wifi_band":        str(info.get("wifi_band", "") or ""),
         "wifi_gateway":     str(info.get("wifi_gateway", "") or ""),
         "wifi_security":    str(info.get("wifi_security", "") or ""),
+    })
+
+
+# ============================================================
+# FIRMWARE OTA — manifest en S3
+# ============================================================
+
+# Bucket donde release-firmware.sh sube los .bin y el manifest.json.
+# El bucket es publico (read-only) — los binarios no contienen secretos.
+FIRMWARE_BUCKET = os.environ.get("FIRMWARE_BUCKET", "pawgate-firmware-075138626693")
+FIRMWARE_MANIFEST_KEY = "manifest.json"
+
+
+def _fetch_firmware_manifest():
+    """Lee el manifest.json del bucket S3 y lo devuelve como dict.
+    Devuelve None si falla (la lambda registra el error en logs).
+
+    Formato esperado del manifest:
+      {
+        "latest_version": "1.1.0",
+        "url":            "http://<bucket>.s3.us-east-1.amazonaws.com/firmware-1.1.0.bin",
+        "sha256":         "<hex 64 chars>",
+        "size":           1234567,
+        "released_at":    "2026-06-29T12:34:56Z",
+        "release_notes":  "..."
+      }
+    """
+    s3 = boto3.client("s3")
+    try:
+        resp = s3.get_object(Bucket=FIRMWARE_BUCKET, Key=FIRMWARE_MANIFEST_KEY)
+        raw = resp["Body"].read().decode("utf-8")
+        return json.loads(raw)
+    except Exception as e:
+        logger.error("No pude leer s3://%s/%s : %s",
+                     FIRMWARE_BUCKET, FIRMWARE_MANIFEST_KEY, e)
+        return None
+
+
+def handle_firmware_latest(device_id):
+    """GET /devices/{id}/firmware/latest
+
+    Devuelve la metadata del firmware mas reciente publicado en S3. La app
+    Android usa esto para comparar contra DeviceInfoResponse.firmware_version
+    y decidir si mostrar el boton "Actualizar a vX.Y.Z".
+    """
+    if not device_id:
+        return _bad_request("device_id es requerido")
+    manifest = _fetch_firmware_manifest()
+    if manifest is None:
+        return _server_error("no se pudo leer manifest.json")
+    return _ok({
+        "device_id":      device_id,
+        "latest_version": manifest.get("latest_version", ""),
+        "url":            manifest.get("url", ""),
+        "sha256":         manifest.get("sha256", ""),
+        "size":           int(manifest.get("size", 0) or 0),
+        "released_at":    manifest.get("released_at", ""),
+        "release_notes":  manifest.get("release_notes", ""),
     })
 
 

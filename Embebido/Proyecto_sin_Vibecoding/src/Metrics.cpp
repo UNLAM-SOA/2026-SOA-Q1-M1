@@ -102,22 +102,13 @@ static void calculateStats() {
 
     if (deltaRuntime > 0) {
       for (int core = 0; core < 2; core++) {
+        uint64_t deltaCore = totalCore[core] - prevTotalCore[core];
         uint64_t deltaIdle = idleCore[core] - prevIdleCore[core];
 
-        // Utilización por núcleo. El denominador es deltaRuntime, que equivale al
-        // tiempo DISPONIBLE de cada core en el intervalo. El IDLE del core lo da su
-        // tarea IDLEx. TODO lo que no es IDLE (tareas con afinidad, tareas SIN
-        // afinidad como WiFi/lwIP, e ISRs) se considera Ocupado => Ocupado = 100% -
-        // IDLE. Así Ocupado + IDLE = 100% por núcleo, sin subcontar el trabajo de
-        // red. (Antes se normalizaba con la suma de tareas con afinidad, que dejaba
-        // afuera lo sin-afinidad/ISR y daba "Total" < 100%.)
-        float idle = 100.0f * (float)deltaIdle / (float)deltaRuntime;
-        if (idle < 0.0f) idle = 0.0f;   // guarda ante jitter del contador
-        if (idle > 100.0f) idle = 100.0f;
-
-        pctIdleTotal[core] = idle;
-        pctBusyTotal[core] = 100.0f - idle;
-        pctCoreTotal[core] = 100.0f;
+        // Total/idle/busy del núcleo en el intervalo
+        pctCoreTotal[core] = 100.0f * (float)deltaCore / (float)deltaRuntime;
+        pctIdleTotal[core] = 100.0f * (float)deltaIdle / (float)deltaRuntime;
+        pctBusyTotal[core] = pctCoreTotal[core] - pctIdleTotal[core];
 
         // Acumulo para promedio
         sumCoreTotal[core] += pctCoreTotal[core];

@@ -69,11 +69,11 @@ class Sistema:
 
     def _ejecutar(self, a):
         if a == A_ABRIR_AFUERA:
-            self.servo = 0; self.timer_activo = True; self.mqtt_pub.append("PUERTA ABIERTA AFUERA")
+            self.servo = 0; self.timer_activo = True; self.mqtt_pub.append("opened:in")
         elif a == A_ABRIR_ADENTRO:
-            self.servo = 180; self.timer_activo = True; self.mqtt_pub.append("PUERTA ABIERTA ADENTRO")
+            self.servo = 180; self.timer_activo = True; self.mqtt_pub.append("opened:out")
         elif a == A_CERRAR:
-            self.servo = 90; self.deteccion = True; self.mqtt_pub.append("PUERTA CERRADA")
+            self.servo = 90; self.deteccion = True; self.mqtt_pub.append("closed")
         elif a == A_BLOQUEAR:
             self.buzzer += [(600, 120), (300, 200)]
         elif a == A_DESBLOQUEAR:
@@ -159,7 +159,7 @@ check("abierta: estado se mantiene", s.estado == ABIERTA_AFUERA)
 print("\n[4] Proximidad: animal adentro")
 s = nuevo(); s.detectar_proximidad(15); s.tick()
 check("abre adentro (servo=180)", s.estado == ABIERTA_ADENTRO and s.servo == 180)
-check("publica 'PUERTA ABIERTA ADENTRO'", "PUERTA ABIERTA ADENTRO" in s.mqtt_pub)
+check("publica evento 'opened:out'", "opened:out" in s.mqtt_pub)
 check("detección deshabilitada + timer activo", (not s.deteccion) and s.timer_activo)
 s2 = nuevo(); s2.detectar_proximidad(2); s2.tick()
 check("distancia 2cm (<base) no dispara", s2.estado == CERRADA_LIBRE)
@@ -169,13 +169,13 @@ check("distancia 50cm (>min) no dispara", s3.estado == CERRADA_LIBRE)
 print("\n[5] Timeout cierra")
 s.timeout(); s.tick()
 check("timeout -> CERRADA_LIBRE (servo=90)", s.estado == CERRADA_LIBRE and s.servo == 90)
-check("publica 'PUERTA CERRADA'", "PUERTA CERRADA" in s.mqtt_pub)
+check("publica evento 'closed'", "closed" in s.mqtt_pub)
 check("detección rehabilitada al cerrar", s.deteccion)
 
 print("\n[6] RFID: animal afuera")
 s = nuevo(); s.detectar_rfid(True); s.tick()
 check("abre afuera (servo=0)", s.estado == ABIERTA_AFUERA and s.servo == 0)
-check("publica 'PUERTA ABIERTA AFUERA'", "PUERTA ABIERTA AFUERA" in s.mqtt_pub)
+check("publica evento 'opened:in'", "opened:in" in s.mqtt_pub)
 
 print("\n[7] Bloqueo/desbloqueo (serial o MQTT) + buzzer")
 s = nuevo(); s.comando('B'); s.tick()
