@@ -41,7 +41,17 @@ namespace Pin
 // ----------------------------------------------------------------------------
 //  Parámetros de dominio
 // ----------------------------------------------------------------------------
-constexpr long UMBRAL_LUZ = 2048;       // ADC: > umbral => día
+// LDR: ADC 12 bits (0-4095). Lectura alta = mucha luz (día), baja = poca luz (noche).
+// Histéresis (dos umbrales con gap) para evitar parpadeo en el borde:
+//   ADC > UMBRAL_DIA       -> dispara transición a DÍA (apaga LED)
+//   ADC < UMBRAL_NOCHE     -> dispara transición a NOCHE (enciende LED)
+//   entre ambos: se mantiene el estado anterior.
+// Si necesitás pegarle la linterna para que apague, bajá UMBRAL_DIA.
+// Para calibrar: mirá el log "[luz] adc=XXXX" en el monitor serial y ajustá
+// UMBRAL_DIA un poco por debajo de la lectura ambiente normal.
+constexpr long UMBRAL_DIA = 1200;       // ADC: > UMBRAL_DIA   => DÍA
+constexpr long UMBRAL_NOCHE = 800;      // ADC: < UMBRAL_NOCHE => NOCHE
+constexpr uint32_t LOG_LUZ_PERIODO_MS = 2000;  // imprimir lectura cada 2s mientras calibrás
 constexpr float DIST_MIN_CM = 30.0f;    // tolerancia: animal "cerca" si distancia < esto
 constexpr float VEL_SONIDO = 0.0343f;   // cm/us
 constexpr uint32_t ECHO_TIMEOUT_US = 30000;
@@ -338,14 +348,35 @@ void detectarRfid()
 void detectarLuz()
 {
     static bool esDiaPrevio = true; // asume día => si arranca de noche, enciende
-    bool esDiaAhora = analogRead(Pin::LDR) > UMBRAL_LUZ;
+    static uint32_t ultimoLog = 0;
+    const int lectura = analogRead(Pin::LDR);
+
+    // Log periódico para calibrar: anotá los valores en tu ambiente
+    // (luz ambiente normal vs habitación a oscuras vs linterna pegada)
+    // y ajustá UMBRAL_DIA / UMBRAL_NOCHE en consecuencia.
+    const uint32_t ahora = millis();
+    if (ahora - ultimoLog >= LOG_LUZ_PERIODO_MS)
+    {
+        ultimoLog = ahora;
+        Serial.printf("[luz] adc=%d (umbral dia>%ld, noche<%ld) estado=%s\n",
+                      lectura, UMBRAL_DIA, UMBRAL_NOCHE,
+                      esDiaPrevio ? "DIA" : "NOCHE");
+    }
+
+    // Histéresis: cambiar estado solo si cruzo el umbral del "otro" lado.
+    // Entre UMBRAL_NOCHE y UMBRAL_DIA queda una "zona muerta" que evita
+    // que el LED parpadee cuando la lectura oscila cerca del borde.
+    bool esDiaAhora = esDiaPrevio;
+    if (lectura > UMBRAL_DIA)        esDiaAhora = true;
+    else if (lectura < UMBRAL_NOCHE) esDiaAhora = false;
+
     // BUGFIX: solo se emite cuando cambia día<->noche (detección por flanco),
     // en vez de inundar la cola en cada ciclo.
     if (enEstadoCerrado() && esDiaAhora != esDiaPrevio)
     {
         esDiaPrevio = esDiaAhora;
         encolarEvento(esDiaAhora ? Evento::DIA : Evento::NOCHE);
-        Serial.println(esDiaAhora ? "[luz] DIA" : "[luz] NOCHE");
+        Serial.println(esDiaAhora ? "[luz] -> DIA (apaga LED)" : "[luz] -> NOCHE (enciende LED)");
     }
 }
 

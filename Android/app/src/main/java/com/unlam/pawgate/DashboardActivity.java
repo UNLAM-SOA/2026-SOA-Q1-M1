@@ -158,25 +158,10 @@ public class DashboardActivity extends AppCompatActivity {
         deviceRepo = new DeviceRepository(this);
         deviceId = getString(R.string.default_device_id);
 
-        // Greeting: priorizamos el nombre del user (extraido del JWT al login).
-        // Si todavia no fue persistido (ej. login viejo pre-fix, o auto-login
-        // con token vigente), intentamos extraerlo del idToken almacenado AHORA.
-        String displayName = PrefsHelper.getUserName(this);
-        if (displayName == null || displayName.isEmpty()) {
-            String idToken = PrefsHelper.getIdToken(this);
-            if (idToken != null) {
-                displayName = com.unlam.pawgate.api.JwtUtils.extractName(idToken);
-                if (displayName != null) PrefsHelper.setUserName(this, displayName);
-            }
-        }
-        if (displayName == null || displayName.isEmpty()) {
-            // Ultimo recurso: el email del Intent extra.
-            displayName = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
-        }
-        if (displayName != null) {
-            TextView greeting = findViewById(R.id.dashboard_greeting);
-            greeting.setText(getString(R.string.dashboard_greeting_template, displayName));
-        }
+        // Greeting inicial; tambien se re-renderiza en onResume para que tome
+        // los cambios cuando el user vuelve de PerfilActivity (singleTop no
+        // dispara onCreate y el saludo se quedaba con el nombre viejo).
+        renderGreeting();
 
         ensureNotificationPermission();
 
@@ -194,6 +179,10 @@ public class DashboardActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Re-render del saludo: si el user cambio su nombre en PerfilActivity
+        // y vuelve aca, queremos ver el nombre nuevo sin necesidad de matar
+        // el Dashboard.
+        renderGreeting();
         refreshTickRunnable.run();
         statePollRunnable.run();
         // Render INICIAL del badge de luz con el ultimo estado conocido
@@ -389,6 +378,39 @@ public class DashboardActivity extends AppCompatActivity {
      * Minimalista, sin texto ni pill. El semantico contentDescription cambia
      * para accesibilidad (TalkBack).
      */
+    /**
+     * Render del saludo ("Hola, X") basado en el nombre persistido.
+     * Se llama en onCreate y en cada onResume, para que cuando el user vuelva
+     * de PerfilActivity con un nombre editado, el Dashboard refleje el cambio
+     * (Dashboard es singleTop -> al volver NO se ejecuta onCreate, solo onResume).
+     *
+     * Prioridad de resolucion del nombre:
+     *   1. PrefsHelper.getUserName  (lo setea el login y PerfilActivity al editar)
+     *   2. JwtUtils.extractName(idToken)  (fallback para auto-logins viejos)
+     *   3. EXTRA_USER del Intent (email del Login, ultimo recurso)
+     */
+    private void renderGreeting() {
+        String displayName = PrefsHelper.getUserName(this);
+        android.util.Log.d("DashboardGreeting",
+                "renderGreeting: getUserName='" + displayName + "'");
+        if (displayName == null || displayName.isEmpty()) {
+            String idToken = PrefsHelper.getIdToken(this);
+            if (idToken != null) {
+                displayName = com.unlam.pawgate.api.JwtUtils.extractName(idToken);
+                if (displayName != null) PrefsHelper.setUserName(this, displayName);
+            }
+        }
+        if (displayName == null || displayName.isEmpty()) {
+            displayName = getIntent().getStringExtra(LoginActivity.EXTRA_USER);
+        }
+        if (displayName == null) return;
+        TextView greeting = findViewById(R.id.dashboard_greeting);
+        if (greeting == null) return;
+        greeting.setText(getString(R.string.dashboard_greeting_template, displayName));
+        android.util.Log.d("DashboardGreeting",
+                "renderGreeting: textView updated to '" + displayName + "'");
+    }
+
     private void renderLightBadge(String lightState) {
         android.widget.ImageView lamp = findViewById(R.id.dashboard_light_badge);
         if (lamp == null) return;
@@ -523,6 +545,12 @@ public class DashboardActivity extends AppCompatActivity {
     // ============================================================
 
     private void handleEventUpdate(Intent intent) {
+        // EXTRA_CREATED_AT_ISO solo viene cuando el evento es de actividad de
+        // PUERTA (opened/closed/blocked/unblocked). Para light_on/light_off el
+        // PollingService omite ese extra a proposito — la luz tiene su propia
+        // metrica y no debe pisar este label. Si no hay ISO, dejamos el valor
+        // que tenia y loadDailyMetrics() abajo lo refresca con el snapshot
+        // autoritativo del server (last_door_event_at).
         String createdAtIso = intent.getStringExtra(PawGatePollingService.EXTRA_CREATED_AT_ISO);
         if (createdAtIso != null && lastActivityLabel != null) {
             String rel = HistorialMapper.relativeTimeFor(createdAtIso, System.currentTimeMillis());
