@@ -6,14 +6,20 @@
   #include <time.h>          // configTime() + time() para sync NTP previo a TLS
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
   #include "aws_certs.h"
+  #include "Metrics.h"
+
+  //cantidad de tiempo que se desea tomar valores de muestreo de cpu y memoria
+  #define SAMPLING_TIME 10000
+  unsigned long initTime=0;
+  unsigned long  actualTime=0;
 
   // WiFiClient espClient; // Se activa cuando no queremos correr contra AWS IoT Core
   WiFiClientSecure espClient;
   PubSubClient client(espClient);
 
   // WIFI
-  #define WIFI_SSID "Moriste en madrid 2.4ghz"
-  #define WIFI_PASSWORD "tobichester"
+  #define WIFI_SSID "ApPoloPB5"
+  #define WIFI_PASSWORD "-"
 
   enum tipo_broker {
     EMQX,
@@ -79,7 +85,7 @@
   // Sensores
   #define UMBRAL_LUZ 2048  // Probar en wokwi y ajustar
   #define TIME_OUT_SENSOR_PROXIMIDAD 30000
-  #define PUERTO_SERIAL_WOKWY 115200
+  #define PUERTO_SERIAL_WOKWY 9600
 
   // Tareas
   #define TIME_OUT_CERO 0
@@ -758,9 +764,10 @@
     configuracion_pines_esp32();
     setup_wifi_mqtt();
     setup_puerta();
-  }
 
-  void loop() {}
+    initStats();
+    initTime=millis();
+  }
 
 
   // ---------------- WIFI y Broker MQTT ----------------
@@ -1019,4 +1026,16 @@
       }
       vTaskDelay(pdMS_TO_TICKS(200));
     }
+  }
+
+  void loop() {
+   
+  actualTime=millis();
+  
+  //cantidad de tiempo que se va a tomar las muestras 
+  if(actualTime-initTime>SAMPLING_TIME){
+    initTime=actualTime;
+    finishStats();
+   }
+   vTaskDelay(pdMS_TO_TICKS(100)); // se cede CPU
   }
