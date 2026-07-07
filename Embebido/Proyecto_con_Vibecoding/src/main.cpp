@@ -20,6 +20,11 @@
 #include <PubSubClient.h>
 #include "Metrics.h" // métricas de CPU/memoria (biblioteca de la cátedra; requiere arduino-esp32 3.x)
 
+//cantidad de tiempo que se desea tomar valores de muestreo de cpu y memoria
+#define SAMPLING_TIME 10000
+unsigned long initTime=0;
+unsigned long  actualTime=0;
+
 // ----------------------------------------------------------------------------
 //  Pines (deben coincidir con diagram.json)
 // ----------------------------------------------------------------------------
@@ -537,19 +542,17 @@ void setup()
     // publicar 'M' en soa/puerta/cmd (caso "FinishStats() al recibir un mensaje MQTT"),
     // o esperar 10 s sin interacción y luego publicar 'M'.
     initStats();
+    initTime=millis();
 }
 
 void loop()
 {
-    // Caso "10 s sin interacción" (igual que el ejemplo de la cátedra): a los 10 s
-    // termina el muestreo y muestra los promedios de CPU/memoria automáticamente.
-    // (Además del trigger manual por 'M' vía serial o MQTT, para el caso por evento.)
-    static unsigned long t0 = millis();
-    static bool finalizado = false;
-    if (!finalizado && millis() - t0 >= 10000)
-    {
-        finalizado = true;
-        finishStats();
-    }
-    vTaskDelay(pdMS_TO_TICKS(10));
+  actualTime=millis();
+  
+  //cantidad de tiempo que se va a tomar las muestras 
+  if(actualTime-initTime>SAMPLING_TIME){
+    initTime=actualTime;
+    finishStats();
+   }
+   vTaskDelay(pdMS_TO_TICKS(100)); // se cede CPU
 }
