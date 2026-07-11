@@ -49,10 +49,17 @@ public final class DoorStateMachine {
     public static final long OPENING_MS = 1_000L;
     public static final long OPEN_MS = 3_500L;
     public static final long CLOSING_MS = 1_000L;
-    /** CALLING_MS coincide EXACTAMENTE con la duracion del beep en el firmware
-     *  (callback MQTT cmd/call: 5 iteraciones * 500ms = 2500ms). Asi el
-     *  countdown "Llamando 3..2..1" termina cuando el buzzer deja de sonar. */
-    public static final long CALLING_MS = 2_500L;
+    /** CALLING_MS coincide EXACTAMENTE con la duracion de la melodia en el
+     *  firmware (callback MQTT cmd/call -> tocar_la_cucaracha):
+     *    Frase 1 "la cu-ca-ra-cha"          = 1120 ms
+     *    Pausa entre frases                 =  120 ms
+     *    Frase 2 "la cu-ca-ra-cha"          = 1120 ms
+     *    Pausa entre frases                 =  120 ms
+     *    Frase 3 "ya no pue-de ca-mi-nar"   = 1540 ms
+     *  Total = 4020 ms ~ 4000 ms. Asi el countdown "Llamando 3..2..1" termina
+     *  cuando el buzzer deja de sonar (o muy poco despues). Si se ajusta la
+     *  melodia, actualizar este valor en consecuencia. */
+    public static final long CALLING_MS = 4_000L;
     public static final long CALL_ENDING_MS = 800L;
 
     private DoorStateMachine() { /* no instanciar */ }

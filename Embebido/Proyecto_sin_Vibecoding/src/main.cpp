@@ -2,6 +2,8 @@
   #include <MFRC522.h>
   #include <WiFi.h>
   #include <WiFiClientSecure.h>
+  #include <HTTPClient.h>    // OTA: cliente HTTP para descargar el .bin desde S3
+  #include <Update.h>        // OTA: API del bootloader para escribir a la particion app1
   #include <ArduinoJson.h>
   #include <time.h>          // configTime() + time() para sync NTP previo a TLS
   #include "PubSubClient.h" // Hay que instalar PubSubClient@2.8.0
@@ -39,7 +41,14 @@
   const char* mqtt_pass;
 
   // Identidad del Firmware
-  #define FIRMWARE_VERSION "1.0.0"
+  // FIRMWARE_VERSION se puede sobreescribir desde platformio.ini via build_flags:
+  //   build_flags = -DFW_VERSION_OVERRIDE='"1.0.0"'
+  // Si no se define nada, default = "1.1.0" (version actual con La Cucaracha).
+  #ifdef FW_VERSION_OVERRIDE
+    #define FIRMWARE_VERSION FW_VERSION_OVERRIDE
+  #else
+    #define FIRMWARE_VERSION "1.1.0"
+  #endif
   #define HARDWARE_MODEL "ESP32-WROOM-32"
   #define TELEMETRY_INTERVAL_MS 30000
 
@@ -48,10 +57,15 @@
   #define MQTT_TOPIC_CMD_FILTER "pawgate/pawgate-001/cmd/+"
   #define MQTT_TOPIC_EVENT_DOOR "pawgate/pawgate-001/events/door"
   #define MQTT_TOPIC_EVENT_TELEMETRY "pawgate/pawgate-001/events/telemetry"
+  #define MQTT_TOPIC_EVENT_OTA "pawgate/pawgate-001/events/ota"
 
   #define TAM_PAYLOAD_MQTT 512
   #define TAM_TOPIC_MQTT   64
-  #define TAM_COLA_MQTT    10
+  // TAM_COLA_MQTT: tamano de la cola FreeRTOS entre publicar_mqtt() y mqtt_task.
+  // 10 era demasiado chico para OTA: el firmware publica ota_started + 9 eventos
+  // ota_progress (10/20/.../90%) muy rapido y la cola se llenaba al 90%.
+  // 32 da margen comodo y consume solo ~18 KB de RAM (32 * sizeof(stMensajeMqtt)).
+  #define TAM_COLA_MQTT    32
 
   struct stMensajeMqtt
   {
@@ -239,6 +253,12 @@
   void sincronizar_hora_ntp();
   void publicar_mqtt(const char* topico, const char* payload);
 
+  // OTA: descarga de un .bin via HTTP y flasheo a la particion app1.
+  void ejecutar_ota(const char* url, const char* version_target, const char* sha256_target);
+  void publicar_evento_ota_progress(const char* version, size_t bytes_written,
+                                     int total_bytes, int percent);
+  void publicar_evento_ota(const char* status, const char* version, const char* error_msg);
+
   // --- Tabla de estados ---
   transicion puerta_tabla_estados[CANT_MAX_ESTADOS_PUERTA][CANT_MAX_EVENTOS_PUERTA] =
   {
@@ -372,6 +392,309 @@
       delayMicroseconds(medio_periodo_us);
     }
     digitalWrite(BUZZER, HIGH);
+  }
+
+  // ---------------------------------------------------------------------------
+  // La Cucaracha — melodia para "llamar a la mascota".
+  // Usamos PWM por software (buzzer_beep) en vez de LEDC porque los 4 timers
+  // LEDC del ESP32 los reserva ESP32Servo para el motor de la puerta. La salida
+  // sigue siendo una onda cuadrada a la frecuencia indicada (PWM 50% duty).
+  //
+  // Frecuencias en escala de Do mayor (OCTAVA 6, 1-2 kHz):
+  //   C6=1047  D6=1175  E6=1319  F6=1397  G6=1568  A6=1760  B6=1976  C7=2093
+  // Elegimos esta octava porque los buzzers piezo (KY-006 y similares) tienen
+  // su pico de respuesta entre 2-4 kHz; por debajo de 1 kHz suenan opacos.
+  // Entrada con frecuencia_hz==0 = silencio.
+  //
+  // Letra y notas (version tradicional, fragmento estribillo):
+  //   "La  cu-  ca-  ra-  cha,  la  cu-  ca-  ra-  cha"
+  //    C6  C6   C6   F6   A6    C6  C6   C6   F6   A6
+  //   "ya  no   pue- de   ca-   mi-  nar"   (7 silabas, 7 notas)
+  //    A6  G6   F6   F6   E6   D6   C6
+  // ---------------------------------------------------------------------------
+  struct NotaMelodia {
+    int frecuencia_hz;
+    int duracion_ms;
+  };
+
+  static const NotaMelodia LA_CUCARACHA[] = {
+    // Frase 1: "La cu-ca-ra-cha"
+    {1047, 160}, {1047, 160}, {1047, 160}, {1397, 200}, {1760, 360},
+    {0, 120},
+    // Frase 2: "la cu-ca-ra-cha"
+    {1047, 160}, {1047, 160}, {1047, 160}, {1397, 200}, {1760, 360},
+    {0, 120},
+    // Frase 3: "ya no pue-de ca-mi-nar"
+    {1760, 160}, {1568, 160}, {1397, 160}, {1397, 160}, {1319, 160}, {1175, 160}, {1047, 460},
+  };
+
+  // Reproduce La Cucaracha completa. Bloquea la tarea ~3.6s.
+  void tocar_la_cucaracha()
+  {
+    const size_t total = sizeof(LA_CUCARACHA) / sizeof(LA_CUCARACHA[0]);
+    for (size_t i = 0; i < total; i++)
+    {
+      if (LA_CUCARACHA[i].frecuencia_hz > 0)
+      {
+        buzzer_beep(LA_CUCARACHA[i].frecuencia_hz, LA_CUCARACHA[i].duracion_ms);
+        // Mini gap entre notas (20 ms) para que se distingan en vez de
+        // sonar como una nota continua. Sin esto, dos notas iguales seguidas
+        // (C6 C6 C6) suenan como un solo zumbido largo.
+        digitalWrite(BUZZER, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(20));
+      }
+      else
+      {
+        // Silencio entre frases: apagamos el buzzer y esperamos.
+        digitalWrite(BUZZER, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(LA_CUCARACHA[i].duracion_ms));
+      }
+    }
+    // Garantizar que el buzzer queda apagado al terminar.
+    digitalWrite(BUZZER, HIGH);
+  }
+
+  // ===========================================================================
+  // OTA — Over The Air Update
+  //
+  // Patron usado:
+  //   - La app Android publica MQTT pawgate/{device_id}/cmd/ota con payload
+  //     {url, version, sha256?}.
+  //   - El callback MQTT (mas abajo) recibe el cmd y llama a ejecutar_ota.
+  //   - ejecutar_ota descarga el binario por HTTP (S3 publico), lo escribe a
+  //     la particion app1 via Update.h y reinicia el ESP32. El bootloader
+  //     marca app1 como activa en el proximo boot.
+  //   - Mientras tanto se publican eventos en pawgate/{device_id}/events/ota
+  //     (ota_started / ota_success / ota_failed) para que la app y el backend
+  //     puedan trackear el progreso.
+  //
+  // Notas:
+  //   - Bloquea la tarea MQTT durante la descarga (varios segundos). No es un
+  //     problema porque post-OTA el ESP32 reinicia y reconecta.
+  //   - HTTP (no HTTPS) porque el .bin esta en un bucket S3 publico, no hay
+  //     informacion sensible. TLS agregaria 50-100 KB al binario para nada.
+  //   - sha256_target es OPCIONAL: si viene en el payload, despues del Update
+  //     verificamos contra el hash que reporta el bootloader. Si no coincide,
+  //     fallamos antes de reiniciar (el binario corrupto NO se ejecuta).
+  // ===========================================================================
+
+  // El campo JSON DEBE llamarse "type" — eventIngest (lambda) lo lee con
+  // `event.get("type")` para determinar event_type. Si usamos "event_type"
+  // se ignora y el evento queda con type="ota" (el kind del topic) en vez
+  // del subtipo real, y la app no lo encuentra al pollear por "ota_started".
+  // Helper interno: publica DIRECTO al broker (sincrono), sin pasar por la cola
+  // FreeRTOS queueMqttOut. Necesario para los eventos OTA: ejecutar_ota se
+  // llama desde el callback MQTT, que corre en el thread de mqtt_task. Mientras
+  // ejecutar_ota esta bloqueada (descarga + flash, ~15s), mqtt_task NO puede
+  // drenar la cola — todos los mensajes encolados via publicar_mqtt() quedan
+  // esperando. Y como ejecutar_ota termina con ESP.restart(), la cola se pierde.
+  // Solucion: publicar directo aca, en el mismo thread donde corre client.loop().
+  static void publicar_mqtt_sync_ota(const char* topic, const char* payload)
+  {
+    if (!client.connected()) {
+      Serial.println("[mqtt] sync OTA: client NO conectado, skip");
+      return;
+    }
+    bool ok = client.publish(topic, payload, true);
+    if (!ok) {
+      Serial.printf("[mqtt] sync OTA publish FALLO state=%d topic=%s\n",
+                    client.state(), topic);
+    } else {
+      Serial.printf("[mqtt] sync OTA publish OK topic=%s len=%u\n",
+                    topic, (unsigned)strlen(payload));
+    }
+    // Forzar a PubSubClient a flushear su TCP buffer
+    client.loop();
+  }
+
+  void publicar_evento_ota(const char* status, const char* version, const char* error_msg)
+  {
+    char payload[256];
+    if (error_msg && error_msg[0] != '\0') {
+      snprintf(payload, sizeof(payload),
+               "{\"type\":\"%s\",\"version\":\"%s\",\"error\":\"%s\","
+               "\"current_version\":\"" FIRMWARE_VERSION "\"}",
+               status, version ? version : "", error_msg);
+    } else {
+      snprintf(payload, sizeof(payload),
+               "{\"type\":\"%s\",\"version\":\"%s\","
+               "\"current_version\":\"" FIRMWARE_VERSION "\"}",
+               status, version ? version : "");
+    }
+    Serial.printf("[ota] event %s -> %s\n", MQTT_TOPIC_EVENT_OTA, payload);
+    publicar_mqtt_sync_ota(MQTT_TOPIC_EVENT_OTA, payload);
+  }
+
+  // Variante con bytes_written/total_bytes/percent — solo para ota_progress.
+  void publicar_evento_ota_progress(const char* version, size_t bytes_written,
+                                     int total_bytes, int percent)
+  {
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{\"type\":\"ota_progress\",\"version\":\"%s\","
+             "\"bytes_written\":%u,\"total_bytes\":%d,\"percent\":%d,"
+             "\"current_version\":\"" FIRMWARE_VERSION "\"}",
+             version ? version : "", (unsigned)bytes_written, total_bytes, percent);
+    Serial.printf("[ota] progress %d%% (%u/%d bytes)\n", percent, (unsigned)bytes_written, total_bytes);
+    publicar_mqtt_sync_ota(MQTT_TOPIC_EVENT_OTA, payload);
+  }
+
+  void ejecutar_ota(const char* url, const char* version_target, const char* sha256_target)
+  {
+    Serial.printf("[ota] iniciando OTA url=%s version=%s\n",
+                  url ? url : "(null)", version_target ? version_target : "(null)");
+
+    if (!url || url[0] == '\0') {
+      Serial.println("[ota] ERROR: url vacia");
+      publicar_evento_ota("ota_failed", version_target, "missing_url");
+      return;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[ota] ERROR: WiFi desconectado");
+      publicar_evento_ota("ota_failed", version_target, "wifi_down");
+      return;
+    }
+
+    publicar_evento_ota("ota_started", version_target, NULL);
+    // Damos tiempo a que el publish salga antes de bloquear el ciclo MQTT
+    // con la descarga (el loop de MQTT NO va a poder responder pings durante
+    // los proximos segundos).
+    client.loop();
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    HTTPClient http;
+    http.setTimeout(10000);                  // 10s para conectar + headers
+    http.setConnectTimeout(8000);
+    http.setReuse(false);
+
+    Serial.printf("[ota] GET %s\n", url);
+    if (!http.begin(url)) {
+      Serial.println("[ota] ERROR: http.begin() fallo");
+      publicar_evento_ota("ota_failed", version_target, "http_begin_failed");
+      return;
+    }
+
+    int httpCode = http.GET();
+    if (httpCode != HTTP_CODE_OK) {
+      Serial.printf("[ota] ERROR: GET devolvio %d\n", httpCode);
+      http.end();
+      char err[48];
+      snprintf(err, sizeof(err), "http_%d", httpCode);
+      publicar_evento_ota("ota_failed", version_target, err);
+      return;
+    }
+
+    int content_length = http.getSize();
+    if (content_length <= 0) {
+      Serial.println("[ota] ERROR: Content-Length invalido");
+      http.end();
+      publicar_evento_ota("ota_failed", version_target, "bad_content_length");
+      return;
+    }
+    Serial.printf("[ota] descarga: %d bytes\n", content_length);
+
+    if (!Update.begin(content_length)) {
+      Serial.printf("[ota] ERROR: Update.begin fallo: %s\n", Update.errorString());
+      http.end();
+      publicar_evento_ota("ota_failed", version_target, "update_begin_failed");
+      return;
+    }
+
+    // Nota sobre verificacion de hash: arduino-esp32 v2.x NO tiene
+    // Update.setSHA256(); solo expone setMD5(const char*) que internamente
+    // hace strlen() sin null-check (NULL -> crash inmediato con LoadProhibited).
+    // Como en nuestro setup la confianza viene de S3 (solo nosotros podemos
+    // subir .bin al bucket), no hacemos verificacion local. El sha256_target
+    // que viene en el cmd queda como referencia pero no se valida.
+    (void)sha256_target;
+
+    // Stream del body HTTP -> particion OTA. Hacemos un loop CHUNKED en vez
+    // de Update.writeStream() para poder publicar eventos ota_progress cada
+    // 10% del binario. Eso le permite a la app Android (AsyncTask con
+    // onProgressUpdate) mostrar una barra de avance en vez de "esperando..."
+    // por 30 segundos.
+    WiFiClient* stream = http.getStreamPtr();
+    const size_t CHUNK = 1024;
+    uint8_t buffer[CHUNK];
+    size_t written = 0;
+    int last_percent_reported = -1;
+    unsigned long t_start = millis();
+    unsigned long t_last_data = millis();
+
+    while ((int)written < content_length) {
+      size_t avail = stream->available();
+      if (avail > 0) {
+        size_t to_read = avail > CHUNK ? CHUNK : avail;
+        int n = stream->readBytes(buffer, to_read);
+        if (n <= 0) break;
+        size_t w = Update.write(buffer, n);
+        if (w != (size_t)n) {
+          Serial.printf("[ota] ERROR: Update.write fallo: %s\n", Update.errorString());
+          Update.abort();
+          http.end();
+          publicar_evento_ota("ota_failed", version_target, "write_failed");
+          return;
+        }
+        written += n;
+        t_last_data = millis();
+
+        // Reportar progreso cada 10%
+        int percent = (int)((written * 100ULL) / (size_t)content_length);
+        int decile = (percent / 10) * 10;
+        if (decile != last_percent_reported && decile > 0 && decile <= 90) {
+          last_percent_reported = decile;
+          publicar_evento_ota_progress(version_target, written, content_length, decile);
+          // Damos tiempo al mqtt_task (que corre en otra tarea FreeRTOS) para que
+          // efectivamente publique el mensaje al broker AWS. Sin este delay, los
+          // 9 ota_progress se encolaban en rafaga y la cola FreeRTOS se llenaba
+          // antes de que mqtt_task pudiera drenarla — perdiendo los ultimos
+          // ota_progress y especialmente ota_success.
+          vTaskDelay(pdMS_TO_TICKS(150));
+        }
+      } else {
+        // Timeout: si pasan >10s sin datos, fallamos
+        if (millis() - t_last_data > 10000UL) {
+          Serial.println("[ota] ERROR: timeout sin datos del servidor");
+          Update.abort();
+          http.end();
+          publicar_evento_ota("ota_failed", version_target, "stream_timeout");
+          return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+      }
+    }
+    Serial.printf("[ota] descarga OK: %u bytes en %lums\n",
+                  (unsigned)written, (unsigned long)(millis() - t_start));
+
+    if ((int)written != content_length) {
+      Serial.printf("[ota] ERROR: escribi %u de %d bytes\n",
+                    (unsigned)written, content_length);
+      Update.abort();
+      http.end();
+      publicar_evento_ota("ota_failed", version_target, "partial_write");
+      return;
+    }
+
+    if (!Update.end(true)) {
+      Serial.printf("[ota] ERROR: Update.end fallo: %s\n", Update.errorString());
+      http.end();
+      publicar_evento_ota("ota_failed", version_target, Update.errorString());
+      return;
+    }
+
+    if (!Update.isFinished()) {
+      Serial.println("[ota] ERROR: Update.isFinished() = false");
+      http.end();
+      publicar_evento_ota("ota_failed", version_target, "not_finished");
+      return;
+    }
+
+    http.end();
+    Serial.println("[ota] OK: nueva imagen escrita. Reiniciando en 2s...");
+    publicar_evento_ota("ota_success", version_target, NULL);
+    client.loop();
+    vTaskDelay(pdMS_TO_TICKS(2000));   // tiempo para que el publish salga
+    ESP.restart();
   }
 
   void leer_sensor_proximidad()
@@ -974,13 +1297,23 @@
       Serial.println("EV_DESBLOQUEO_POR_APP DESDE MQTT");
       ev = EV_DESBLOQUEO_POR_APP;
     } else if(strcmp(comando + 1, "call") == 0) {
-      Serial.println("LLAMAR AL ANIMAL DESDE MQTT");
-      for (int i = 0; i < 5; i++) {
-        buzzer_beep(1200, 150);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        buzzer_beep(800, 150);
-        vTaskDelay(pdMS_TO_TICKS(100));
-      }
+      // En v1.0.0 (BEEP_SIMPLE definido en platformio.ini) hacemos el beep
+      // alternado historico para que el dia de la demo se vea claramente el
+      // ANTES de la OTA. En v1.1.0 (default) tocamos La Cucaracha completa
+      // con PWM por software. Duracion ~4s, alineada con CALLING_MS=4000 del
+      // state machine del Android.
+      #ifdef BEEP_SIMPLE
+        Serial.println("LLAMAR AL ANIMAL DESDE MQTT (beep simple v1.0.0)");
+        for (int i = 0; i < 5; i++) {
+          buzzer_beep(1200, 150);
+          vTaskDelay(pdMS_TO_TICKS(100));
+          buzzer_beep(800, 150);
+          vTaskDelay(pdMS_TO_TICKS(100));
+        }
+      #else
+        Serial.println("LLAMAR AL ANIMAL DESDE MQTT (La Cucaracha v1.1.0+)");
+        tocar_la_cucaracha();
+      #endif
       return; // No cambia el estado de la puerta
     } else if(strcmp(comando + 1, "cancel") == 0) {
       Serial.println("CANCELAR COMANDO DESDE MQTT");
@@ -989,6 +1322,31 @@
       Serial.println("REINICIO ESP32 DESDE MQTT");
       delay(100); // Damos tiempo a que se imprima al serial
       ESP.restart();
+    } else if(strcmp(comando + 1, "ota") == 0) {
+      // Payload: {"url": "http://...bin", "version": "1.1.0", "sha256": "..."}
+      // sha256 es opcional. Si viene, Update lo verifica antes de marcar
+      // la particion como booteable.
+      Serial.println("OTA: cmd recibido");
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, message, length);
+      if (err) {
+        Serial.printf("[ota] JSON invalido: %s\n", err.c_str());
+        publicar_evento_ota("ota_failed", "", "bad_json");
+        return;
+      }
+      const char* url = doc["url"] | "";
+      const char* version_target = doc["version"] | "";
+      const char* sha256_target = doc["sha256"] | "";
+      if (url[0] == '\0') {
+        Serial.println("[ota] ERROR: campo 'url' vacio");
+        publicar_evento_ota("ota_failed", version_target, "missing_url");
+        return;
+      }
+      // Nota: ejecutar_ota es BLOQUEANTE. La tarea MQTT no va a procesar
+      // mas mensajes hasta que termine. Despues del OTA el ESP32 reinicia
+      // y vuelve a suscribirse limpio.
+      ejecutar_ota(url, version_target, sha256_target);
+      return; // No toca la FSM de la puerta
     } else {
       Serial.println("COMANDO DESCONOCIDO");
       return;

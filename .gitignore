@@ -47,3 +47,7 @@ Backend/setup-*-output.json
 # que NO es secreto en sentido estricto, pero igual cada dev lo descarga
 # desde su Firebase Console y no lo commitea para evitar quilombos de merge.
 Android/app/google-services.json
+
+# IDE configs (editor-specific)
+Embebido/.vscode/
+Embebido/**/.vscode/

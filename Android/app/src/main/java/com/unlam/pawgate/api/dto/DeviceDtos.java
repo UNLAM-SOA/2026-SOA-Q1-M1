@@ -101,4 +101,19 @@ public final class DeviceDtos {
         public boolean registered;
         public String endpoint_arn;
     }
+
+    // ===== GET /devices/{id}/firmware/latest (OTA) =====
+    // Metadata del binario "latest" publicado en S3. La app lo compara contra
+    // DeviceInfoResponse.firmware_version para decidir si mostrar el boton
+    // "Actualizar a vX.Y.Z" en DeviceDetailActivity.
+
+    public static final class FirmwareLatestResponse {
+        public String device_id;
+        public String latest_version;   // ej: "1.1.0"
+        public String url;              // URL HTTP publica del .bin en S3
+        public String sha256;
+        public long   size;             // bytes del .bin
+        public String released_at;      // ISO 8601
+        public String release_notes;
+    }
 }
